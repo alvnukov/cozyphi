@@ -33,7 +33,7 @@ func TestMainScreenEffortShortcutProfiles(t *testing.T) {
 		t.Run(mode.String(), func(t *testing.T) {
 			e := newEffortEditor(t)
 			t.Cleanup(e.ctrl.Close)
-			e.App = app.NewApp(nil)
+			e.App = app.NewApp(nil, components.DefaultTheme())
 			e.Focus(&e.composer.Chat)
 			require.NoError(t, e.SetModelEffort("openai/gpt-5.5", "high"))
 			require.NoError(t, e.applyEditingMode(mode))
@@ -61,7 +61,7 @@ func TestMainScreenEffortShortcutProfiles(t *testing.T) {
 func TestMainScreenModelAndEffortMouseSelection(t *testing.T) {
 	e := newEffortEditor(t)
 	t.Cleanup(e.ctrl.Close)
-	e.App = app.NewApp(nil)
+	e.App = app.NewApp(nil, components.DefaultTheme())
 	e.Focus(&e.composer.Chat)
 	e.modelNames = []string{"openai/gpt-5.5", "openai/gpt-5.4"}
 	require.NoError(t, e.SetModelEffort("openai/gpt-5.5", "high"))
@@ -92,7 +92,7 @@ func TestMainScreenModelAndEffortMouseSelection(t *testing.T) {
 func TestMainScreenEffortUnavailableAndRejectedPick(t *testing.T) {
 	e := newEffortEditor(t)
 	t.Cleanup(e.ctrl.Close)
-	e.App = app.NewApp(nil)
+	e.App = app.NewApp(nil, components.DefaultTheme())
 	e.Focus(&e.composer.Chat)
 	require.NoError(t, e.SetModel("custom-no-effort"))
 	require.Empty(t, e.composer.Chat.EffortLabel)
@@ -169,7 +169,7 @@ func TestMainScreenMousePickersAnchorToPaintedComposer(t *testing.T) {
 		t.Run(label, func(t *testing.T) {
 			e := newEffortEditor(t)
 			t.Cleanup(e.ctrl.Close)
-			e.App = app.NewApp(nil)
+			e.App = app.NewApp(nil, components.DefaultTheme())
 			e.Focus(&e.composer.Chat)
 			e.modelNames = []string{"openai/gpt-5.5", "openai/gpt-5.4"}
 			require.NoError(t, e.SetModelEffort("openai/gpt-5.5", "high"))

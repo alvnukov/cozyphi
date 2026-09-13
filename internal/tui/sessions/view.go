@@ -1129,6 +1129,12 @@ func (e *View) Handle(ctx *components.EventContext, ev xui.Event) {
 	e.composer.Handle(ctx, ev)
 }
 
+// AskOpen reports whether the modal ask owns input — the app keeps its
+// hover affordances off the panel while it does.
+func (e *View) AskOpen() bool {
+	return e.overlays.AskOpen()
+}
+
 // handleFooterClick folds or unfolds a live watch's transcript rows when a
 // left click lands on the footer's watch indicator: a label folds that
 // watch, the glyph and the count fold them all. It runs after the modal

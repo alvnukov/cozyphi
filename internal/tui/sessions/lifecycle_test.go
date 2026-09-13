@@ -20,7 +20,7 @@ import (
 
 func TestViewConstructionIsInactive(t *testing.T) {
 	selected := newTestEditor(t)
-	selected.App = app.NewApp(nil)
+	selected.App = app.NewApp(nil, components.DefaultTheme())
 	selected.Focus(&selected.composer.Chat)
 	require.NoError(t, selected.applyEditingMode(editmode.Readline))
 	before := keys.Label(keys.CmdPalette)
@@ -35,7 +35,7 @@ func TestViewConstructionIsInactive(t *testing.T) {
 
 func TestViewBackgroundAskRetainsDraftPaletteAndFocus(t *testing.T) {
 	first, second := newTestEditor(t), newTestEditor(t)
-	application := app.NewApp(nil)
+	application := app.NewApp(nil, components.DefaultTheme())
 	first.App, second.App = application, application
 	first.composer.Chat.Value = "first draft"
 	second.composer.Chat.Value = "second draft"
@@ -74,7 +74,7 @@ func TestViewBackgroundAskRetainsDraftPaletteAndFocus(t *testing.T) {
 
 func TestViewSelectionRestoresLogicalFocusAndProfile(t *testing.T) {
 	first, second := newTestEditor(t), newTestEditor(t)
-	application := app.NewApp(nil)
+	application := app.NewApp(nil, components.DefaultTheme())
 	first.App, second.App = application, application
 	require.NoError(t, first.applyEditingMode(editmode.Readline))
 	first.PushSubmenu("Saved", []palette.PaletteCommand{{ID: "saved", Verb: "saved"}})
@@ -134,7 +134,7 @@ func TestViewCloseStopsBranchAndLocalShell(t *testing.T) {
 
 func TestViewBackgroundDismissKeepsSavedPalette(t *testing.T) {
 	e := newTestEditor(t)
-	e.App = app.NewApp(nil)
+	e.App = app.NewApp(nil, components.DefaultTheme())
 	e.PushSubmenu("Saved", []palette.PaletteCommand{{ID: "saved", Verb: "saved"}})
 	saved := e.App.Focused()
 	e.SetActive(false)

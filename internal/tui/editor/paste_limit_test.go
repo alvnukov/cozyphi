@@ -18,7 +18,7 @@ import (
 
 func TestShellRejectsOversizedPasteWithoutChangingDraft(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	application := app.NewApp(nil)
+	application := app.NewApp(nil, components.DefaultTheme())
 	registry := sessions.NewRegistry(12, nil)
 	view := sessions.NewView(application, controller.NewBus(nil), nil, nil, nil, components.DefaultTheme(),
 		t.TempDir(), "test", "", 1000, nil, nil)

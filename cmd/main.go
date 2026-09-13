@@ -131,7 +131,7 @@ func runTUI(acquired *session.Manager, developerMode bool) (runErr error) {
 	}
 	th := components.DefaultTheme()
 
-	application := app.NewApp(vx)
+	application := app.NewApp(vx, th)
 
 	redraw := controller.NewRedrawRelay()
 	usageHistory, usageErr := usage.Open(proj.Global().UsageFile())

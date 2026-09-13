@@ -53,7 +53,7 @@ func TestRetainedUIOwnsAcquiredHistoryUntilDisposal(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, acquired.Close()) })
 			requireSessionBusy(t, firstPath)
 
-			application := app.NewApp(nil)
+			application := app.NewApp(nil, components.DefaultTheme())
 			registry := sessions.NewRegistry(12, nil)
 			ui := editor.NewEditor(application, registry)
 			t.Cleanup(func() { require.NoError(t, ui.Close(context.WithoutCancel(t.Context()))) })

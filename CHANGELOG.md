@@ -47,6 +47,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   options. Highlight follows motion and repaints only on change, so idle
   frames still write zero bytes and no click, scroll or gesture behavior
   moved.
+- Added: resting the pointer on a control for half a second shows a tooltip
+  at the cursor naming what it does — folding a tool call, diff, turn,
+  agent or compaction rule, sidebar tabs, toggles and skill rows, live watch
+  runs, usage-pane resets. The panel wraps, flips and clamps to stay on
+  screen, clicks pass through it, any movement or key dismisses it, and idle
+  frames still write zero bytes.
 - Changed: `.claude/` is now ignored. Claude Code parks its local settings
   and session worktrees there, and every clone showed the directory as
   untracked; `.worktrees/` was already covered.

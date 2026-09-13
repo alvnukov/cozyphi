@@ -72,6 +72,18 @@ func (toolBlock *ToolBlock) PointerShape(_, y int) string {
 	return components.ShapeText
 }
 
+// HoverTooltip explains the fold on the title row — mirroring the shape's
+// condition so the hint never appears where the hand does not.
+func (toolBlock *ToolBlock) HoverTooltip(_, y int) (string, bool) {
+	if !toolBlock.HasBody() || y < 0 || y >= toolBlock.titleH {
+		return "", false
+	}
+	if toolBlock.Expanded {
+		return "fold — hide the tool call's detail", true
+	}
+	return "unfold — show the tool call's detail", true
+}
+
 // CopyText returns name, detail, and body.
 func (toolBlock *ToolBlock) CopyText() string {
 	var b strings.Builder

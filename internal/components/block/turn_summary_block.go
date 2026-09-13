@@ -67,6 +67,14 @@ func (*TurnSummaryBlock) PointerShape(_, _ int) string {
 	return components.ShapePointer
 }
 
+// HoverTooltip explains the row: the whole line folds the turn it names.
+func (b *TurnSummaryBlock) HoverTooltip(_, _ int) (string, bool) {
+	if b.Expanded {
+		return "fold — hide this turn's messages", true
+	}
+	return "unfold — show this turn's messages", true
+}
+
 // Draw renders the one-line summary, muted except the failure count.
 func (b *TurnSummaryBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := b.theme()

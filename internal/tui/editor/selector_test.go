@@ -18,7 +18,7 @@ import (
 
 func TestSelectorAttentionSelectionAndSmallOverlayNavigation(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	application := app.NewApp(nil)
+	application := app.NewApp(nil, components.DefaultTheme())
 	registry := sessions.NewRegistry(12, nil)
 	buses := []*controller.Bus{controller.NewBus(nil), controller.NewBus(nil)}
 	var views []*sessions.View

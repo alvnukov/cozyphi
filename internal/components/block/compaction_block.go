@@ -59,6 +59,18 @@ func (b *CompactionBlock) PointerShape(_, y int) string {
 	return components.ShapeText
 }
 
+// HoverTooltip explains the fold on the rule row, mirroring the shape's
+// condition.
+func (b *CompactionBlock) HoverTooltip(_, y int) (string, bool) {
+	if strings.TrimSpace(b.Summary) == "" || y < 0 || y >= b.titleH {
+		return "", false
+	}
+	if b.Expanded {
+		return "fold — hide what compaction kept", true
+	}
+	return "unfold — read what compaction kept", true
+}
+
 func (b *CompactionBlock) toggle(ctx *components.EventContext) {
 	b.Expanded = !b.Expanded
 	if b.OnToggle != nil {

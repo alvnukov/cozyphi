@@ -558,6 +558,36 @@ func (p *indicatorPointer) HoverRegion(x, _ int) int {
 	return 0
 }
 
+// HoverTooltip explains the run under the cell: a label names its watch,
+// the glyph and count name them all. A click folds their transcript rows
+// back in, so the hint says that and nothing else.
+func (p *indicatorPointer) HoverTooltip(x, _ int) (string, bool) {
+	for _, h := range p.f.hits {
+		if x < h.x0 || x >= h.x1 {
+			continue
+		}
+		if h.watch == "" {
+			noun := "watches"
+			if len(p.f.watchesLive()) == 1 {
+				noun = "watch"
+			}
+			return fmt.Sprintf("%d live %s — click to toggle their transcript rows", len(p.f.watchesLive()), noun), true
+		}
+		for _, w := range p.f.watchesLive() {
+			if w.ID != h.watch {
+				continue
+			}
+			label := w.Label
+			if label == "" {
+				label = "(unlabeled)"
+			}
+			return "watch " + label + " — click to toggle its transcript rows", true
+		}
+		return "", false
+	}
+	return "", false
+}
+
 // liveTurn finds the running turn — everything after the last sent user
 // message — and reports the wall-clock start of its first timed assistant
 // round plus the completion tokens its rounds have streamed so far.

@@ -23,7 +23,7 @@ func TestShellTitleForegroundBackgroundSwitchResumeClear(t *testing.T) {
 	t.Setenv("COZYPHI_API_KEY", "test-key")
 	proj, err := project.Discover(t.TempDir())
 	require.NoError(t, err)
-	application := app.NewApp(nil)
+	application := app.NewApp(nil, components.DefaultTheme())
 	registry := sessions.NewRegistry(12, nil)
 	makeView := func() (*sessions.View, *controller.Controller) {
 		bus := controller.NewBus(nil)

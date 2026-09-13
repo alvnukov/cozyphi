@@ -58,7 +58,7 @@ func TestEditingProfileSlashAndPalette(t *testing.T) {
 func TestEditingProfileEventRouting(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, keys.Rebind(nil)) })
 	e := newTestEditor(t)
-	e.App = app.NewApp(nil)
+	e.App = app.NewApp(nil, components.DefaultTheme())
 	e.Focus(&e.composer.Chat)
 	dispatch := func(key xui.KeyEvent) {
 		ctx := &components.EventContext{DeliveredTo: e.App.Focused()}
@@ -93,7 +93,7 @@ func TestKeymapShortcutCyclesAndPersists(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, keys.Rebind(nil)) })
 	home, cwd := t.TempDir(), t.TempDir()
 	e := newTestEditorAt(t, home, cwd)
-	e.App = app.NewApp(nil)
+	e.App = app.NewApp(nil, components.DefaultTheme())
 	e.Focus(&e.composer.Chat)
 	e.composer.Chat.Value, e.composer.Chat.Cursor = "keep this draft", 4
 	for _, mode := range []editmode.Mode{editmode.Readline, editmode.Vim, editmode.Standard} {
@@ -120,7 +120,7 @@ func TestKeymapShortcutCyclesAndPersists(t *testing.T) {
 func TestKeymapShortcutUsesRebindingAndRejectsConflict(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, keys.Rebind(nil)) })
 	e := newTestEditor(t)
-	e.App = app.NewApp(nil)
+	e.App = app.NewApp(nil, components.DefaultTheme())
 	e.Focus(&e.composer.Chat)
 	e.composer.Chat.Value, e.composer.Chat.Cursor = "keep draft", 4
 	require.NoError(t, keys.Rebind(map[string]string{"keymap": "F9", "plan-editor": "Ctrl+F"}))

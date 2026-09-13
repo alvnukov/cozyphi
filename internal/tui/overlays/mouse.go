@@ -113,6 +113,12 @@ func (o *Overlays) wheelAsk(e xui.MouseEvent) {
 	o.clearAskHint()
 }
 
+// AskOpen reports whether a modal ask owns input right now. The app keeps
+// its hover affordances and dwell hint off the panel while one is up.
+func (o *Overlays) AskOpen() bool {
+	return o != nil && (o.perm != nil || o.cont != nil || o.question != nil)
+}
+
 // askOptionAt maps screen coordinates to the option drawn there, using the
 // panel rectangle recorded on the last frame.
 func (o *Overlays) askOptionAt(x, y int) (int, bool) {

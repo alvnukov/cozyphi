@@ -75,7 +75,7 @@ func TestSidebarChipClicksDeliverThroughAppDispatch(t *testing.T) {
 	host := &sidebarHost{sb: sb}
 	host.repaint()
 
-	a := NewApp(nil)
+	a := NewApp(nil, components.DefaultTheme())
 	a.SetRoot(host)
 	composer := &chat.ChatInput{}
 	a.focused = composer

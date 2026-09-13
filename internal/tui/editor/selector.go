@@ -50,6 +50,12 @@ func (b *sessionLink) Draw(ctx components.DrawContext) components.Surface {
 // PointerShape offers the hand everywhere on the link: every cell selects.
 func (*sessionLink) PointerShape(_, _ int) string { return components.ShapePointer }
 
+// HoverTooltip says what the link does: a click selects the session —
+// permission replies and input stay with the destination view.
+func (*sessionLink) HoverTooltip(_, _ int) (string, bool) {
+	return "select the session — its asks and input keep waiting there", true
+}
+
 func cleanName(name string) string {
 	return strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {

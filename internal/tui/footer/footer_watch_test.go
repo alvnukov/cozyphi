@@ -144,3 +144,36 @@ func TestWatchIndicatorNamesAnUnlabeledWatch(t *testing.T) {
 	f := watchFooter([]watch.Watch{{ID: "w1", Live: true}})
 	assert.Contains(t, drawRow(f, 80), "⏱ 1 watch: (unlabeled)")
 }
+
+// The hint follows the same map as the click: a label names its watch, the
+// glyph and count name them all, and both say what a click does.
+func TestWatchIndicatorHintsNameTheirRuns(t *testing.T) {
+	f := watchFooter([]watch.Watch{
+		{ID: "w1", Label: "edge logs", Live: true},
+		{ID: "w2", Label: "build", Live: true},
+	})
+	drawRow(f, 80)
+	require.NotEmpty(t, f.hits)
+
+	var glyph, label watchHit
+	for _, h := range f.hits {
+		switch {
+		case h.watch == "" && glyph.x1 == 0:
+			glyph = h
+		case h.watch == "w2":
+			label = h
+		}
+	}
+
+	text, ok := f.pointer.HoverTooltip(label.x0, 0)
+	require.True(t, ok)
+	assert.Contains(t, text, "watch build")
+	assert.Contains(t, text, "transcript rows")
+
+	text, ok = f.pointer.HoverTooltip(glyph.x0, 0)
+	require.True(t, ok)
+	assert.Contains(t, text, "2 live watches")
+
+	_, ok = f.pointer.HoverTooltip(0, 0)
+	assert.False(t, ok, "off the indicator there is no hint")
+}

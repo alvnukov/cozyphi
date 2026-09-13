@@ -33,7 +33,7 @@ func (*recordingWidget) Draw(components.DrawContext) components.Surface {
 func TestDispatchMarksFocusedDelivery(t *testing.T) {
 	focused := &recordingWidget{}
 	root := &recordingWidget{}
-	a := NewApp(nil)
+	a := NewApp(nil, components.DefaultTheme())
 	a.root = root
 	a.focused = focused
 
@@ -50,7 +50,7 @@ func TestDispatchMarksFocusedDelivery(t *testing.T) {
 func TestDispatchConsumeStopsBubbling(t *testing.T) {
 	focused := &recordingWidget{consume: true}
 	root := &recordingWidget{}
-	a := NewApp(nil)
+	a := NewApp(nil, components.DefaultTheme())
 	a.root = root
 	a.focused = focused
 
@@ -67,7 +67,7 @@ func TestDispatchConsumeStopsBubbling(t *testing.T) {
 // records a first delivery that actually happened.
 func TestDispatchNoFocusedDeliversToRootOnly(t *testing.T) {
 	root := &recordingWidget{}
-	a := NewApp(nil)
+	a := NewApp(nil, components.DefaultTheme())
 	a.root = root
 	a.focused = root
 

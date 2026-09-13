@@ -18,7 +18,7 @@ import (
 
 func TestPaletteCloseDispatchTypesInSurvivor(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	application := app.NewApp(nil)
+	application := app.NewApp(nil, components.DefaultTheme())
 	registry := sessions.NewRegistry(3, nil)
 	shell := editor.NewEditor(application, registry)
 	application.SetRoot(shell)

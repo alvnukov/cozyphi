@@ -287,6 +287,14 @@ func (e *Editor) Screen() *sessions.View {
 	return e.active
 }
 
+// OwnsPointer reports whether a modal ask on the drawn session owns the
+// pointer. The app holds its dwell hint back while one is up: the hit test
+// would name a widget the ask panel covers.
+func (e *Editor) OwnsPointer() bool {
+	screen := e.Screen()
+	return screen != nil && screen.AskOpen()
+}
+
 // ShowChild puts a sub-agent's session on screen without giving it a tab.
 // The selector keeps marking the session that owns it.
 func (e *Editor) ShowChild(child *sessions.View) {

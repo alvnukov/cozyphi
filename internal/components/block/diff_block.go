@@ -83,6 +83,18 @@ func (diffBlock *DiffBlock) PointerShape(_, y int) string {
 	return components.ShapeText
 }
 
+// HoverTooltip explains the fold on the title row, mirroring the shape's
+// condition.
+func (diffBlock *DiffBlock) HoverTooltip(_, y int) (string, bool) {
+	if !diffBlock.hasBody() || y < 0 || y >= diffBlock.titleH {
+		return "", false
+	}
+	if diffBlock.Expanded {
+		return "fold — hide the edit diff", true
+	}
+	return "unfold — show the edit diff", true
+}
+
 // CopyText returns the row header and the full diff.
 func (diffBlock *DiffBlock) CopyText() string {
 	var b strings.Builder

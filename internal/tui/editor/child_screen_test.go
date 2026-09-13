@@ -34,7 +34,7 @@ type childShell struct {
 func newChildShell(t *testing.T) *childShell {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	application := app.NewApp(nil)
+	application := app.NewApp(nil, components.DefaultTheme())
 	registry := sessions.NewRegistry(12, nil)
 	shell := editor.NewEditor(application, registry)
 	t.Cleanup(func() { require.NoError(t, shell.Close(context.WithoutCancel(t.Context()))) })
