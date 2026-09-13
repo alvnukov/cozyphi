@@ -94,6 +94,7 @@ func (b *TurnSummaryBlock) Draw(ctx components.DrawContext) components.Surface {
 	for y, line := range lines {
 		components.PaintSpans(&s, messageIndent, y, line, ctx.Method)
 	}
+	components.HoverTitleRows(ctx, &s, b, max(b.lineH, 1), th.BackgroundElement, true)
 	gutterBar(&s, quietGutter(th))
 	return s
 }

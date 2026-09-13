@@ -250,7 +250,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		Buffer: s.Buffer[min(3, h)*w : min(3+p.height, h)*w],
 	}
 	p.drawReport(body, th, method, w, -p.scroll)
-	p.drawReset(s, ctx.Method, w, h)
+	p.drawReset(s, ctx, w, h)
 	return s
 }
 

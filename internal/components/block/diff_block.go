@@ -159,6 +159,7 @@ func (diffBlock *DiffBlock) Draw(ctx components.DrawContext) components.Surface 
 	// The body carries its own per-row backdrop; error rows stay bare so the
 	// destructive text is the loudest thing on the row.
 	diffBlock.paintBody(&s, y, rows, th, ctx.Method)
+	components.HoverTitleRows(ctx, &s, diffBlock, diffBlock.titleH, th.BackgroundElement, diffBlock.hasBody())
 	gutter := quietGutter(th)
 	if diffBlock.Status == status.ToolError || diffBlock.Status == status.ToolRejected {
 		gutter = th.Destructive

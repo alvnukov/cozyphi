@@ -55,6 +55,28 @@ func TestApplyHoverRowsPaintsBackground(t *testing.T) {
 	}
 }
 
+// ApplyHoverRect is the column-bounded sibling of ApplyHoverRows: cells
+// inside the rectangle take the background, cells to the right of x1 and
+// rows outside stay untouched.
+func TestApplyHoverRectPaintsOnlyTheRectangle(t *testing.T) {
+	s := NewSurface(4, 2, nil)
+	s.SetCell(0, 0, xui.Cell{Char: "a", Width: 1})
+	bg := xui.Style{Bg: xui.RGBColor(0x11, 0x22, 0x33)}
+	ApplyHoverRect(&s, 1, 3, 0, 1, bg)
+	if c := s.Buffer[0]; c.Style.Bg == bg.Bg {
+		t.Fatalf("cell left of x0 painted: %#v", c)
+	}
+	if c := s.Buffer[2]; c.Char != " " || c.Style.Bg != bg.Bg {
+		t.Fatalf("cell inside the rectangle not painted: %#v", c)
+	}
+	if c := s.Buffer[3]; c.Style.Bg == bg.Bg {
+		t.Fatalf("cell right of x1 painted: %#v", c)
+	}
+	if c := s.Buffer[4]; c.Style.Bg == bg.Bg {
+		t.Fatalf("row outside y-range painted: %#v", c)
+	}
+}
+
 // HoverTitleRows is the gate every interactive block goes through: it paints
 // only when the pointer is on this widget and the widget says a click would
 // act. Both refusals leave the surface untouched.

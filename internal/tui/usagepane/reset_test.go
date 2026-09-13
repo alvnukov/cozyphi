@@ -377,3 +377,46 @@ func TestResetFreshGenerationRestoresAction(t *testing.T) {
 	press(t, f.pane, xui.KeyRune, 'y')
 	require.Len(t, f.calls, 2, "a fresh separately confirmed intent is available")
 }
+
+// The reset controls carry the hover affordance: the button under the
+// pointer takes the element tint, its neighbors stay quiet, and each armed
+// control is its own hover region.
+func TestResetButtonsHoverTint(t *testing.T) {
+	f := newResetFixture()
+	p := f.pane
+	size := components.Size{Width: 80, Height: 24}
+	plain := p.Draw(components.DrawContext{Max: size})
+	b := p.reset.button
+	require.Positive(t, b.width, "the fixture must render the enabled button")
+	bgAt := func(s components.Surface, x, y int) xui.Color {
+		return s.Buffer[y*s.Size.Width+x].Style.Bg
+	}
+	want := components.DefaultTheme().BackgroundElement.Bg
+
+	assert.NotEqual(t, want, bgAt(plain, b.x, b.y), "no hover, no tint")
+	assert.Equal(t, components.ShapePointer, p.PointerShape(b.x, b.y))
+	assert.Equal(t, 1, p.HoverRegion(b.x, b.y))
+	hovered := p.Draw(components.DrawContext{Max: size, Hover: &components.HoverState{Widget: p, X: b.x, Y: b.y}})
+	for x := b.x; x < b.x+b.width; x++ {
+		assert.Equal(t, want, bgAt(hovered, x, b.y), "hovered col %d", x)
+	}
+	assert.NotEqual(t, want, bgAt(hovered, b.x-1, b.y), "the pad column stays quiet")
+	assert.NotEqual(t, want, bgAt(hovered, b.x+b.width, b.y), "the column past the button stays quiet")
+	assert.Zero(t, p.HoverRegion(0, 0))
+	assert.Empty(t, p.PointerShape(0, 0))
+
+	press(t, p, xui.KeyRune, 'x')
+	p.Draw(components.DrawContext{Max: size})
+	c := p.reset.confirm
+	require.Positive(t, c.width)
+	assert.Equal(t, 2, p.HoverRegion(c.x, c.y))
+	assert.Equal(t, components.ShapePointer, p.PointerShape(c.x, c.y))
+	armed := p.Draw(components.DrawContext{Max: size, Hover: &components.HoverState{Widget: p, X: c.x, Y: c.y}})
+	for x := c.x; x < c.x+c.width; x++ {
+		assert.Equal(t, want, bgAt(armed, x, c.y), "confirm col %d", x)
+	}
+	cancel := p.reset.cancel
+	for x := cancel.x; x < cancel.x+cancel.width; x++ {
+		assert.NotEqual(t, want, bgAt(armed, x, cancel.y), "cancel stays quiet while confirm is hovered")
+	}
+}

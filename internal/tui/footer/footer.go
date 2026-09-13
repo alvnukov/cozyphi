@@ -321,6 +321,7 @@ func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Su
 			footer.Print(hx, 0, hint, st, ctx.Method)
 		}
 	}
+	f.paintHover(&footer, ctx)
 	return footer
 }
 
@@ -402,6 +403,7 @@ func (f *FooterChrome) drawLive(ctx components.DrawContext, width int, snap sess
 	if hx := width - hintW - 1; hx >= x+2 {
 		footer.Print(hx, 0, hint, hintSt, ctx.Method)
 	}
+	f.paintHover(&footer, ctx)
 	return footer
 }
 
@@ -420,6 +422,28 @@ func (f *FooterChrome) paintRun(
 		x += w
 	}
 	return x
+}
+
+// paintHover lights the watch-indicator run under the pointer with the
+// element tint every click-addressable cell rectangle gets. Off the
+// indicator the row stays quiet.
+func (f *FooterChrome) paintHover(s *components.Surface, ctx components.DrawContext) {
+	if !components.Hovering(ctx, f.pointer) {
+		return
+	}
+	if h, ok := f.hitAt(ctx.Hover.X); ok {
+		components.ApplyHoverRect(s, h.x0, h.x1, 0, 1, f.theme.BackgroundElement)
+	}
+}
+
+// hitAt maps a column to the indicator run it landed on.
+func (f *FooterChrome) hitAt(x int) (watchHit, bool) {
+	for _, h := range f.hits {
+		if x >= h.x0 && x < h.x1 {
+			return h, true
+		}
+	}
+	return watchHit{}, false
 }
 
 // watchRun renders the live-watch indicator — a breathing ⏱, the count and
@@ -521,6 +545,17 @@ func (p *indicatorPointer) PointerShape(x, _ int) string {
 		return components.ShapePointer
 	}
 	return ""
+}
+
+// HoverRegion distinguishes the indicator's runs so moving between them
+// repaints and each carries its own tint; one region per hit, 0 off them all.
+func (p *indicatorPointer) HoverRegion(x, _ int) int {
+	for i, h := range p.f.hits {
+		if x >= h.x0 && x < h.x1 {
+			return i + 1
+		}
+	}
+	return 0
 }
 
 // liveTurn finds the running turn — everything after the last sent user

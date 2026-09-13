@@ -432,48 +432,6 @@ func resolvePositioned(p *Positioned, sw, sh int, cs components.Size) components
 	return components.Point{X: x, Y: y}
 }
 
-// Clickable wraps a child with mouse/key activation.
-type Clickable struct {
-	Child   components.Widget
-	OnClick func()
-}
-
-// Handle triggers OnClick on Enter/Space or a left click, otherwise forwards the event to the child.
-func (c *Clickable) Handle(ctx *components.EventContext, ev xui.Event) {
-	switch e := ev.(type) {
-	case xui.KeyEvent:
-		if e.Code == xui.KeyEnter || (e.Code == xui.KeyRune && e.Rune == ' ') {
-			if c.OnClick != nil {
-				c.OnClick()
-			}
-			ctx.ConsumeAndRedraw()
-			return
-		}
-	case xui.MouseEvent:
-		if e.Button == xui.MouseLeft && e.Action == xui.MousePress {
-			if c.OnClick != nil {
-				c.OnClick()
-			}
-			ctx.ConsumeAndRedraw()
-			return
-		}
-	}
-	if c.Child != nil {
-		c.Child.Handle(ctx, ev)
-	}
-}
-
-// Draw renders the child and re-tags its surface so hit tests land on the Clickable.
-func (c *Clickable) Draw(ctx components.DrawContext) components.Surface {
-	if c.Child == nil {
-		return components.Surface{Size: components.Size{Width: 1, Height: 1}, Widget: c}
-	}
-	child := c.Child.Draw(ctx)
-	// Re-tag so hit testing lands on Clickable.
-	child.Widget = c
-	return child
-}
-
 // BoxDecoration holds a background fill and optional border styles.
 type BoxDecoration struct {
 	Background xui.Style // uses Bg primarily; Fg ignored for fill
@@ -626,77 +584,6 @@ func (t *Text) Draw(ctx components.DrawContext) components.Surface {
 	s.Print(0, 0, t.Content, t.Style, ctx.Method)
 	return s
 }
-
-// Button is a clickable labeled control.
-type Button struct {
-	Label   string
-	Style   xui.Style
-	Hot     xui.Style // hover/focus style
-	focused bool
-	hover   bool
-	OnClick func()
-}
-
-// Widget returns the button itself as a components.Widget.
-func (b *Button) Widget() components.Widget { return b }
-
-// Handle triggers OnClick on Enter/Space or a left click.
-func (b *Button) Handle(ctx *components.EventContext, ev xui.Event) {
-	switch e := ev.(type) {
-	case xui.KeyEvent:
-		if e.Code == xui.KeyEnter || (e.Code == xui.KeyRune && e.Rune == ' ') {
-			if b.OnClick != nil {
-				b.OnClick()
-			}
-			ctx.ConsumeAndRedraw()
-		}
-	case xui.MouseEvent:
-		if e.Button == xui.MouseLeft && e.Action == xui.MousePress {
-			if b.OnClick != nil {
-				b.OnClick()
-			}
-			ctx.ConsumeAndRedraw()
-		}
-	}
-}
-
-// Draw renders the label with padding, applying the hot style when focused or hovered.
-func (b *Button) Draw(ctx components.DrawContext) components.Surface {
-	label := b.Label
-	if label == "" {
-		label = " "
-	}
-	w := xui.StringWidth(label, ctx.Method) + 2
-	h := 1
-	if w < ctx.Min.Width {
-		w = ctx.Min.Width
-	}
-	if ctx.Max.Width > 0 && w > ctx.Max.Width {
-		w = ctx.Max.Width
-	}
-	style := b.Style
-	if b.focused || b.hover {
-		if b.Hot != (xui.Style{}) {
-			style = b.Hot
-		} else {
-			style.Reverse = true
-		}
-	}
-	s := components.NewSurface(w, h, b)
-	s.Print(1, 0, label, style, ctx.Method)
-	// pad edges
-	s.SetCell(0, 0, xui.Cell{Char: " ", Width: 1, Style: style})
-	if w > 1 {
-		s.SetCell(w-1, 0, xui.Cell{Char: " ", Width: 1, Style: style})
-	}
-	return s
-}
-
-// SetFocused updates focus visuals (called by App).
-func (b *Button) SetFocused(v bool) { b.focused = v }
-
-// SetHover updates hover visuals.
-func (b *Button) SetHover(v bool) { b.hover = v }
 
 // Center centers a single child within max constraints.
 type Center struct {

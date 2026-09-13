@@ -20,15 +20,15 @@ func TestTextDraw(t *testing.T) {
 }
 
 func TestCenterAndHitTest(t *testing.T) {
-	btn := &Button{Label: "Go"}
-	c := &Center{Child: btn}
+	child := &Text{Content: "Go"}
+	c := &Center{Child: child}
 	s := c.Draw(components.DrawContext{Max: components.Size{Width: 20, Height: 5}})
 	if len(s.Children) != 1 {
 		t.Fatalf("children = %d", len(s.Children))
 	}
 	ch := s.Children[0]
 	hit := s.HitTest(ch.Origin.X, ch.Origin.Y)
-	if hit != btn {
+	if hit != child {
 		t.Fatalf("hit = %T", hit)
 	}
 }
