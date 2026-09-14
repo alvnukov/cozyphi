@@ -39,22 +39,21 @@ func KnownTools() []ToolInfo {
 		seen[name] = struct{}{}
 	}
 
-	mandatoryOrder := []string{"plan", "context", "question", "watch", "memory", "task", "harness", "session"}
-	for _, name := range mandatoryOrder {
-		if _, ok := exemptTools[name]; ok {
-			out = append(out, ToolInfo{Name: name, MandatoryExemption: true})
-			seen[name] = struct{}{}
-		}
+	// The floor is plan alone; the other excludable names stay listed so an
+	// editor can toggle their exemption against the shipped defaults.
+	for name := range exemptTools {
+		out = append(out, ToolInfo{Name: name, MandatoryExemption: true})
+		seen[name] = struct{}{}
 	}
 	remaining = remaining[:0]
-	for name := range exemptTools {
+	for name := range knownExemptTools {
 		if _, ok := seen[name]; !ok {
 			remaining = append(remaining, name)
 		}
 	}
 	sort.Strings(remaining)
 	for _, name := range remaining {
-		out = append(out, ToolInfo{Name: name, MandatoryExemption: true})
+		out = append(out, ToolInfo{Name: name})
 	}
 	return out
 }

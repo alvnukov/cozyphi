@@ -38,8 +38,8 @@ func TestInjectPlanStepLeavesInputUntouched(t *testing.T) {
 
 func TestInjectPlanStepIsolatesPolicyOutputs(t *testing.T) {
 	voluntary, err := plangate.Compile(plangate.Defaults{
-		Types:                []plangate.TypeDefaults{{Name: "work", Tools: []string{"read"}}},
-		AdditionalExemptions: []string{"lsp"},
+		Types:      []plangate.TypeDefaults{{Name: "work", Tools: []string{"read"}}},
+		Exemptions: []string{"lsp"},
 	})
 	require.NoError(t, err)
 	required, err := plangate.Compile(plangate.DefaultDefaults())
@@ -92,7 +92,7 @@ func TestInjectPlanStepIsolatesPolicyOutputs(t *testing.T) {
 
 func TestInjectPlanStepHandlesNilSchemas(t *testing.T) {
 	voluntary, err := plangate.Compile(plangate.Defaults{
-		AdditionalExemptions: []string{"lsp"},
+		Exemptions: []string{"lsp"},
 	})
 	require.NoError(t, err)
 
@@ -109,7 +109,7 @@ func TestInjectPlanStepHandlesNilSchemas(t *testing.T) {
 			input := []tooldef.Tool{
 				{Definition: llm.ToolDefinition{Name: "read", Params: params}},
 				{Definition: llm.ToolDefinition{Name: "lsp", Params: params}},
-				{Definition: llm.ToolDefinition{Name: "question", Params: params}},
+				{Definition: llm.ToolDefinition{Name: "plan", Params: params}},
 			}
 
 			out := voluntary.InjectPlanStep(input)
@@ -121,7 +121,7 @@ func TestInjectPlanStepHandlesNilSchemas(t *testing.T) {
 			}
 			assert.Equal(t, []string{"plan_step"}, out[0].Definition.Params.Required)
 			assert.Empty(t, out[1].Definition.Params.Required)
-			assert.Equal(t, input[2].Definition, out[2].Definition, "mandatory exemptions stay untouched")
+			assert.Equal(t, input[2].Definition, out[2].Definition, "the floor exemption stays untouched")
 			for _, tool := range input {
 				if nilParams {
 					assert.Nil(t, tool.Definition.Params)

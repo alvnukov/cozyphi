@@ -87,14 +87,19 @@ func IsSkillPreloadRefusal(run session.ToolRun) bool {
 	return strings.HasPrefix(run.Error, ReasonSkillPreload) || run.Error == ReasonBatchSkillPreload
 }
 
-// exemptTools never require plan_step, and they pass the gate even while the
-// durable plan is unapproved: they are how the model reads and repairs the
-// plan itself (plan, context), asks the user (question), the utility tools
-// that must stay usable at any point while a plan is active (watch, memory,
-// task), and the read-only view of the harness itself (harness) — which the
-// model most needs exactly when the plan is stuck and it is asking why.
+// exemptTools is the non-disableable exemption floor: without plan the
+// model could neither read, repair nor approve the plan that gates it, so
+// no configuration may drop it.
 var exemptTools = map[string]struct{}{
-	"plan":       {},
+	"plan": {},
+}
+
+// knownExemptTools are the tools that may appear in Defaults.Exemptions:
+// the planning-adjacent defaults and anything a config re-adds. Watch is
+// known but ships unlisted: its start action executes shell, and a
+// mandatory exemption let it run commands in sessions with no plan at all
+// (2026-09-14, task watch-command-start-bypasses-plan-gate).
+var knownExemptTools = map[string]struct{}{
 	"context":    {},
 	"session":    {},
 	"question":   {},
@@ -105,12 +110,15 @@ var exemptTools = map[string]struct{}{
 	"harness":    {},
 }
 
-// IsExempt reports whether a tool never requires plan_step and so never
-// clears the plan-resume-pending signal: it is how the model reads and
-// repairs the plan itself, plus the utility tools that must stay usable at
-// any point while a plan is active.
+// IsExempt reports whether a tool never requires plan_step under the
+// built-in policy: the mandatory floor plus every name a config may
+// exempt. A compiled policy answers the configured truth — ask it via
+// Policy.ExemptTools instead.
 func IsExempt(name string) bool {
-	_, ok := exemptTools[name]
+	if _, ok := exemptTools[name]; ok {
+		return true
+	}
+	_, ok := knownExemptTools[name]
 	return ok
 }
 
@@ -138,6 +146,10 @@ var toolLevel = map[string]int{
 type ToolCall struct {
 	Name string
 	Step StepRef // the step the call claims to advance
+	// Action is the tool's action argument ("start", "forget", ...) when
+	// the tool has one; the plan gate uses it to keep exempt tools
+	// read-only before the plan is approved.
+	Action string
 }
 
 // Verdict is the outcome of Check.
@@ -410,6 +422,20 @@ func (p *Policy) PromptBlock(phase Phase) string {
 	sort.Strings(exempt)
 	exemptList := strings.Join(exempt, ", ")
 
+	// The pre-approval read-only rule renders from the same table the gate
+	// enforces, so the prompt cannot drift from the verdict.
+	tools := make([]string, 0, len(preApprovalMutatingActions))
+	for name, actions := range preApprovalMutatingActions {
+		acts := make([]string, 0, len(actions))
+		for act := range actions {
+			acts = append(acts, act)
+		}
+		sort.Strings(acts)
+		tools = append(tools, name+" "+strings.Join(acts, "/"))
+	}
+	sort.Strings(tools)
+	mutatingList := strings.Join(tools, ", ")
+
 	phaseNote := "a miss is answered with corrective feedback so you can retry correctly"
 	unapprovedNote := "gateable tools run and receive plan-gate guidance instead of being blocked"
 	if phase == PhaseDeny {
@@ -420,8 +446,8 @@ func (p *Policy) PromptBlock(phase Phase) string {
 	}
 	return fmt.Sprintf(`# Plan gate
 
-The harness owns the durable plan's revisions, lifecycle, retry ids, audit and
-approval; keep them out of tool arguments. plan action get: authoritative state.
+The harness owns the plan's revisions, lifecycle, retry ids, audit and approval;
+keep them out of tool arguments. plan action get: authoritative state.
 
 ## Draft and approval
 
@@ -441,8 +467,9 @@ least-capable type covering the complete step and its selected workflows.
 
 If step start adds selected skill guidance not yet in context, the harness
 withholds the triggering call and later calls in that batch while injecting it.
-This is service choreography, not an approach failure. Apply the workflow; reissue
-only calls that remain appropriate, with the arguments and ordering it requires.
+This is service choreography, not an approach failure. Apply the workflow;
+reissue only calls that remain appropriate, with the arguments and ordering it
+requires.
 
 ## Execute
 
@@ -452,31 +479,34 @@ compatible pending step. The harness starts a pending
 step automatically; never call plan start first. Numeric plan_step is deprecated.
 A parallel wrapper has no shared binding: each non-exempt child carries its own plan_step.
 A missing, invalid or finished plan_step auto-binds when exactly one active
-step could take the call; several candidates are refused with the list.
+step could take the call; several are refused with the list.
 Auto-binding is recovery; still pass plan_step.
 
-A successful accepted call becomes a bounded attempt; cite call:<callId> in completion
-evidenceRefs. To complete the current step and run the next in one round, add this
-envelope to the next tool's arguments and set its plan_step to the next id:
+A successful accepted call becomes a bounded attempt; cite call:<callId> in
+completion evidenceRefs. To complete the current step and run the next in one
+round, add this envelope to the next call's arguments with its plan_step set
+to the next id:
 "_plan":{"complete":{"stepId":"current-id","outcome":"...","evidenceRefs":["call:<callId>"]}}
-The harness atomically validates completion, optional workingContext and auto-start
-before dispatch and derives retry identity from the call. _plan is intentionally
-absent from tool schemas.
+The harness validates completion, workingContext and auto-start atomically
+before dispatch and derives retry identity from the call. _plan is absent
+from tool schemas.
 
-After the final working call, use plan complete with id, outcome, evidence/evidenceRefs and
-planResult:"success" (or "abandoned"). Omit mutationId. For plan patch, omit
-expected_revision unless intentionally requesting compare-and-swap.
+After the final working call, use plan complete with id, outcome,
+evidence/evidenceRefs and planResult:"success" (or "abandoned").
+Omit mutationId. For plan patch, omit
+expected_revision unless requesting compare-and-swap.
 
-A jit step needs separate just-in-time approval: wait for the harness/user result;
-never grant or assume approval yourself. Current gate behavior: %s.
+A jit step needs separate just-in-time approval: wait for the result; never
+grant or assume approval yourself. Current gate behavior: %s.
 
 ## Recovery and policy
 
 After a binding refusal, correct plan_step and retry the same tool with corrected
 arguments, not a different pattern, path or tool. If unsure, use plan action get.
-These tools never need plan_step: %s. A voluntary plan_step starts an active step,
-applies its model pin and step_start actions, and files evidence.
+These tools never need plan_step: %s. Before approval they are read-only; %s
+change state and wait for the plan. A voluntary plan_step starts an active
+step, applies its model pin and step_start actions, and files evidence.
 
 Step type -> allowed tools (later rows include earlier capabilities):
-%s`, unapprovedNote, phaseNote, exemptList, rows.String())
+%s`, unapprovedNote, phaseNote, exemptList, mutatingList, rows.String())
 }

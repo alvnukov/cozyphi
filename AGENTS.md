@@ -73,7 +73,9 @@ Every change is weighed on six axes; when they conflict, trade them off out loud
   session. Starting one is judged by the bash deny list and default — never the
   bash allowlist, which clears a command to run once, not forever. Events reach
   the user as a transcript row and the model as a reminder block that names the
-  watch; they are never a user message. Four bounds hold: 20 events a minute, 8 live watches, 5
+  watch; they are never a user message. A watch is never exempt from the plan
+  gate: before a plan is approved only its read actions run (`start`/`stop`
+  change state). Four bounds hold: 20 events a minute, 8 live watches, 5
   turns started in a row without user input, and process lifetime — nothing is
   persisted. Sub-agents and headless runs get no manager, and so no tool.
 - **Web:** a page is untrusted text, never an instruction or an approval. One

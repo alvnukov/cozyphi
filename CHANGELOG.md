@@ -34,6 +34,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Changed: the device-code subscription sign-in (OpenAI device-code method and
   `kimi-code`) now opens the verification URL in the browser automatically,
   with the URL and code still shown when the browser could not open.
+- Security: the plan gate no longer exempts `watch` — `watch start` ran a
+  shell command in sessions with no approved plan (incident 2026-09-14).
+  Exempt tools are now read-only before a plan is approved: reads, plus the
+  bookkeeping that reaches a plan (task create/start/note, context compact,
+  session set_title, question), keep running, while state-changing actions
+  (`watch start/stop`, `memory forget`, `shell_task stop`,
+  `task done/block/reopen/update`) wait for approval and resume cleanly
+  afterwards. The exemption list itself is now configurable as
+  `permissions.plan.exemptions` (default: context, harness, memory, question,
+  session, shell_task, task); `plan` is a mandatory floor. **Breaking:** the
+  old `permissions.plan.additional_exemptions` key is renamed to
+  `permissions.plan.exemptions` with no legacy alias — a config still naming
+  the old key falls back to the default list. Watch stays a known, exemptable
+  name, but its `start`/`stop` obey the read-only rule whatever the list says.
 - Added: the `task` tool names the registry it means. The default target is
   the launch checkout's git root, so a session in a worktree works that
   worktree's own notes instead of dirtying the main checkout's ledger; `main`

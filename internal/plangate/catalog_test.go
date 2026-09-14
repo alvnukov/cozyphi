@@ -25,20 +25,12 @@ func TestKnownToolsListsGateableAndMandatoryToolsInStableOrder(t *testing.T) {
 		"write", "edit", "bash",
 		"agent_spawn", "agent_wait", "agent_list", "agent_cancel",
 		"mcp_list", "mcp_inspect", "mcp_call",
-		"plan", "context", "question", "watch", "memory", "task", "harness", "session", "shell_task",
+		"plan", "context", "harness", "memory", "question", "session", "shell_task", "task", "watch",
 	}, names)
 	assert.Equal(
 		t,
 		[]string{
 			"plan",
-			"context",
-			"question",
-			"watch",
-			"memory",
-			"task",
-			"harness",
-			"session",
-			"shell_task",
 		},
 		mandatory,
 	)

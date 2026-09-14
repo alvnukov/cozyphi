@@ -735,7 +735,10 @@ func normalizeDefaults(defaults plangate.Defaults) plangate.Defaults {
 // decodeDefaults reads the plan.defaults node. A missing or null node means
 // "not configured" and yields the built-in defaults — the same reading
 // LoadPlanDefaults gives the same file; an explicit `types: []` is a real
-// zero-type policy and stays zero.
+// zero-type policy and stays zero. The same rule holds one level down for
+// exemptions: the key is the whole editable set, so a section that lists
+// types but not exemptions keeps the shipped exemption defaults instead of
+// silently gating every planning-adjacent tool.
 func decodeDefaults(node *yaml.Node) (plangate.Defaults, error) {
 	if node == nil || node.Tag == "!!null" {
 		return plangate.DefaultDefaults(), nil
@@ -744,8 +747,24 @@ func decodeDefaults(node *yaml.Node) (plangate.Defaults, error) {
 	if err := node.Decode(&defaults); err != nil {
 		return plangate.Defaults{}, fmt.Errorf("harness settings: decode plan defaults: %w", err)
 	}
+	if !mappingHasKey(node, "exemptions") {
+		defaults.Exemptions = plangate.DefaultDefaults().Exemptions
+	}
 	if _, err := plangate.Compile(defaults); err != nil {
 		return plangate.Defaults{}, err
 	}
 	return defaults, nil
+}
+
+// mappingHasKey reports whether a mapping node carries the given key.
+func mappingHasKey(node *yaml.Node, key string) bool {
+	if node.Kind != yaml.MappingNode {
+		return false
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if keyNode := node.Content[i]; keyNode.Kind == yaml.ScalarNode && keyNode.Value == key {
+			return true
+		}
+	}
+	return false
 }

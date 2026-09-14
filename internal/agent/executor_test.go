@@ -787,8 +787,8 @@ func TestExecutorAutoStartsPendingStepOnExemptBinding(t *testing.T) {
 		ID: "probe", Content: "read it", Status: session.PlanPending, Type: session.StepExplore,
 	}}}
 	policy, err := plangate.Compile(plangate.Defaults{
-		Types:                []plangate.TypeDefaults{{Name: session.StepExplore, Tools: []string{"lsp"}}},
-		AdditionalExemptions: []string{"read"},
+		Types:      []plangate.TypeDefaults{{Name: session.StepExplore, Tools: []string{"lsp"}}},
+		Exemptions: []string{"read"},
 	})
 	require.NoError(t, err)
 	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
@@ -818,6 +818,50 @@ func TestExecutorAutoStartsPendingStepOnExemptBinding(t *testing.T) {
 	assert.Equal(t, session.PlanInProgress, plan.Items[0].Status, "the binding started the step before dispatch")
 	require.Len(t, recorded, 1)
 	assert.Equal(t, "probe", recorded[0].stepID, "the call files its attempt on the step it bound")
+}
+
+// TestExecutorDeniesExemptMutatingActionBeforeApproval closes the 2026-09-14
+// hole at the seam it escaped through: `watch start` with a command ran in
+// sessions with no approved plan because watch sat in the static exemption
+// list. The permission gate is set to AllowAll on purpose — the plan gate
+// alone must stop a re-exempted watch from starting a shell before the plan
+// is approved, while its read actions still run.
+func TestExecutorDeniesExemptMutatingActionBeforeApproval(t *testing.T) {
+	var ran atomic.Int32
+	reg := tools.Registry{
+		"watch": {
+			Definition: llm.ToolDefinition{Name: "watch"},
+			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+				ran.Add(1)
+				return tools.Result{Content: "started"}, nil
+			},
+		},
+	}
+	policy, err := plangate.Compile(plangate.Defaults{Exemptions: []string{"watch"}})
+	require.NoError(t, err)
+	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
+	ex.SetPlanGate(
+		&plangate.Checker{Phase: plangate.PhaseDeny, Policy: policy},
+		func() session.Plan { return session.Plan{} },
+		nil, nil, nil, nil,
+	)
+
+	start, _, _ := ex.run(t.Context(), []llm.ToolCall{{
+		ID:       "c1",
+		Function: llm.Function{Name: "watch", Arguments: `{"action":"start","command":"sleep 5"}`},
+	}}, func(session.ToolData) bool { return true })
+	require.Len(t, start, 1)
+	assert.Contains(t, start[0].Content, plangate.ReasonPlanNotApproved)
+	assert.Contains(t, start[0].Content, "watch start")
+	assert.Zero(t, ran.Load(), "the shell command behind watch start never ran")
+
+	list, _, _ := ex.run(t.Context(), []llm.ToolCall{{
+		ID:       "c2",
+		Function: llm.Function{Name: "watch", Arguments: `{"action":"list"}`},
+	}}, func(session.ToolData) bool { return true })
+	require.Len(t, list, 1)
+	assert.Contains(t, list[0].Content, "started")
+	assert.Equal(t, int32(1), ran.Load(), "read actions of the same tool still run")
 }
 
 func TestExecutorGateMissDoesNotStart(t *testing.T) {

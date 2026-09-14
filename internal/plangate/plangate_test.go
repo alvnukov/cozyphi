@@ -55,7 +55,7 @@ func TestNewCheckerWiresPhase(t *testing.T) {
 
 func TestCheckExemptToolsAlwaysPass(t *testing.T) {
 	c := Checker{Phase: PhaseDeny}
-	for _, name := range []string{"plan", "context", "question", "watch", "memory", "task", "harness", "session"} {
+	for _, name := range []string{"plan", "context", "question", "memory", "task", "harness", "session"} {
 		v := c.Check(approved(step(session.PlanInProgress, session.StepExplore)), ToolCall{Name: name})
 		assert.False(t, v.Miss, name)
 	}
@@ -63,11 +63,16 @@ func TestCheckExemptToolsAlwaysPass(t *testing.T) {
 
 func TestCheckExemptToolsPassWhenUnapproved(t *testing.T) {
 	c := Checker{Phase: PhaseDeny}
-	for _, name := range []string{"watch", "memory", "task", "harness", "session"} {
+	for _, name := range []string{"memory", "task", "harness", "session"} {
 		v := c.Check(session.Plan{Approved: false}, ToolCall{Name: name})
 		assert.False(t, v.Miss, name)
 		assert.False(t, v.Deny, name)
 	}
+	// The 2026-09-14 hole: watch start ran shell with no plan. Watch is no
+	// longer exempt by default — it demands a step until a config exempts it.
+	w := c.Check(session.Plan{Approved: false}, ToolCall{Name: "watch"})
+	assert.True(t, w.Miss, "watch is gated until a config exempts it")
+	assert.True(t, w.Deny)
 }
 
 func TestCheckMatchingToolPasses(t *testing.T) {
@@ -229,7 +234,8 @@ func TestPromptBlockExplainsUnapprovedGate(t *testing.T) {
 	assert.Contains(t, prose, "tell the user the draft is ready")
 	assert.Contains(t, prose, "do not execute it until")
 	assert.NotContains(t, block, `plan {"steps":[...]}`)
-	assert.Contains(t, block, "watch")
+	assert.NotContains(t, block, "task, watch", "watch no longer ships exempt in the default prompt sheet")
+	assert.Contains(t, block, "watch start/stop", "the read-only rule still names watch's mutating actions")
 	assert.Contains(t, block, "memory")
 }
 
@@ -258,7 +264,9 @@ func TestPromptBlockExplainsHarnessOwnedLifecycleHappyPath(t *testing.T) {
 	assert.Contains(t, prose, "model pin and step_start")
 	// The bound tracks the prose, not the exempt list: the block names every
 	// mandatory exemption, so each new one costs its name plus a separator.
-	assert.Less(t, len(block), 4_100, "the always-on workflow must stay compact")
+	// The pre-approval read-only rule (2026-09-14) added its action enum; the
+	// budget pays for it with the trims it forced elsewhere.
+	assert.Less(t, len(block), 4_200, "the always-on workflow must stay compact")
 }
 
 func TestPromptBlockExplainsStepSkills(t *testing.T) {
@@ -308,20 +316,24 @@ func TestInjectPlanStep(t *testing.T) {
 	_, ok = plan.Definition.Params.Properties["plan_step"]
 	assert.False(t, ok, "plan is exempt")
 	_, ok = ctx.Definition.Params.Properties["plan_step"]
-	assert.False(t, ok, "context is exempt")
+	assert.True(t, ok, "a default-exempt tool carries the voluntary binding")
+	assert.NotContains(t, ctx.Definition.Params.Required, "plan_step")
 	_, ok = watch.Definition.Params.Properties["plan_step"]
-	assert.False(t, ok, "watch is exempt")
+	assert.True(t, ok, "watch is gated by default now: its exemption is configuration")
+	assert.Contains(t, watch.Definition.Params.Required, "plan_step")
 	_, ok = mem.Definition.Params.Properties["plan_step"]
-	assert.False(t, ok, "memory is exempt")
+	assert.True(t, ok, "a default-exempt tool carries the voluntary binding")
+	assert.NotContains(t, mem.Definition.Params.Required, "plan_step")
 }
 
-// An additionally-exempted work tool carries the voluntary plan_step binding —
-// it is exempt from the requirement, not from starting the step it names —
-// while the mandatory exemptions never grow the parameter.
-func TestPolicyInjectPlanStepBindsAdditionalExemptionsVoluntarily(t *testing.T) {
+// An exempted work tool carries the voluntary plan_step binding — it is
+// exempt from the requirement, not from starting the step it names — while
+// the plan floor never grows the parameter, and an unlisted tool stays
+// gated.
+func TestPolicyInjectPlanStepBindsExemptionsVoluntarily(t *testing.T) {
 	policy, err := Compile(Defaults{
-		Types:                []TypeDefaults{{Name: "work", Tools: []string{"read"}}},
-		AdditionalExemptions: []string{"lsp"},
+		Types:      []TypeDefaults{{Name: "work", Tools: []string{"read"}}},
+		Exemptions: []string{"lsp", "question"},
 	})
 	require.NoError(t, err)
 	mk := func(name string) tooldef.Tool {
@@ -334,15 +346,19 @@ func TestPolicyInjectPlanStepBindsAdditionalExemptionsVoluntarily(t *testing.T) 
 		}}
 	}
 
-	out := policy.InjectPlanStep([]tooldef.Tool{mk("read"), mk("lsp"), mk("question")})
+	out := policy.InjectPlanStep([]tooldef.Tool{mk("read"), mk("lsp"), mk("question"), mk("bash")})
 	_, readHasStep := out[0].Definition.Params.Properties["plan_step"]
 	_, lspHasStep := out[1].Definition.Params.Properties["plan_step"]
 	_, questionHasStep := out[2].Definition.Params.Properties["plan_step"]
+	_, bashHasStep := out[3].Definition.Params.Properties["plan_step"]
 	assert.True(t, readHasStep)
 	assert.Contains(t, out[0].Definition.Params.Required, "plan_step", "a gated tool must demand the step id")
-	assert.True(t, lspHasStep, "an additionally-exempted work tool carries the voluntary binding")
+	assert.True(t, lspHasStep, "an exempt work tool carries the voluntary binding")
 	assert.NotContains(t, out[1].Definition.Params.Required, "plan_step", "the voluntary binding stays optional")
-	assert.False(t, questionHasStep, "a mandatory exemption never grows the parameter")
+	assert.True(t, questionHasStep, "a listed exemption carries the voluntary binding too")
+	assert.NotContains(t, out[2].Definition.Params.Required, "plan_step")
+	assert.True(t, bashHasStep, "a tool missing from types and exemptions stays gated")
+	assert.Contains(t, out[3].Definition.Params.Required, "plan_step")
 }
 
 func TestRecorderAppendsJSONLines(t *testing.T) {

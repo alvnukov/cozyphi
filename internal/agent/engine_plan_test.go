@@ -824,7 +824,7 @@ func TestEngineGateToolListAddsPlanStepToGateableTools(t *testing.T) {
 	_, ok = plan.Definition.Params.Properties["plan_step"]
 	assert.False(t, ok)
 	_, ok = ctx.Definition.Params.Properties["plan_step"]
-	assert.False(t, ok)
+	assert.True(t, ok, "a default-exempt tool carries the voluntary binding")
 }
 
 func TestEnginePlanGatePhaseFollowsMode(t *testing.T) {

@@ -53,6 +53,19 @@ func (r StepRef) Find(plan session.Plan) (session.PlanItem, bool) {
 	return session.PlanItem{}, false
 }
 
+// ActionFromArgs reads the action argument out of raw tool arguments.
+// Anything absent, null or not a string is an omitted action — a tool
+// whose schema has no action parameter runs its only mode.
+func ActionFromArgs(args json.RawMessage) string {
+	var in struct {
+		Action string `json:"action"`
+	}
+	if json.Unmarshal(args, &in) != nil {
+		return ""
+	}
+	return strings.TrimSpace(in.Action)
+}
+
 // StepFromArgs reads the plan_step argument out of raw tool arguments. A JSON
 // string is a stable step id, a JSON number is the legacy 1-based ordinal, and
 // anything else — absent, null, wrong type, undecodable — is an omitted

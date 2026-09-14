@@ -87,7 +87,7 @@ func (d *Draft) TogglePermission(typeIndex int, tool string) {
 	minimum := d.AssignmentRank(tool)
 	allowed := minimum >= 0 && minimum <= typeIndex
 	d.removeToolAssignments(tool)
-	d.Plan.AdditionalExemptions = deleteString(d.Plan.AdditionalExemptions, tool)
+	d.Plan.Exemptions = deleteString(d.Plan.Exemptions, tool)
 	if allowed {
 		if typeIndex+1 < len(d.Plan.Types) {
 			d.Plan.Types[typeIndex+1].Tools = append(d.Plan.Types[typeIndex+1].Tools, tool)
@@ -100,11 +100,11 @@ func (d *Draft) TogglePermission(typeIndex int, tool string) {
 // ToggleOutsidePlan flips the tool's plan-gate exemption, dropping any type
 // assignment first — the two states are exclusive.
 func (d *Draft) ToggleOutsidePlan(tool string) {
-	if slices.Contains(d.Plan.AdditionalExemptions, tool) {
-		d.Plan.AdditionalExemptions = deleteString(d.Plan.AdditionalExemptions, tool)
+	if slices.Contains(d.Plan.Exemptions, tool) {
+		d.Plan.Exemptions = deleteString(d.Plan.Exemptions, tool)
 	} else {
 		d.removeToolAssignments(tool)
-		d.Plan.AdditionalExemptions = append(d.Plan.AdditionalExemptions, tool)
+		d.Plan.Exemptions = append(d.Plan.Exemptions, tool)
 	}
 }
 

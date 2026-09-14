@@ -1510,7 +1510,7 @@ func (p *Pane) rows(tab Tab) []paneRow {
 			continue
 		}
 		mark := " "
-		if slices.Contains(p.draft.Plan.AdditionalExemptions, tool.Name) {
+		if slices.Contains(p.draft.Plan.Exemptions, tool.Name) {
 			mark = "x"
 		}
 		rows = append(rows, paneRow{
