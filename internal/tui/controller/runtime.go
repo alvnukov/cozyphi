@@ -283,7 +283,14 @@ func (r *Runtime) Workspace(cwd string) (*Workspace, error) {
 	ws.memory = r.memories[proj.MemoryDir()]
 	ws.memoryOpen = memory.ObserveOpen(nil)
 	if ws.memory == nil {
-		ws.memory, err = memory.Open(proj.MemoryDir(), usage.Memory{Store: r.history, Dir: proj.MemoryDir()})
+		ws.memory, err = memory.Open(
+			proj.MemoryDir(),
+			usage.Memory{Store: r.history, Dir: proj.MemoryDir()},
+			memory.Registry{
+				Canonical: proj.Global().MemoryDir(),
+				Corpora:   proj.Global().ClaudeProjectsDir(),
+			},
+		)
 		ws.memoryOpen = memory.ObserveOpen(err)
 		if err != nil {
 			debuglog.Logf("memory: open: %v", err)

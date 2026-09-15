@@ -26,7 +26,7 @@ func corpus(t *testing.T, secret string) *Store {
 	write(t, dir, "release-freeze.md", memoryFile("release-freeze", "project", secret))
 	write(t, dir, "runbook.md", "---\nname: runbook\ndescription: where the runbook is\n"+
 		"metadata:\n  type: reference\n  pin: true\n---\n\nSee the wiki.\n")
-	store, err := Open(dir, nil)
+	store, err := Open(dir, nil, Registry{})
 	require.NoError(t, err)
 	return store
 }

@@ -75,6 +75,10 @@ type Entry struct {
 	// Pinned marks a memory the harness may never demote: it stays in the
 	// prompt whatever the budget and whatever the usage history says.
 	Pinned bool
+	// Global marks a memory that is true in every repository, not just this
+	// one. The harness keeps a copy of it in every corpus it knows, so reading
+	// one is reading an ordinary file that happens to be everywhere.
+	Global bool
 }
 
 // Usage is how the harness tells memory what is actually being used: a fact
@@ -110,14 +114,23 @@ type Store struct {
 	// once per prompt.
 	overlapFor  uint64
 	overlapping []Overlap
+
+	// registry is where a global fact travels; scanned is what the last
+	// reconciliation saw of each file there, so a pass that changes nothing
+	// parses nothing; fanout is what the last pass did.
+	registry Registry
+	scanned  map[string]scanned
+	fanout   Fanout
 }
 
 // Open prepares dir as a memory store and refreshes its index. The directory
 // is created if missing, so the system prompt can promise the agent that
 // writing a file there just works.
 //
-// use may be nil; see Usage for what that turns off.
-func Open(dir string, use Usage) (*Store, error) {
+// use may be nil; see Usage for what that turns off. A zero registry turns
+// off the fan-out of global facts: `scope: global` is then parsed and shown,
+// and nothing is copied anywhere.
+func Open(dir string, use Usage, registry Registry) (*Store, error) {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
 		return nil, errors.New("memory: empty directory")
@@ -129,7 +142,10 @@ func Open(dir string, use Usage) (*Store, error) {
 	if err := os.MkdirAll(abs, 0o755); err != nil {
 		return nil, fmt.Errorf("memory: create %q: %w", abs, err)
 	}
-	store := &Store{dir: abs, use: use}
+	store := &Store{dir: abs, use: use, registry: registry}
+	// Before the index, so a fact another repository published is in this
+	// session's first prompt rather than its second.
+	store.Reconcile()
 	if _, err := store.SyncIndex(); err != nil {
 		return nil, err
 	}

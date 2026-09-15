@@ -88,7 +88,7 @@ func TestThePromptSourcesComeFromTheRenderRatherThanFromDisk(t *testing.T) {
 		"Never sweep the whole repository.")
 	writeMemory(t, dir, "project", "read-only-harness", "The harness observes and never acts.",
 		"Every collector is a read.")
-	store, err := memory.Open(dir, nil)
+	store, err := memory.Open(dir, nil, memory.Registry{})
 	require.NoError(t, err)
 
 	workspace := t.TempDir()

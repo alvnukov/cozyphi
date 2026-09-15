@@ -7,6 +7,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Added: a memory can be global. `scope: global` in a fact's frontmatter —
+  flat or under `metadata:`, written by `cozyphi memory global <name>`, by the
+  `memory` tool (action=global), or by hand — says the fact is true in every
+  repository, and the harness keeps a copy of the file in every corpus it
+  knows: each `memory/` under `~/.claude/projects/`, plus a canonical store at
+  `~/.cozyphi/memory/`. A session still reads exactly one corpus, so a global
+  fact is an ordinary file that happens to be everywhere. Reconciliation runs
+  when a session opens and when a turn ends, compares modification times and
+  copies the newest over the older ones in whichever direction that points —
+  so an edit made in any repository, by cozyphi or by Claude Code, reaches the
+  rest. It never deletes and never overwrites a corpus's own memory of the
+  same name; a clash is named in the prompt instead. `cozyphi memory local
+  <name>` and the tool's action=local take a fact back, moving every copy
+  elsewhere into that corpus's `forgotten/`, and forgetting a global fact does
+  the same everywhere at once. `*` marks a global memory in both listings.
 - Fixed: a sub-agent's screen opens on the brief it was spawned with. A
   child's first message is assembled rather than typed, so nothing published
   a transcript row for it: the screen started on the model's first move, with

@@ -43,7 +43,7 @@ func testStore(t *testing.T) *memory.Store {
 	} {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600))
 	}
-	store, err := memory.Open(dir, nil)
+	store, err := memory.Open(dir, nil, memory.Registry{})
 	require.NoError(t, err)
 	return store
 }
@@ -105,7 +105,10 @@ func TestBadArgumentsAreRejected(t *testing.T) {
 	for name, args := range map[string]string{
 		"unknown name":   `{"action":"read","name":"never-written"}`,
 		"read no name":   `{"action":"read"}`,
-		"unknown action": `{"action":"forget"}`,
+		"unknown action": `{"action":"publish","name":"hashline-edits"}`,
+		"forget no name": `{"action":"forget"}`,
+		"global no name": `{"action":"global"}`,
+		"local no name":  `{"action":"local"}`,
 		"unknown field":  `{"action":"list","depth":3}`,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -135,6 +138,11 @@ func TestDetailFromArgsDescribesTheCall(t *testing.T) {
 		"read hashline-edits",
 		tool.DetailFromArgs(json.RawMessage(`{"action":"read","name":"hashline-edits"}`)),
 	)
+	assert.Equal(
+		t,
+		"global hashline-edits",
+		tool.DetailFromArgs(json.RawMessage(`{"action":"global","name":"hashline-edits"}`)),
+	)
 	assert.Equal(t, "list gate", tool.DetailFromArgs(json.RawMessage(`{"query":"gate"}`)))
 	assert.Equal(t, "list", tool.DetailFromArgs(json.RawMessage(`{}`)))
 	assert.Empty(t, tool.DetailFromArgs(json.RawMessage(`{"action":"forget"}`)))
@@ -157,7 +165,7 @@ func TestForgetRefusesAPinnedMemory(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "pinned.md"), []byte(
 		"---\nname: pinned\ndescription: Must stay.\npin: true\nmetadata:\n  type: project\n---\nBody.\n"), 0o600))
-	store, err := memory.Open(dir, nil)
+	store, err := memory.Open(dir, nil, memory.Registry{})
 	require.NoError(t, err)
 
 	_, err = memorytool.Tool(store).Run(t.Context(), json.RawMessage(`{"action":"forget","name":"pinned"}`))
@@ -174,7 +182,7 @@ func TestOverlapsReportsMergeCandidates(t *testing.T) {
 			"metadata:\n  type: project\n---\n" + body + "\n"
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name+".md"), []byte(file), 0o600))
 	}
-	store, err := memory.Open(dir, nil)
+	store, err := memory.Open(dir, nil, memory.Registry{})
 	require.NoError(t, err)
 
 	content, detail := run(t, store, `{"action":"overlaps"}`)
@@ -185,4 +193,53 @@ func TestOverlapsReportsMergeCandidates(t *testing.T) {
 
 	empty, _ := run(t, testStore(t), `{"action":"overlaps"}`)
 	assert.Contains(t, empty, "No two memories overlap")
+}
+
+// globalStore is the shape a real session has around it: this corpus, another
+// repository's, and the canonical store they both publish into.
+func globalStore(t *testing.T) (*memory.Store, string) {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, "projects", "here", "memory")
+	elsewhere := filepath.Join(root, "projects", "there", "memory")
+	for _, path := range []string{dir, elsewhere} {
+		require.NoError(t, os.MkdirAll(path, 0o755))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "hashline-edits.md"), []byte(hashlineFile), 0o600))
+	store, err := memory.Open(dir, nil, memory.Registry{
+		Canonical: filepath.Join(root, "cozyphi", "memory"),
+		Corpora:   filepath.Join(root, "projects"),
+	})
+	require.NoError(t, err)
+	return store, elsewhere
+}
+
+func TestGlobalPublishesAMemoryAndTheListMarksIt(t *testing.T) {
+	store, elsewhere := globalStore(t)
+
+	content, detail := run(t, store, `{"action":"global","name":"hashline-edits"}`)
+	assert.Contains(t, content, "hashline-edits is global")
+	assert.Contains(t, content, "every corpus it knows")
+	assert.Equal(t, "global hashline-edits", detail)
+	assert.FileExists(t, filepath.Join(elsewhere, "hashline-edits.md"))
+
+	listed, _ := run(t, store, `{}`)
+	assert.Contains(t, listed, "- hashline-edits* (feedback)")
+	assert.Contains(t, listed, "* is kept in every repository.")
+}
+
+func TestLocalTakesAMemoryBackAndTheMarkerGoesWithIt(t *testing.T) {
+	store, elsewhere := globalStore(t)
+	run(t, store, `{"action":"global","name":"hashline-edits"}`)
+
+	content, detail := run(t, store, `{"action":"local","name":"hashline-edits"}`)
+	assert.Contains(t, content, "hashline-edits is local again")
+	assert.Contains(t, content, "nothing was deleted")
+	assert.Equal(t, "local hashline-edits", detail)
+	assert.NoFileExists(t, filepath.Join(elsewhere, "hashline-edits.md"))
+	assert.FileExists(t, filepath.Join(elsewhere, "forgotten", "hashline-edits.md"))
+
+	listed, _ := run(t, store, `{}`)
+	assert.Contains(t, listed, "- hashline-edits (feedback)")
+	assert.NotContains(t, listed, "every repository")
 }

@@ -83,9 +83,19 @@ func (g GlobalLayout) VoiceWAVFile() string { return filepath.Join(g.VoiceDir(),
 // VoiceModelsDir returns the directory searched for speech-to-text models.
 func (g GlobalLayout) VoiceModelsDir() string { return filepath.Join(g.root, "models") }
 
-func (g GlobalLayout) claudeProjectsDir() string {
+// ClaudeProjectsDir returns Claude Code's projects root (~/.claude/projects).
+// Every project it has ever opened has a directory there, and every corpus the
+// harness knows is one `memory/` inside one of them.
+func (g GlobalLayout) ClaudeProjectsDir() string {
 	return filepath.Join(filepath.Dir(g.root), ".claude", "projects")
 }
+
+// MemoryDir returns the canonical store for facts marked global
+// (~/.cozyphi/memory). No session reads it: it holds the copy that outlives
+// any one repository, and seeds a corpus that has never seen the fact. Legacy
+// per-project trees under it are directories, not topic files, and stay
+// unread.
+func (g GlobalLayout) MemoryDir() string { return filepath.Join(g.root, "memory") }
 
 // SessionDir returns the per-cwd session storage directory
 // (~/.cozyphi/session/<encoded-cwd>/), matching panda's layout.
@@ -100,7 +110,7 @@ func (p *Project) MemoryDir() string {
 	if root == "" {
 		root = p.root
 	}
-	return filepath.Join(p.global.claudeProjectsDir(), claudeProjectDirName(root), "memory")
+	return filepath.Join(p.global.ClaudeProjectsDir(), claudeProjectDirName(root), "memory")
 }
 
 // JobsDir returns ~/.cozyphi/jobs for sub-agent job artifacts.
