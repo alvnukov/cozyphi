@@ -25,3 +25,13 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - dependencies
+    # One PR per batch of minor/patch bumps. Actions that must move
+    # together — github/codeql-action init and analyze refuse to run at
+    # different versions in the same job — cannot be split across PRs,
+    # where neither half can go green on its own.
+    groups:
+      actions-minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
