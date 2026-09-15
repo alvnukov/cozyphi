@@ -14,6 +14,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/plantel"
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 // SessionMeta is a lightweight listing row for persisted sessions.
@@ -126,11 +127,7 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 }
 
 func truncatePreview(s string, n int) string {
-	runes := []rune(displayText(s, n+1))
-	if len(runes) > n {
-		return string(runes[:n]) + "…"
-	}
-	return string(runes)
+	return util.TruncateRunes(displayText(s, n+1), n)
 }
 
 // FindSessionFile resolves id to a unique jsonl path under dir.

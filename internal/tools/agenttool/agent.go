@@ -14,6 +14,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/job"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 const agentSummaryLimit = 12000 // bytes, keep parent context small
@@ -377,7 +378,7 @@ Use agent_cancel to stop a running job.`,
 			if err != nil {
 				return tooldef.Result{}, err
 			}
-			summary := truncateBytes(res.Summary, agentSummaryLimit)
+			summary := util.TruncateBytesWith(res.Summary, agentSummaryLimit, "\n…(truncated)")
 			body := mustJSON(map[string]any{
 				"job_id":      res.Info.ID,
 				"outcome_id":  res.Info.OutcomeID,
@@ -453,13 +454,6 @@ func mustJSON(v any) string {
 		return fmt.Sprintf("%v", v)
 	}
 	return string(b)
-}
-
-func truncateBytes(s string, n int) string {
-	if n <= 0 || len(s) <= n {
-		return s
-	}
-	return s[:n] + "\n…(truncated)"
 }
 
 func truncateRunes(s string, n int) string {

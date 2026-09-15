@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/tasks"
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 // Gate evaluates permission requests. It has no side effects; Ask is handled by the caller.
@@ -254,7 +255,7 @@ func webSubject(req Request) string {
 	if req.Target == "" {
 		return "(no target)"
 	}
-	return truncate(req.Target, 200)
+	return util.TruncateRunes(req.Target, 200)
 }
 
 // checkMemory decides on the memory tool. It reads and archives inside the
@@ -295,7 +296,7 @@ func (g *StaticGate) checkWatch(req Request) (Decision, string) {
 	case Deny:
 		return Deny, "watch denied by default policy"
 	default:
-		return Ask, "watch requires approval — it runs in the background until stopped: " + truncate(cmd, 120)
+		return Ask, "watch requires approval — it runs in the background until stopped: " + util.TruncateRunes(cmd, 120)
 	}
 }
 
@@ -325,7 +326,7 @@ func (g *StaticGate) checkBash(req Request) (Decision, string) {
 	if def == Deny {
 		return Deny, "bash denied by default policy"
 	}
-	return Ask, "bash requires approval: " + truncate(cmd, 120)
+	return Ask, "bash requires approval: " + util.TruncateRunes(cmd, 120)
 }
 
 func (g *StaticGate) checkWrite(req Request) (Decision, string) {
@@ -499,13 +500,6 @@ func askFoldReason(reason string, mode Mode) string {
 		return fmt.Sprintf("%s mode denies operations that would require approval", mode)
 	}
 	return fmt.Sprintf("%s mode: %s", mode, reason)
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
 }
 
 // AllowAll is a Gate that always allows (tests / nil-policy fallback).

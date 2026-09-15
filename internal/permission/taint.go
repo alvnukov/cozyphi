@@ -1,6 +1,10 @@
 package permission
 
-import "context"
+import (
+	"context"
+
+	"github.com/alvnukov/cozyphi/internal/util"
+)
 
 // Taint is the turn's web-content state as the gate reads it: whether
 // untrusted page text has already entered the model's context this turn, and
@@ -80,5 +84,5 @@ func taintReason(req Request) string {
 	if subject == "" {
 		subject = string(req.Action)
 	}
-	return string(req.Action) + " requires approval after web content in this turn: " + truncate(subject, 160)
+	return string(req.Action) + " requires approval after web content in this turn: " + util.TruncateRunes(subject, 160)
 }

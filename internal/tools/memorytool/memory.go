@@ -23,6 +23,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/memory"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 const (
@@ -225,7 +226,7 @@ func read(store *memory.Store, name string) (tooldef.Result, error) {
 	// Reading a memory on purpose is the clearest signal that it still earns
 	// its place; the stale list is built from the absence of it.
 	store.Used(entry.Name)
-	body := truncate(string(content), maxFactRunes)
+	body := util.TruncateRunesWith(string(content), maxFactRunes, memory.TruncatedNotice)
 	return tooldef.Result{
 		Content: fmt.Sprintf("%s\n\n%s", entry.File, body),
 		Detail:  entry.Name,
@@ -329,12 +330,4 @@ func oneLine(text string) string {
 		return "(no description)"
 	}
 	return text
-}
-
-func truncate(text string, limit int) string {
-	runes := []rune(text)
-	if len(runes) <= limit {
-		return text
-	}
-	return strings.TrimSpace(string(runes[:limit])) + "\n… (truncated — read the file for the rest)"
 }

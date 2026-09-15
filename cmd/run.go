@@ -29,6 +29,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tasks"
 	"github.com/alvnukov/cozyphi/internal/tools"
 	"github.com/alvnukov/cozyphi/internal/usage"
+	"github.com/alvnukov/cozyphi/internal/util"
 	"github.com/alvnukov/cozyphi/internal/version"
 	"github.com/alvnukov/cozyphi/internal/watch"
 )
@@ -479,9 +480,9 @@ func runLoop(ctx context.Context, engine *agent.Engine, opts runOptions) int {
 				}
 			case session.ToolData:
 				r := e.Run
-				fmt.Fprintf(os.Stderr, "tool: %s [%s] %s\n", r.Name, r.Status, truncate(r.Detail, 100))
+				fmt.Fprintf(os.Stderr, "tool: %s [%s] %s\n", r.Name, r.Status, util.TruncateRunes(r.Detail, 100))
 				if r.Error != "" {
-					fmt.Fprintln(os.Stderr, "  ", truncate(r.Error, 200))
+					fmt.Fprintln(os.Stderr, "  ", util.TruncateRunes(r.Error, 200))
 				}
 			}
 		}
@@ -785,11 +786,4 @@ func exitCodeForRunError(err error) int {
 		return ExitMaxRounds
 	}
 	return ExitError
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
 }

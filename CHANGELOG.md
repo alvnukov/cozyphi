@@ -7,6 +7,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Fixed: a shortened string no longer cuts a character in half. The approval
+  prompt, the watch prompt, MCP transport errors, a rejected quota response
+  and an authorization server's error all trimmed by bytes, so text with any
+  non-ASCII in it lost its last character to a replacement glyph — a bash
+  command under `/Users/зол/каталог` asked for approval as `bash requires
+  approval: .../ката` with the tail mangled, on 19 of the first 60 command
+  lengths. Two helpers in `internal/util` replace twelve near-identical copies
+  of the same few lines and settle which unit each cut is counted in: text a
+  person or the model reads is measured in characters, and where a byte budget
+  is the real constraint — a raw MCP response body, an authorization server's
+  error, a sub-agent's summary, an LSP tool's output — the cut backs up to a
+  character boundary instead of landing inside one.
 - Added: a memory can be global. `scope: global` in a fact's frontmatter —
   flat or under `metadata:`, written by `cozyphi memory global <name>`, by the
   `memory` tool (action=global), or by hand — says the fact is true in every
