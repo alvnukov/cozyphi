@@ -1,7 +1,7 @@
 ---
 id: queued-message-placement
 title: Queued-сообщение рисуется в ленте и применяется не по порядку
-status: in_progress
+status: done
 priority: high
 task_type: bug
 tags:
@@ -20,7 +20,7 @@ verification_plan:
     - go build ./internal/... && go test по пакетам session, tui/submit, tui/controller, tui/transcript, tui/composer, tui/sessions
     - 'Ручная проверка: сабмит во время стрима — сообщение над инпутом, не в ленте; конец хода — ряд в конце ленты; Esc — возврат в композер'
 created_at: "2026-09-15T18:16:37.848486Z"
-updated_at: "2026-09-15T19:29:02.610885Z"
+updated_at: "2026-09-15T19:40:06.919171Z"
 ---
 
 ## Body
@@ -46,6 +46,8 @@ updated_at: "2026-09-15T19:29:02.610885Z"
 **Started (2026-09-15).** Беру в работу: дизайн B по ревью — удаление Queued-концепта, виджет очереди над композером, promote = append в конец.
 
 **Note (2026-09-15).** Design B implemented in worktree `.worktrees/queued-message-placement` (worker job + parent fixes): `Queued` concept removed from session/transcript (`Message.Queued`, `Item.Queued`, `UserBlock.Queued`, `UserAppend.Queued`, `UserRecalled`, mapper/pane special cases); queue lives only in controller `promptQueue` plus a new composer strip above the input (`PromptQueueMsg`); `UserPromoted{ID, Text}` is now emitted by the engine at real delivery (turn start and inject boundary) and appends the user row at the END of the feed, matching replay. Also fixed by parent: `StartPrompt` returns `(queued bool)` under `streamMu`; submitter skips the transcript row for queued submits; `dropQueuedPromptsLocked` no longer fakes `UserPromoted` on unapprove; drained-but-undelivered prompts are requeued on cancel; engine no longer double-publishes `UserPromoted` in the run loop. Recall restores text+media+pendingSkills. Tests rewritten; CHANGELOG entry added. Pending: full scoped test run, task note commit, one scoped golangci-lint run, branch commit.
+
+**Done (2026-09-15).** Landed on branch `bug/queued-message-placement` in worktree `.worktrees/queued-message-placement` (commits b5e76b98 + 137da947, not pushed). Design B: queued prompts no longer get a transcript row at submit — they wait in the controller queue, mirrored as a `queued: … (Esc to recall)` strip above the input; the engine emits `UserPromoted{ID, Text}` at real delivery (turn start / inject boundary) and the row appends at the feed end, matching replay. Removed `Queued` everywhere (session/transcript), `UserRecalled`, fake promotes on unapprove; recall restores text+media+skills; undelivered drains are requeued on cancel. Gates: scoped build+tests green (session, agent, controller, submit, composer, transcript, sessions), gofmt clean, one scoped golangci-lint run — 0 issues.
 
 ## Acceptance Criteria
 
