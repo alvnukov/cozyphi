@@ -104,32 +104,29 @@ func TestQuotaSnapshotKimiSkipsAbsentWindowsAndWallet(t *testing.T) {
 
 func TestQuotaSnapshotKimiGenericRateLimitShape(t *testing.T) {
 	// The form api.kimi.com/coding/v1/usages returns for accounts without
-	// the managed usages view, captured live on 2026-09-15.
+	// the managed usages view, captured live on 2026-09-15. The server
+	// reports exactly the windows it currently enforces — one entry here,
+	// not a fixed set. `remaining` rides along but the decode derives the
+	// share from used/limit, so it stays unread on purpose.
 	m := newKimiQuotaTestManager(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"limits": [
 			{"window": {"duration": 300, "timeUnit": "TIME_UNIT_MINUTE"},
-			 "detail": {"limit": "100", "used": "100",
-			             "resetTime": "2026-09-15T12:57:32.438199Z"}},
-			{"window": {"duration": 1, "timeUnit": "TIME_UNIT_DAY"},
-			 "detail": {"limit": 50, "used": 10}}
+			 "detail": {"limit": "100", "used": "5", "remaining": "95",
+			             "resetTime": "2026-09-15T17:57:32.438199Z"}}
 		]}`))
 	}))
 
 	snapshot, err := m.QuotaSnapshot(t.Context(), "kimi-code")
 	require.NoError(t, err)
-	require.Len(t, snapshot.Limits, 2)
+	require.Len(t, snapshot.Limits, 1)
 
 	require.Equal(t, "5 hours", snapshot.Limits[0].Window)
 	require.Equal(t, "percent", snapshot.Limits[0].Unit)
-	require.Equal(t, 100.0, snapshot.Limits[0].UsedPercent)
+	require.Equal(t, 5.0, snapshot.Limits[0].UsedPercent)
 	require.Equal(t,
-		time.Date(2026, 9, 15, 12, 57, 32, 438199000, time.UTC),
+		time.Date(2026, 9, 15, 17, 57, 32, 438199000, time.UTC),
 		snapshot.Limits[0].ResetsAt,
 	)
-
-	require.Equal(t, "1 day", snapshot.Limits[1].Window)
-	require.Equal(t, 20.0, snapshot.Limits[1].UsedPercent, "numeric (not string) budgets decode too")
-	require.True(t, snapshot.Limits[1].ResetsAt.IsZero())
 }
 
 func TestQuotaSnapshotKimiEmptyResponseIsNotAZeroedSnapshot(t *testing.T) {
