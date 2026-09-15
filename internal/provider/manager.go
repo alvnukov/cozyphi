@@ -248,6 +248,16 @@ func kimiModels() []Model {
 	}
 }
 
+// kimiDefaultTemperature is the only sampling temperature Kimi's coding
+// endpoint accepts (confirmed against the reference opencode-kimi-subscription
+// plugin, which rewrites the request body when any other value arrives). A
+// fresh pointer per call: ModelOptions shares pointers across merges, and a
+// shared default must never be a mutation target.
+func kimiDefaultTemperature() *float64 {
+	temperature := 1.0
+	return &temperature
+}
+
 func builtinProviders() map[string]Info {
 	return map[string]Info{
 		openaiProviderID: {
@@ -267,7 +277,7 @@ func builtinProviders() map[string]Info {
 					Models: chatgptModels(),
 				},
 				{
-					Kind: AuthOAuthDevice, Label: "ChatGPT Pro/Plus (headless device code)",
+					Kind: AuthOAuthDevice, Label: "ChatGPT Pro/Plus (device code)",
 					BaseURL: chatgptCodexBaseURL, Protocol: llm.ProtocolOpenAIResponses,
 					Models: chatgptModels(),
 				},
@@ -563,6 +573,15 @@ func (m *Manager) Models() []llm.ModelConfig {
 			if (id == openaiProviderID && cred.Protocol == llm.ProtocolOpenAIResponses) ||
 				(id == "zai-coding-plan" && supportsReasoningEffort(model.ID)) {
 				base.ReasoningEfforts = slices.Clone(reasoningEfforts)
+			}
+			if id == kimiProviderID {
+				// Kimi's coding endpoint accepts only temperature 1 (confirmed
+				// against the reference opencode-kimi-subscription plugin, which
+				// rewrites the request body when any other value arrives). This
+				// is a default, not a pin: a project-config or opencode-import
+				// model entry with the same name carries its own options and wins
+				// through the usual options merge.
+				base.Options.Temperature = kimiDefaultTemperature()
 			}
 			result = append(result, base)
 		}

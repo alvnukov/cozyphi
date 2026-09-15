@@ -58,6 +58,43 @@ func TestManagerIncludesPinnedSubscriptionProviders(t *testing.T) {
 	require.Equal(t, "zai-coding-plan/glm-4.5-air", models[0].Name)
 }
 
+func TestManagerDefaultsKimiTemperatureToOne(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	credentials := filepath.Join(dir, "credentials.json")
+	require.NoError(t, os.WriteFile(credentials, []byte(`{
+		"version": 1,
+		"providers": {
+			"kimi-code": {
+				"type": "oauth",
+				"access": "access",
+				"refresh": "refresh",
+				"expires": 4102444800000,
+				"base_url": "https://api.kimi.com/coding/v1",
+				"protocol": "openai"
+			}
+		}
+	}`), 0o600))
+	manager, err := provider.Open(provider.Options{
+		CachePath:       filepath.Join(dir, "providers.json"),
+		CredentialsPath: credentials,
+	})
+	require.NoError(t, err)
+
+	models := manager.Models()
+	require.NotEmpty(t, models)
+	for _, cfg := range models {
+		require.NotNil(t, cfg.Options.Temperature, "kimi model %q carries the endpoint's required default", cfg.Name)
+		require.Equal(t, 1.0, *cfg.Options.Temperature)
+	}
+	// The default rides the model entry, not the wire layer: every other
+	// provider's models must stay untouched.
+	for _, cfg := range models {
+		require.Equal(t, "kimi-code", cfg.ProviderID)
+	}
+}
+
 func TestManagerFillsSubscriptionReasoningEfforts(t *testing.T) {
 	t.Parallel()
 
