@@ -126,6 +126,13 @@ func TestConnectOverlayShowsDeviceCodeAndCancels(t *testing.T) {
 	assert.Contains(t, rendered, "https://auth.openai.com/codex/device")
 	assert.Contains(t, rendered, "ABCD-EFGH")
 
+	o.Apply(controller.ProviderDeviceCodeMsg{
+		ProviderID: "openai", VerificationURL: "https://auth.openai.com/codex/device", UserCode: "ABCD-EFGH",
+		BrowserErrText: "no browser",
+	})
+	rendered = renderConnect(o, 90, 12)
+	assert.Contains(t, rendered, "Browser did not open automatically: no browser")
+
 	o.HandleConnectEvent(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
 	assert.True(t, canceled)
 	assert.Nil(t, o.connect)

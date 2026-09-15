@@ -126,6 +126,7 @@ func (o *Overlays) showDeviceCode(msg controller.ProviderDeviceCodeMsg) {
 	o.connect.phase = connectOAuth
 	o.connect.verificationURL = msg.VerificationURL
 	o.connect.userCode = msg.UserCode
+	o.connect.browserErrText = msg.BrowserErrText
 	o.connect.errText = ""
 }
 
@@ -491,6 +492,9 @@ func (o *Overlays) drawConnect(ctx components.DrawContext, width, height int) co
 				add(o.theme.Muted, "Waiting for authorization in browser…")
 			} else if st.verificationURL != "" {
 				add(o.theme.Foreground, "Open: "+st.verificationURL)
+				if st.browserErrText != "" {
+					add(o.theme.Destructive, "Browser did not open automatically: "+st.browserErrText)
+				}
 				add(xui.Style{Bold: true, Fg: o.theme.Success.Fg}, "Code: "+st.userCode)
 				add(o.theme.Muted, "Waiting for authorization in browser…")
 			}
