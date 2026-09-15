@@ -21,7 +21,7 @@ verification_plan:
     - один scoped golangci-lint run ./internal/provider/...
     - CHANGELOG [Unreleased]
 created_at: "2026-09-15T12:14:44.219931Z"
-updated_at: "2026-09-15T13:04:37.903439Z"
+updated_at: "2026-09-15T14:40:10.286334Z"
 ---
 
 ## Body
@@ -41,6 +41,8 @@ updated_at: "2026-09-15T13:04:37.903439Z"
 **Note (2026-09-15).** **Bugfix (2026-09-15).** Usage view показывал «subscription unavailable»: живой пейлоад api.kimi.com/coding/v1/usages (снят curl'ом с oauth-токеном) не совпал с декодом. Два расхождения: (1) booster-кошелёк приезжает camelCase (`boosterWallet`, `balance.amountLeft`, `monthlyChargeLimit`, `monthlyUsed`, `monthlyChargeLimitEnabled`) — как в parseBoosterWallet первоисточника, а теги были snake_case, из-за чего wallet молча пропадал; (2) для аккаунта без managed-видa endpoint возвращает generic-форму `limits:[{window:{duration,timeUnit},detail:{limit,used,resetTime}}]` (строковые числа), которой адаптер не знал вовсе → «no usage windows». Фикс: теги кошелька camelCase; форма limits принята как fallback (managed-окна выигрывают при наличии обеих); лейблы окон из duration+TIME_UNIT_* («300 TIME_UNIT_MINUTE» → «5 hours», неизвестные юниты — wire-токен). Тесты: фикстуры приведены к форме первоисточника/живого ответа (урок: фикстуры, скопированные с собственного кода, wire не валидируют) + новый TestQuotaSnapshotKimiGenericRateLimitShape.
 
 **Note (2026-09-15).** **Follow-up (2026-09-15).** Жалоба «показывает только пятичасовую квоту» — НЕ баг: живой ре-каптур /usages (curl, oauth-токен из credentials.json) дал HTTP 200 с ровно одним окном — 300 минут, used 5/100, reset 17:57Z. Сервер отдаёт только те окна, что реально enforcement'ит для аккаунта; managed-окна (7d/month) в первоисточнике — для managed-аккаунтов, generic-форма здесь с одним окном. Декод и UI корректны. Побочно найдено и исправлено: фикстура TestQuotaSnapshotKimiGenericRateLimitShape содержала выдуманный второй entry («1 day», numeric limit/used) — приведена к живой форме (коммит 68e4f8bc). Урок подтверждён второй раз: фикстура, дописанная «для покрытия», под видом живого пейлоада — это именно выдумка, которой нельзя доверять.
+
+**Note (2026-09-15).** **Follow-up 2 (2026-09-15).** Повторная жалоба «только 5-часовая полоска» после пересборки. Исчерпывающая проверка: (1) /usages со свежим токеном — снова ровно одно окно (300 мин, 26/100, reset 17:57Z; used растёт от живой работы); (2) ответ НЕ несёт rate-limit-заголовков (только cloudflare/trace — других лимитов в хедерах нет); (3) /me (первоисточник: managed-userinfo.ts) — только профиль (user_level 25 «Pro», goods_version 2), никаких квот; (4) первоисточник знает ровно два endpoint'а: /usages и /me, другого API для недельных/месячных лимитов нет. Вывод: сервер для этого аккаунта отдаёт одно 5-часовое окно, UI показывает всё что есть. Недельный лимит «Pro» через API не экспонируется — показывать нечего, выдумывать нельзя.
 
 ## Acceptance Criteria
 
