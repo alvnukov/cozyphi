@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Fixed: a sub-agent's screen opens on the brief it was spawned with. A
+  child's first message is assembled rather than typed, so nothing published
+  a transcript row for it: the screen started on the model's first move, with
+  the assignment it was following nowhere in the feed. The row carries the
+  whole first message — description, prompt, role hint and any skills — so a
+  child watched live reads exactly like the same session reopened from disk,
+  and a typed follow-up into a retained child still gets its one row from the
+  composer.
 - Added: `kimi-code` models default to `temperature: 1`, the only value Kimi's
   coding endpoint accepts. The default rides the model entry, so a
   project-config or opencode-import model with the same name can still
