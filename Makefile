@@ -11,7 +11,7 @@ GO       ?= go
 GOFLAGS  ?= -ldflags="-s -w"
 CGO      ?= 0
 
-.PHONY: all build build-windows install run clean test test-race cover fmt fmt-check lint lint-install help
+.PHONY: all build build-windows install run clean test test-race cover fmt fmt-check lint lint-ceilings lint-install help
 
 all: build
 
@@ -58,6 +58,12 @@ fmt-check:
 lint:
 	golangci-lint run ./...
 
+# Reprint the complexity ceilings .golangci.yml pins and the function that sets
+# each one, so that lowering a ceiling after a decomposition is a chore rather
+# than an excavation. Reports only; it never fails.
+lint-ceilings:
+	./scripts/lint-ceilings.sh
+
 # One pinned version for CI and the local binary; see .golangci-lint-version.
 lint-install:
 	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(shell cat .golangci-lint-version)
@@ -75,4 +81,5 @@ help:
 	@echo "  make fmt      - format Go sources (gofumpt/goimports/golines)"
 	@echo "  make fmt-check - check formatting without writing (CI)"
 	@echo "  make lint     - run golangci-lint"
+	@echo "  make lint-ceilings - reprint the complexity ceilings and what sets them"
 	@echo "  make lint-install - install the golangci-lint version CI pins"

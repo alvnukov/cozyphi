@@ -7,6 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Added: the lint gate now holds complexity, duplication and the import graph.
+  Six linters — `cyclop`, `gocognit`, `funlen`, `nestif`, `dupl` and
+  `interfacebloat` — are enabled, and every complexity ceiling is pinned at
+  this repository's current worst, so the numbers are not targets but a ratchet:
+  nothing may get worse, and a ceiling comes down when the function that set it
+  is decomposed. `make lint-ceilings` measures the whole set again and prints
+  the function behind each number, so lowering one is a chore rather than an
+  excavation. Next to them `internal/arch` checks the boundaries this codebase
+  is meant to keep against the real import graph: `internal/util` stays a leaf,
+  the terminal layer is a sink nothing else imports, the terminal framework does
+  not leak out of it, eight lower layers do not reach up into `agent`, `session`
+  or `tools`, and no package imports more than 47 of its siblings. A rule that
+  has quietly stopped being true now fails a build instead of surviving as a
+  paragraph nobody runs.
 - Fixed: a shortened string no longer cuts a character in half. The approval
   prompt, the watch prompt, MCP transport errors, a rejected quota response
   and an authorization server's error all trimmed by bytes, so text with any
