@@ -11,6 +11,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   coding endpoint accepts. The default rides the model entry, so a
   project-config or opencode-import model with the same name can still
   override it.
+- Added: `kimi-code` reports its subscription state in the usage view like
+  the Codex and Z.AI providers: the 5-hour, 7-day, and monthly usage windows
+  (plus the top-up wallet balance when one exists) come from the
+  authenticated `GET /usages` endpoint on the coding API.
 - Changed: the OpenAI device-code sign-in method is labeled
   "ChatGPT Pro/Plus (device code)": the flow opens the verification page in
   the browser automatically now, so "headless" no longer describes it.

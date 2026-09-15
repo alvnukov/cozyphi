@@ -62,6 +62,7 @@ type quotaAdapter func(ctx context.Context, client *http.Client, cred credential
 var quotaAdapters = map[string]quotaAdapter{
 	"openai":          fetchOpenAIQuota,
 	"zai-coding-plan": fetchZAIQuota,
+	"kimi-code":       fetchKimiQuota,
 }
 
 // QuotaSnapshot returns the subscription quota of a connected provider.
