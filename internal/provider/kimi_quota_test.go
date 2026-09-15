@@ -49,11 +49,11 @@ func TestQuotaSnapshotKimiHappyPath(t *testing.T) {
 				"limit_month_total": {"used_ratio": 0.4, "reset_time": "2026-10-01T00:00:00Z"},
 				"limit_month_code": {"used_ratio": 0.25}
 			},
-			"booster_wallet": {
-				"balance": {"type": "BOOSTER", "amount": 1250000000, "amount_left": 500000000},
-				"monthly_charge_limit": {"priceInCents": 0, "currency": ""},
-				"monthly_used": {"priceInCents": 0, "currency": ""},
-				"monthly_charge_limit_enabled": false
+			"boosterWallet": {
+				"balance": {"type": "BOOSTER", "amount": 1250000000, "amountLeft": 500000000},
+				"monthlyChargeLimit": {"priceInCents": 0, "currency": ""},
+				"monthlyUsed": {"priceInCents": 0, "currency": ""},
+				"monthlyChargeLimitEnabled": false
 			}
 		}`))
 	}))
@@ -102,9 +102,39 @@ func TestQuotaSnapshotKimiSkipsAbsentWindowsAndWallet(t *testing.T) {
 	require.Equal(t, 20.0, snapshot.Limits[0].UsedPercent, "the wire carries the ratio as a string too")
 }
 
+func TestQuotaSnapshotKimiGenericRateLimitShape(t *testing.T) {
+	// The form api.kimi.com/coding/v1/usages returns for accounts without
+	// the managed usages view, captured live on 2026-09-15.
+	m := newKimiQuotaTestManager(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"limits": [
+			{"window": {"duration": 300, "timeUnit": "TIME_UNIT_MINUTE"},
+			 "detail": {"limit": "100", "used": "100",
+			             "resetTime": "2026-09-15T12:57:32.438199Z"}},
+			{"window": {"duration": 1, "timeUnit": "TIME_UNIT_DAY"},
+			 "detail": {"limit": 50, "used": 10}}
+		]}`))
+	}))
+
+	snapshot, err := m.QuotaSnapshot(t.Context(), "kimi-code")
+	require.NoError(t, err)
+	require.Len(t, snapshot.Limits, 2)
+
+	require.Equal(t, "5 hours", snapshot.Limits[0].Window)
+	require.Equal(t, "percent", snapshot.Limits[0].Unit)
+	require.Equal(t, 100.0, snapshot.Limits[0].UsedPercent)
+	require.Equal(t,
+		time.Date(2026, 9, 15, 12, 57, 32, 438199000, time.UTC),
+		snapshot.Limits[0].ResetsAt,
+	)
+
+	require.Equal(t, "1 day", snapshot.Limits[1].Window)
+	require.Equal(t, 20.0, snapshot.Limits[1].UsedPercent, "numeric (not string) budgets decode too")
+	require.True(t, snapshot.Limits[1].ResetsAt.IsZero())
+}
+
 func TestQuotaSnapshotKimiEmptyResponseIsNotAZeroedSnapshot(t *testing.T) {
 	m := newKimiQuotaTestManager(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"usages": {}, "booster_wallet": null}`))
+		_, _ = w.Write([]byte(`{"usages": {}, "boosterWallet": null}`))
 	}))
 
 	_, err := m.QuotaSnapshot(t.Context(), "kimi-code")
@@ -115,7 +145,7 @@ func TestQuotaSnapshotKimiNonBoosterWalletIsAbsent(t *testing.T) {
 	m := newKimiQuotaTestManager(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{
 			"usages": {"limit_5h": {"used_ratio": 0.1}},
-			"booster_wallet": {"balance": {"type": "OTHER", "amount": 1250000000, "amount_left": 0}}
+			"boosterWallet": {"balance": {"type": "OTHER", "amount": 1250000000, "amountLeft": 0}}
 		}`))
 	}))
 

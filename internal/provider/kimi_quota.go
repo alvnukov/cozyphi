@@ -14,12 +14,21 @@ import (
 )
 
 // Kimi's subscription state lives at GET {base}/usages on the coding API,
-// authorized with the subscription's Bearer access token. Endpoint, payload
-// shape, and error hints are confirmed by MoonshotAI/kimi-code
-// (packages/oauth/src/managed-usage.ts), the same first-hand source the OAuth
-// profile was ported from. The payload mixes conventions on purpose, matching
-// the wire: usage windows are snake_case while the wallet's money fields are
+// authorized with the subscription's Bearer access token. The endpoint and
+// the subscription payload (usages + boosterWallet) are confirmed by
+// MoonshotAI/kimi-code (packages/oauth/src/managed-usage.ts), the same
+// first-hand source the OAuth profile was ported from. The wire mixes
+// conventions on purpose: usage windows are snake_case, wallet fields are
 // camelCase.
+//
+// Accounts without the managed usages view get a generic windowed shape
+// instead, captured live from api.kimi.com/coding/v1/usages on 2026-09-15:
+//
+//	{"limits": [{"window": {"duration": 300, "timeUnit": "TIME_UNIT_MINUTE"},
+//	  "detail": {"limit": "100", "used": "100", "resetTime": "..."}}]}
+//
+// The adapter accepts both shapes: managed usages first, generic limits as
+// the fallback.
 const (
 	kimiUsagePath = "/usages"
 	// kimiFixedPointCents is the wallet's fixed-point scale: amount values
@@ -58,7 +67,7 @@ type kimiQuotaEntry struct {
 type kimiQuotaBalance struct {
 	Type       string `json:"type"`
 	Amount     int64  `json:"amount"`
-	AmountLeft int64  `json:"amount_left"`
+	AmountLeft int64  `json:"amountLeft"`
 }
 
 type kimiQuotaMoney struct {
@@ -68,9 +77,25 @@ type kimiQuotaMoney struct {
 
 type kimiBoosterWallet struct {
 	Balance                   kimiQuotaBalance `json:"balance"`
-	MonthlyChargeLimit        kimiQuotaMoney   `json:"monthly_charge_limit"`
-	MonthlyUsed               kimiQuotaMoney   `json:"monthly_used"`
-	MonthlyChargeLimitEnabled bool             `json:"monthly_charge_limit_enabled"`
+	MonthlyChargeLimit        kimiQuotaMoney   `json:"monthlyChargeLimit"`
+	MonthlyUsed               kimiQuotaMoney   `json:"monthlyUsed"`
+	MonthlyChargeLimitEnabled bool             `json:"monthlyChargeLimitEnabled"`
+}
+
+// kimiRateLimit is the generic windowed limit the endpoint returns for
+// accounts without the managed usages view (see the file header for the
+// captured document). limit/used ride as numeric strings or numbers, so they
+// reuse kimiRatio.
+type kimiRateLimit struct {
+	Window struct {
+		Duration kimiRatio `json:"duration"`
+		TimeUnit string    `json:"timeUnit"`
+	} `json:"window"`
+	Detail struct {
+		Limit     kimiRatio `json:"limit"`
+		Used      kimiRatio `json:"used"`
+		ResetTime string    `json:"resetTime"`
+	} `json:"detail"`
 }
 
 type kimiQuotaResponse struct {
@@ -80,7 +105,8 @@ type kimiQuotaResponse struct {
 		LimitMonthTotal *kimiQuotaEntry `json:"limit_month_total"`
 		LimitMonthCode  *kimiQuotaEntry `json:"limit_month_code"`
 	} `json:"usages"`
-	BoosterWallet *kimiBoosterWallet `json:"booster_wallet"`
+	BoosterWallet *kimiBoosterWallet `json:"boosterWallet"`
+	Limits        []kimiRateLimit    `json:"limits"`
 }
 
 // fetchKimiQuota reads the kimi-code subscription state. The credential stays
@@ -181,6 +207,11 @@ func decodeKimiQuota(payload kimiQuotaResponse) (QuotaSnapshot, error) {
 		}
 		limits = append(limits, limit)
 	}
+	// Accounts without the managed view report generic windowed limits
+	// instead; the subscription shape wins when both are present.
+	if len(limits) == 0 {
+		limits = decodeKimiRateLimits(payload.Limits)
+	}
 	if wallet := decodeKimiBoosterWallet(payload.BoosterWallet); wallet != nil {
 		limits = append(limits, *wallet)
 	}
@@ -188,6 +219,53 @@ func decodeKimiQuota(payload kimiQuotaResponse) (QuotaSnapshot, error) {
 		return QuotaSnapshot{}, errors.New("usage response contains no usage windows")
 	}
 	return QuotaSnapshot{Limits: limits}, nil
+}
+
+// decodeKimiRateLimits maps the generic windowed shape to percent limits.
+// Entries without a usable budget carry nothing to show and stay absent.
+func decodeKimiRateLimits(entries []kimiRateLimit) []QuotaLimit {
+	limits := make([]QuotaLimit, 0, len(entries))
+	for _, entry := range entries {
+		total := float64(entry.Detail.Limit)
+		if total <= 0 {
+			continue
+		}
+		limit := QuotaLimit{
+			Window:      kimiWindowLabel(int64(entry.Window.Duration), entry.Window.TimeUnit),
+			Unit:        "percent",
+			UsedPercent: max(0, min(100, float64(entry.Detail.Used)/total*100)),
+		}
+		if reset, err := time.Parse(time.RFC3339, entry.Detail.ResetTime); err == nil {
+			limit.ResetsAt = reset
+		}
+		limits = append(limits, limit)
+	}
+	return limits
+}
+
+// kimiWindowLabel renders the wire's duration + TIME_UNIT_* pair as a
+// window label in the codex style ("5 hours", "7 days"). Unknown units
+// fall back to the raw wire token rather than a guess.
+func kimiWindowLabel(duration int64, unit string) string {
+	name := strings.ToLower(strings.TrimPrefix(unit, "TIME_UNIT_"))
+	switch name {
+	case "minute":
+		if duration >= 60 && duration%60 == 0 {
+			return kimiPlural(duration/60, "hour")
+		}
+		return kimiPlural(duration, "minute")
+	case "second", "hour", "day", "week", "month":
+		return kimiPlural(duration, name)
+	default:
+		return fmt.Sprintf("%d %s", duration, name)
+	}
+}
+
+func kimiPlural(n int64, unit string) string {
+	if n == 1 {
+		return "1 " + unit
+	}
+	return fmt.Sprintf("%d %ss", n, unit)
 }
 
 // decodeKimiBoosterWallet maps the optional top-up wallet to one currency
