@@ -2,6 +2,7 @@ package openai
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -27,7 +28,7 @@ func TestStreamCapturesFinishReason(t *testing.T) {
 
 	var done *llm.StreamEvent
 	for ev, err := range StreamChatCompletion(
-		t.Context(), server.Client(), server.URL, "k",
+		t.Context(), server.Client(), llm.ModelConfig{Name: "m", BaseURL: server.URL, APIKey: "k"},
 		BuildRequest(llm.ModelConfig{Name: "m"}, "", nil, nil),
 	) {
 		if err != nil {
@@ -160,3 +161,37 @@ func TestBuildRequestVariantOverlaysModelOptions(t *testing.T) {
 		}
 	}
 }
+
+// TestStreamRoutesThroughRequestAuthenticator: a subscription-backed config
+// carries no API key — its RequestAuthenticator supplies the Authorization
+// header instead, mirroring the responses client's credential routing.
+func TestStreamRoutesThroughRequestAuthenticator(t *testing.T) {
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	cfg := llm.ModelConfig{
+		Name:    "m",
+		BaseURL: server.URL,
+		Authenticator: authorizeFunc(func(_ context.Context, req *http.Request) error {
+			req.Header.Set("Authorization", "Bearer sub-token")
+			return nil
+		}),
+	}
+	for _, err := range StreamChatCompletion(t.Context(), server.Client(), cfg, BuildRequest(cfg, "", nil, nil)) {
+		if err != nil {
+			t.Fatalf("stream: %v", err)
+		}
+	}
+	if got != "Bearer sub-token" {
+		t.Fatalf("Authorization = %q, want the authenticator's token", got)
+	}
+}
+
+type authorizeFunc func(context.Context, *http.Request) error
+
+func (f authorizeFunc) Authorize(ctx context.Context, req *http.Request) error { return f(ctx, req) }

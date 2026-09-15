@@ -32,7 +32,7 @@ func TestStreamAcceptsReasoningAlias(t *testing.T) {
 	var streamed string
 	var done *llm.StreamEvent
 	for ev, err := range StreamChatCompletion(
-		t.Context(), server.Client(), server.URL, "k",
+		t.Context(), server.Client(), llm.ModelConfig{Name: "m", BaseURL: server.URL, APIKey: "k"},
 		BuildRequest(llm.ModelConfig{Name: "m"}, "", nil, nil),
 	) {
 		if err != nil {
@@ -77,7 +77,7 @@ func TestStreamAcceptsReasoningAliasOnWholeMessage(t *testing.T) {
 
 	var done *llm.StreamEvent
 	for ev, err := range StreamChatCompletion(
-		t.Context(), server.Client(), server.URL, "k",
+		t.Context(), server.Client(), llm.ModelConfig{Name: "m", BaseURL: server.URL, APIKey: "k"},
 		BuildRequest(llm.ModelConfig{Name: "m"}, "", nil, nil),
 	) {
 		if err != nil {
@@ -114,7 +114,7 @@ func TestStreamPrefersCanonicalReasoningField(t *testing.T) {
 
 	var done *llm.StreamEvent
 	for ev, err := range StreamChatCompletion(
-		t.Context(), server.Client(), server.URL, "k",
+		t.Context(), server.Client(), llm.ModelConfig{Name: "m", BaseURL: server.URL, APIKey: "k"},
 		BuildRequest(llm.ModelConfig{Name: "m"}, "", nil, nil),
 	) {
 		if err != nil {
