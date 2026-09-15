@@ -94,6 +94,12 @@ Four bounds keep that from being a problem, and every one of them fails loudly.
   even for an allowlisted command, and only an explicit allow-everything
   policy starts one unattended. One approval covers every later tick of a
   polling watch, which is why the prompt says the command keeps running.
+  The plan gate is a second brake: `start` and `stop` change state, so before
+  a plan is approved they are denied even on a re-exempted watch — the
+  2026-09-14 fix — while reads (`list`, `log`) keep running. Inside an
+  approved plan `watch` sits on the `run` step next to `bash`: a plan that
+  needs one asks for a step that can run shell, and `plan.defaults.types`
+  may move it anywhere on the ladder.
 - **The flood cap.** All watches together are capped at 20 events a minute;
   the one whose event crosses the budget stops itself with an event saying so.
   A filter that matches everything is a bug in the filter, and its cost lands

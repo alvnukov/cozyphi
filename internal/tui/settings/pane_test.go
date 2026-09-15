@@ -298,7 +298,7 @@ func TestPanePermissionTogglesCascadeAndOutsidePlanRemovesAssignment(t *testing.
 	assert.Equal(t, 0, assignmentRank(got, "bash"))
 	assert.Equal(t, 2, assignmentRank(got, "read"))
 	assert.Equal(t, -1, assignmentRank(got, "write"))
-	assert.Contains(t, got.AdditionalExemptions, "write")
+	assert.Contains(t, got.Exemptions, "write")
 	for _, tool := range []string{"bash", "read", "write"} {
 		assert.LessOrEqual(t, assignmentCount(got, tool), 1, tool)
 	}
@@ -401,7 +401,7 @@ func TestPaneShowsKnownToolAvailabilityAndLockedMandatoryExemptions(t *testing.T
 	assert.False(t, pane.State().Dirty)
 }
 
-func TestPaneShowsMandatoryToolsWhenNoStepTypesExist(t *testing.T) {
+func TestPaneShowsExemptToolsWhenNoStepTypesExist(t *testing.T) {
 	store := fixtureStore()
 	store.snapshot.Plan.Types = nil
 	pane := settings.New(components.DefaultTheme(), store, nil)
@@ -409,10 +409,9 @@ func TestPaneShowsMandatoryToolsWhenNoStepTypesExist(t *testing.T) {
 
 	// The pane scrolls by design; the assertion is reachability, not the fold.
 	// Selecting the last row pulls its neighbor into view too.
-	selectRow(t, pane, "context · always allowed (locked)")
+	selectRow(t, pane, "context · allowed outside plan")
 	text := drawText(pane)
-	assert.Contains(t, text, "plan · always allowed (locked)")
-	assert.Contains(t, text, "context · always allowed (locked)")
+	assert.Contains(t, text, "[x] context · allowed outside plan")
 }
 
 func TestPaneDrawHandlesTinyBoundsWithoutRereadingSnapshot(t *testing.T) {

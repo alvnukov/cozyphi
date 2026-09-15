@@ -40,11 +40,14 @@ type TypeDefaults struct {
 	Actions []session.PlanAction `yaml:"actions,omitempty" json:"actions,omitempty"`
 }
 
-// Defaults is the editable, persisted plan-gate policy. AdditionalExemptions
-// bypass only this gate; the executor's permission gate still runs.
+// Defaults is the editable, persisted plan-gate policy. Exemptions is the
+// whole set of tools that pass this gate without naming a step; plan is
+// always exempt and never listed. An empty list means the plan floor
+// alone. Exemptions bypass only this gate; the executor's permission gate
+// still runs.
 type Defaults struct {
-	Types                []TypeDefaults `yaml:"types"                           json:"types"`
-	AdditionalExemptions []string       `yaml:"additional_exemptions,omitempty" json:"additional_exemptions,omitempty"`
+	Types      []TypeDefaults `yaml:"types"      json:"types"`
+	Exemptions []string       `yaml:"exemptions" json:"exemptions,omitempty"`
 	// Actions are the plan-scope plan actions (plan_start / plan_end) a new
 	// plan inherits when its author defines none.
 	Actions []session.PlanAction `yaml:"actions,omitempty" json:"actions,omitempty"`
@@ -81,15 +84,22 @@ func (d Defaults) StepTypeNames() []string {
 }
 
 // DefaultDefaults returns the built-in policy used when config.yaml has no
-// plan.defaults section.
+// plan.defaults section, and the exemption list used when that section has
+// no exemptions key: planning-adjacent tools only. Watch is absent from the
+// exemptions — its start action executes shell, and an unconditional
+// exemption carried it past the gate in plan-less sessions (2026-09-14) —
+// but it sits on the run step, so a plan that asks for it gets it.
 func DefaultDefaults() Defaults {
-	return Defaults{Types: []TypeDefaults{
-		{Name: session.StepExplore, Tools: []string{"read", "grep", "find", "ls", "lsp"}},
-		{Name: session.StepEdit, Tools: []string{"write", "edit"}},
-		{Name: session.StepRun, Tools: []string{"bash"}},
-		{Name: session.StepDelegate, Tools: []string{"agent_spawn", "agent_wait", "agent_list", "agent_cancel"}},
-		{Name: session.StepIntegrate, Tools: []string{"mcp_list", "mcp_inspect", "mcp_call"}},
-	}}
+	return Defaults{
+		Exemptions: []string{"context", "harness", "memory", "question", "session", "shell_task", "task"},
+		Types: []TypeDefaults{
+			{Name: session.StepExplore, Tools: []string{"read", "grep", "find", "ls", "lsp"}},
+			{Name: session.StepEdit, Tools: []string{"write", "edit"}},
+			{Name: session.StepRun, Tools: []string{"bash", "watch"}},
+			{Name: session.StepDelegate, Tools: []string{"agent_spawn", "agent_wait", "agent_list", "agent_cancel"}},
+			{Name: session.StepIntegrate, Tools: []string{"mcp_list", "mcp_inspect", "mcp_call"}},
+		},
+	}
 }
 
 // DefaultPolicy returns the built-in compiled policy: what this harness gates
@@ -221,14 +231,14 @@ func Compile(defaults Defaults) (*Policy, error) {
 	}
 	policy := &Policy{
 		defaults: Defaults{
-			Types:                make([]TypeDefaults, len(defaults.Types)),
-			AdditionalExemptions: slices.Clone(defaults.AdditionalExemptions),
-			Actions:              planActions,
-			AuthoringPolicy:      authoringPolicy,
+			Types:           make([]TypeDefaults, len(defaults.Types)),
+			Exemptions:      slices.Clone(defaults.Exemptions),
+			Actions:         planActions,
+			AuthoringPolicy: authoringPolicy,
 		},
 		typeRank:    make(map[session.StepType]int, len(defaults.Types)),
 		minimumRank: make(map[string]int),
-		exempt:      make(map[string]struct{}, len(exemptTools)+len(defaults.AdditionalExemptions)),
+		exempt:      make(map[string]struct{}, len(exemptTools)+len(defaults.Exemptions)),
 	}
 	for name := range exemptTools {
 		policy.exempt[name] = struct{}{}
@@ -265,24 +275,28 @@ func Compile(defaults Defaults) (*Policy, error) {
 		}
 	}
 
-	seenExempt := make(map[string]struct{}, len(defaults.AdditionalExemptions))
-	for i, rawTool := range defaults.AdditionalExemptions {
+	// The editable set is the whole exemption list: every name must be a
+	// known tool outside the floor, listed once, and never type-assigned.
+	seenExempt := make(map[string]struct{}, len(defaults.Exemptions))
+	for i, rawTool := range defaults.Exemptions {
 		tool := strings.TrimSpace(rawTool)
-		if err := validateAssignableTool(tool); err != nil {
-			return nil, fmt.Errorf("plangate: additional exemption: %w", err)
-		}
 		if _, mandatory := exemptTools[tool]; mandatory {
 			return nil, fmt.Errorf("plangate: tool %q is already a mandatory exemption", tool)
 		}
+		if _, known := toolLevel[tool]; !known {
+			if _, ok := knownExemptTools[tool]; !ok {
+				return nil, fmt.Errorf("plangate: exemptions: unknown tool %q", tool)
+			}
+		}
 		if _, duplicate := seenExempt[tool]; duplicate {
-			return nil, fmt.Errorf("plangate: duplicate additional exemption %q", tool)
+			return nil, fmt.Errorf("plangate: duplicate exemption %q", tool)
 		}
 		if _, assigned := policy.minimumRank[tool]; assigned {
 			return nil, fmt.Errorf("plangate: exempt tool %q must not also be assigned to a step type", tool)
 		}
 		seenExempt[tool] = struct{}{}
 		policy.exempt[tool] = struct{}{}
-		policy.defaults.AdditionalExemptions[i] = tool
+		policy.defaults.Exemptions[i] = tool
 	}
 	return policy, nil
 }
@@ -305,7 +319,7 @@ func (p *Policy) Defaults() Defaults {
 	if p == nil {
 		p = defaultPolicy
 	}
-	out := Defaults{AdditionalExemptions: slices.Clone(p.defaults.AdditionalExemptions)}
+	out := Defaults{Exemptions: slices.Clone(p.defaults.Exemptions)}
 	out.Actions = session.ClonePlanActions(p.defaults.Actions)
 	out.AuthoringPolicy = p.defaults.AuthoringPolicy
 	out.Types = make([]TypeDefaults, len(p.defaults.Types))
@@ -380,6 +394,9 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 		p = defaultPolicy
 	}
 	if _, ok := p.exempt[call.Name]; ok {
+		if v, denied := preApprovalVerdict(phase, plan, call); denied {
+			return v
+		}
 		return exemptBinding(plan, call)
 	}
 	if plan.Result != "" {
@@ -555,6 +572,50 @@ func renderCandidates(items []session.PlanItem) string {
 		fmt.Fprintf(&b, "%s (%s, %s)", item.ID, item.Type, item.Status)
 	}
 	return b.String()
+}
+
+// preApprovalMutatingActions lists the state-changing actions of exempt
+// tools. Before the plan is approved an exempt tool runs its reads, plus
+// the bookkeeping the work needs to reach a plan (task create/start/note,
+// context compact, session set_title) — everything listed here waits for
+// approval. plan is the floor and never appears; a re-exempted watch is
+// still subject to its row: this table is the 2026-09-14 fix that kept
+// `watch start` (a shell command) out of plan-less sessions.
+var preApprovalMutatingActions = map[string]map[string]struct{}{
+	"memory":     {"forget": {}},
+	"shell_task": {"stop": {}},
+	"watch":      {"start": {}, "stop": {}},
+	"task":       {"done": {}, "block": {}, "reopen": {}, "update": {}},
+}
+
+// preApprovalVerdict denies an exempt tool's mutating action while no
+// plan is approved. The reason stays exactly ReasonPlanNotApproved — the
+// controller keys its approve-and-resume signal on the string — and the
+// hint names the action that must wait. A closed plan (Result set) has no
+// working rounds left to protect, and the hint phase teaches instead of
+// blocking.
+func preApprovalVerdict(phase Phase, plan session.Plan, call ToolCall) (Verdict, bool) {
+	if plan.Approved || plan.Result != "" || phase != PhaseDeny {
+		return Verdict{}, false
+	}
+	if _, floor := exemptTools[call.Name]; floor {
+		return Verdict{}, false
+	}
+	actions, tracked := preApprovalMutatingActions[call.Name]
+	if !tracked {
+		return Verdict{}, false
+	}
+	if _, mutating := actions[call.Action]; !mutating {
+		return Verdict{}, false
+	}
+	code := MissApprovalRequired
+	if len(plan.Items) == 0 {
+		code = MissPlanRequired
+	}
+	return missVerdict(phase, code, ReasonPlanNotApproved,
+		fmt.Sprintf("%s %s changes state; it runs once the plan is approved. "+
+			"Read actions stay available, and a draft plan can be created and approved now.",
+			call.Name, call.Action)), true
 }
 
 // exemptBinding resolves the plan_step of an exempt tool. Exemption lifts the

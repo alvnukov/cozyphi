@@ -22,25 +22,31 @@ func TestKnownToolsListsGateableAndMandatoryToolsInStableOrder(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"read", "grep", "find", "ls", "lsp",
-		"write", "edit", "bash",
+		"write", "edit", "bash", "watch",
 		"agent_spawn", "agent_wait", "agent_list", "agent_cancel",
 		"mcp_list", "mcp_inspect", "mcp_call",
-		"plan", "context", "question", "watch", "memory", "task", "harness", "session", "shell_task",
+		"plan", "context", "harness", "memory", "question", "session", "shell_task", "task",
 	}, names)
 	assert.Equal(
 		t,
 		[]string{
 			"plan",
-			"context",
-			"question",
-			"watch",
-			"memory",
-			"task",
-			"harness",
-			"session",
-			"shell_task",
 		},
 		mandatory,
+	)
+
+	// Exemption-only tools carry no capability rank, so an editor must never
+	// offer them a step type; watch is ranked and stays assignable.
+	exemptionOnly := make([]string, 0)
+	for _, tool := range got {
+		if tool.ExemptionOnly {
+			exemptionOnly = append(exemptionOnly, tool.Name)
+		}
+	}
+	assert.Equal(
+		t,
+		[]string{"context", "harness", "memory", "question", "session", "shell_task", "task"},
+		exemptionOnly,
 	)
 
 	require.NotEmpty(t, got)

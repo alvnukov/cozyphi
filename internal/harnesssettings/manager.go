@@ -735,7 +735,10 @@ func normalizeDefaults(defaults plangate.Defaults) plangate.Defaults {
 // decodeDefaults reads the plan.defaults node. A missing or null node means
 // "not configured" and yields the built-in defaults — the same reading
 // LoadPlanDefaults gives the same file; an explicit `types: []` is a real
-// zero-type policy and stays zero.
+// zero-type policy and stays zero. The same rule holds one level down for
+// exemptions: the key is the whole editable set, so a section that lists
+// types but not exemptions keeps the shipped exemption defaults instead of
+// silently gating every planning-adjacent tool.
 func decodeDefaults(node *yaml.Node) (plangate.Defaults, error) {
 	if node == nil || node.Tag == "!!null" {
 		return plangate.DefaultDefaults(), nil
@@ -744,8 +747,63 @@ func decodeDefaults(node *yaml.Node) (plangate.Defaults, error) {
 	if err := node.Decode(&defaults); err != nil {
 		return plangate.Defaults{}, fmt.Errorf("harness settings: decode plan defaults: %w", err)
 	}
+	if !mappingHasKey(node, "exemptions") {
+		defaults.Exemptions = plangate.DefaultDefaults().Exemptions
+	}
 	if _, err := plangate.Compile(defaults); err != nil {
 		return plangate.Defaults{}, err
 	}
 	return defaults, nil
+}
+
+// maxMergeDepth bounds alias and merge-key following: deep enough for any
+// hand-written config, shallow enough that a cyclic anchor cannot spin.
+const maxMergeDepth = 8
+
+// mappingHasKey reports whether a mapping node carries the given key, reading
+// the node the way Decode does: an alias stands for its anchor, and a `<<`
+// merge key contributes the keys of every mapping it merges in. A literal
+// scan would call a merged-in `exemptions` absent and silently replace the
+// user's list with the shipped default.
+func mappingHasKey(node *yaml.Node, key string) bool {
+	return mappingHasKeyAt(node, key, 0)
+}
+
+func mappingHasKeyAt(node *yaml.Node, key string, depth int) bool {
+	if node == nil || depth > maxMergeDepth {
+		return false
+	}
+	if node.Kind == yaml.AliasNode {
+		return mappingHasKeyAt(node.Alias, key, depth+1)
+	}
+	if node.Kind != yaml.MappingNode {
+		return false
+	}
+	var merged []*yaml.Node
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		keyNode := node.Content[i]
+		if keyNode.Kind != yaml.ScalarNode {
+			continue
+		}
+		if keyNode.Value == key {
+			return true
+		}
+		if keyNode.Tag == "!!merge" || keyNode.Value == "<<" {
+			merged = append(merged, node.Content[i+1])
+		}
+	}
+	for _, source := range merged {
+		if source.Kind == yaml.SequenceNode {
+			for _, item := range source.Content {
+				if mappingHasKeyAt(item, key, depth+1) {
+					return true
+				}
+			}
+			continue
+		}
+		if mappingHasKeyAt(source, key, depth+1) {
+			return true
+		}
+	}
+	return false
 }

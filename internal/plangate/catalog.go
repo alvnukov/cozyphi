@@ -2,11 +2,17 @@ package plangate
 
 import "sort"
 
-// ToolInfo describes one tool understood by the plan gate. Mandatory
-// exemptions are shown by editors but cannot be assigned to a step type.
+// ToolInfo describes one tool understood by the plan gate. Two flags say
+// what an editor may do with the name: a mandatory exemption is shown but
+// never editable, and an exemption-only tool may be listed as an exemption
+// yet carries no capability rank, so assigning it to a step type is a
+// policy Compile error rather than a setting.
 type ToolInfo struct {
 	Name               string
 	MandatoryExemption bool
+	// ExemptionOnly marks a tool the plan gate knows only as an exemption:
+	// it has no rank in the capability ladder, so no step type can hold it.
+	ExemptionOnly bool
 }
 
 // KnownTools returns every tool understood by the plan gate in a stable,
@@ -39,22 +45,22 @@ func KnownTools() []ToolInfo {
 		seen[name] = struct{}{}
 	}
 
-	mandatoryOrder := []string{"plan", "context", "question", "watch", "memory", "task", "harness", "session"}
-	for _, name := range mandatoryOrder {
-		if _, ok := exemptTools[name]; ok {
-			out = append(out, ToolInfo{Name: name, MandatoryExemption: true})
-			seen[name] = struct{}{}
-		}
+	// The floor is plan alone; the other excludable names stay listed so an
+	// editor can toggle their exemption against the shipped defaults.
+	for name := range exemptTools {
+		out = append(out, ToolInfo{Name: name, MandatoryExemption: true})
+		seen[name] = struct{}{}
 	}
 	remaining = remaining[:0]
-	for name := range exemptTools {
+	for name := range knownExemptTools {
 		if _, ok := seen[name]; !ok {
 			remaining = append(remaining, name)
 		}
 	}
 	sort.Strings(remaining)
 	for _, name := range remaining {
-		out = append(out, ToolInfo{Name: name, MandatoryExemption: true})
+		_, ranked := toolLevel[name]
+		out = append(out, ToolInfo{Name: name, ExemptionOnly: !ranked})
 	}
 	return out
 }

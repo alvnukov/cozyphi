@@ -45,7 +45,7 @@ func TestPolicyCompilesCustomHierarchyAndValidatesPlans(t *testing.T) {
 			{Name: "change", Tools: []string{"write", "edit"}},
 			{Name: "execute", Tools: []string{"bash"}},
 		},
-		AdditionalExemptions: []string{"lsp"},
+		Exemptions: []string{"lsp"},
 	})
 	require.NoError(t, err)
 
@@ -170,7 +170,7 @@ func TestPolicyVoluntaryBindingOnExemptToolStartsPendingStep(t *testing.T) {
 			{Name: "explore", Tools: []string{"lsp"}},
 			{Name: "edit", Tools: []string{"write"}},
 		},
-		AdditionalExemptions: []string{"read"},
+		Exemptions: []string{"read"},
 	})
 	require.NoError(t, err)
 
@@ -214,7 +214,7 @@ func TestPolicyVisibleToolsMirrorsTheGate(t *testing.T) {
 	policy, err := plangate.Compile(plangate.DefaultDefaults())
 	require.NoError(t, err)
 
-	exempt := []string{"plan", "context", "question", "watch", "memory", "task", "harness", "session", "shell_task"}
+	exempt := []string{"plan", "context", "question", "memory", "task", "harness", "session", "shell_task"}
 	cases := []struct {
 		name string
 		plan session.Plan
@@ -233,8 +233,8 @@ func TestPolicyVisibleToolsMirrorsTheGate(t *testing.T) {
 				Content: "later", Status: session.PlanPending, Type: session.StepRun,
 			}}},
 			want: []string{
-				"read", "grep", "find", "ls", "lsp", "write", "edit", "bash",
-				"plan", "context", "question", "watch", "memory", "task", "harness", "session", "shell_task",
+				"read", "grep", "find", "ls", "lsp", "write", "edit", "bash", "watch",
+				"plan", "context", "question", "memory", "task", "harness", "session", "shell_task",
 			},
 		},
 		{
@@ -251,7 +251,7 @@ func TestPolicyVisibleToolsMirrorsTheGate(t *testing.T) {
 			}}},
 			want: []string{
 				"read", "grep", "find", "ls", "lsp", "write", "edit",
-				"plan", "context", "question", "watch", "memory", "task", "harness", "session", "shell_task",
+				"plan", "context", "question", "memory", "task", "harness", "session", "shell_task",
 			},
 		},
 		{
@@ -261,8 +261,8 @@ func TestPolicyVisibleToolsMirrorsTheGate(t *testing.T) {
 				{Content: "run", Status: session.PlanInProgress, Type: session.StepRun},
 			}},
 			want: []string{
-				"read", "grep", "find", "ls", "lsp", "write", "edit", "bash",
-				"plan", "context", "question", "watch", "memory", "task", "harness", "session", "shell_task",
+				"read", "grep", "find", "ls", "lsp", "write", "edit", "bash", "watch",
+				"plan", "context", "question", "memory", "task", "harness", "session", "shell_task",
 			},
 		},
 		{

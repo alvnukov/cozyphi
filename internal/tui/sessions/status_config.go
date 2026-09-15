@@ -25,7 +25,7 @@ func statusSettingsRows(s harnesssettings.Snapshot) []string {
 		fmt.Sprintf("Notification sound enabled: %t", s.Notifications.Sound != ""),
 		fmt.Sprintf("Configured task access: %s", s.Tasks.Normalized()),
 		fmt.Sprintf("Configured plan step types: %d", len(s.Plan.Types)),
-		fmt.Sprintf("Additional plan-gate exemptions: %d", len(s.Plan.AdditionalExemptions)),
+		fmt.Sprintf("Configured plan-gate exemptions: %d", len(s.Plan.Exemptions)),
 		"Configured agent model pins · effective unavailable",
 	}
 	for _, role := range job.Roles() {

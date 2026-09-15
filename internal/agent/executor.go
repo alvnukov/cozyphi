@@ -678,7 +678,11 @@ func (e *Executor) checkPlanGate(call llm.ToolCall, args json.RawMessage) planga
 	}
 	plan := e.plan()
 	step := plangate.StepFromArgs(args)
-	v := e.planGate.Check(plan, plangate.ToolCall{Name: call.Function.Name, Step: step})
+	v := e.planGate.Check(plan, plangate.ToolCall{
+		Name:   call.Function.Name,
+		Step:   step,
+		Action: plangate.ActionFromArgs(args),
+	})
 	if v.Miss {
 		if e.planGate.Recorder != nil {
 			_ = e.planGate.Recorder.Record(e.missRecord(plan, call, step, v))
