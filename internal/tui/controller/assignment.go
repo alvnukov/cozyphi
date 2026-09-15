@@ -134,16 +134,14 @@ func (c *Controller) runAssignment(
 			c.stopAssignmentLocked(a, errors.New("cannot start assignment: configure a model first"))
 		} else if a.Turn == TurnIdle {
 			c.publishAssignmentBriefLocked(prompt)
-			c.startPromptLocked(prompt.text, prompt.pendingSkills, prompt.media, agent.TurnAutonomous)
+			c.startPromptLocked(prompt.text, prompt.pendingSkills, prompt.media, agent.TurnAutonomous, prompt.id)
 		} else if a.Turn == TurnInterrupted && len(c.promptQueue) > 0 {
 			// A continuation accepted during assembly replaces the interrupted
 			// initial turn, but still waits for the same View readiness fence.
 			next := c.promptQueue[0]
 			c.promptQueue = c.promptQueue[1:]
-			c.startPromptLocked(next.text, next.pendingSkills, next.media, agent.TurnUserInput)
-			if next.id != "" {
-				c.publish(SessionEventMsg{Event: session.UserPromoted{ID: next.id}})
-			}
+			c.publishPromptQueueLocked()
+			c.startPromptLocked(next.text, next.pendingSkills, next.media, agent.TurnUserInput, next.id)
 		}
 	}
 	c.streamMu.Unlock()

@@ -35,7 +35,7 @@ func TestController_StartPromptSnapshotsPendingSkills(t *testing.T) {
 	ctrl := &Controller{streamRunning: true, modelCfg: llm.ModelConfig{Name: "test-model"}}
 	skills := []string{"review"}
 
-	ctrl.StartPrompt("inspect", skills, "")
+	ctrl.StartPrompt("inspect", skills)
 	skills[0] = "mutated"
 
 	require.Len(t, ctrl.promptQueue, 1)
@@ -53,18 +53,16 @@ func TestController_RecallQueuedPromptPopsNewestFirst(t *testing.T) {
 		},
 	}
 
-	text, id, ok := ctrl.RecallQueuedPrompt()
+	text, _, _, ok := ctrl.RecallQueuedPrompt()
 	require.True(t, ok)
 	assert.Equal(t, "second queued", text)
-	assert.Equal(t, "u2", id)
 
-	text, id, ok = ctrl.RecallQueuedPrompt()
+	text, _, _, ok = ctrl.RecallQueuedPrompt()
 	require.True(t, ok)
 	assert.Equal(t, "first queued", text)
-	assert.Equal(t, "u1", id)
 	assert.Empty(t, ctrl.promptQueue, "both entries must be popped by now")
 
-	_, _, ok = ctrl.RecallQueuedPrompt()
+	_, _, _, ok = ctrl.RecallQueuedPrompt()
 	assert.False(t, ok, "empty queue has nothing to recall")
 }
 
@@ -77,7 +75,7 @@ func TestController_RecallKeepsEarlierQueueOrder(t *testing.T) {
 		},
 	}
 
-	_, _, ok := ctrl.RecallQueuedPrompt()
+	_, _, _, ok := ctrl.RecallQueuedPrompt()
 	require.True(t, ok)
 
 	require.Len(t, ctrl.promptQueue, 2)
@@ -95,7 +93,7 @@ func TestController_ShutdownCancelsRunDropsQueueAndRejectsNewPrompts(t *testing.
 	}
 
 	ctrl.shutdownPrompts()
-	ctrl.StartPrompt("also rejected", nil, "")
+	ctrl.StartPrompt("also rejected", nil)
 
 	assert.True(t, ctrl.closing)
 	assert.True(t, ctrl.streamRunning, "shutdown waits for the active loop to exit")

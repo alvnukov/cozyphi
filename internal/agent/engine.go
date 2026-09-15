@@ -1020,10 +1020,18 @@ type LoopOpts struct {
 	// Media is inline image content attached to the user's prompt.
 	Media []llm.Media
 
+	// UserID and UserDisplayText describe the transcript row of a queued
+	// prompt this turn delivers: set only when the opening prompt dequeued
+	// from the controller's queue (an immediate submit already has its row).
+	// After the prompt is appended to the session, the loop yields
+	// session.UserPromoted so the row joins the transcript at delivery time.
+	UserID          string
+	UserDisplayText string
+
 	// Inject, when set, is polled at every tool-round boundary. Each returned
 	// prompt is appended to the session as a user message mid-turn, so the
 	// model answers queued user input inside the SAME turn instead of after
-	// it ends; session.UserPromoted tells the UI to drop the queued hint.
+	// it ends; session.UserPromoted then lands the prompt's transcript row.
 	Inject func() []InjectedPrompt
 	// Inbox persists background deliveries at a safe boundary before inference.
 	// It receives the captured turn session, not a subsequently resumed one.
@@ -1036,7 +1044,10 @@ type InjectedPrompt struct {
 	Text   string
 	Skills []string
 	Media  []llm.Media
-	UserID string // transcript row id; empty when the caller has no row
+	// UserID is the transcript row id the queued prompt was assigned at
+	// enqueue; empty for background text (watch reminders) that must never
+	// grow a transcript row.
+	UserID string
 }
 
 // Loop appends the user prompt and runs inference + tool rounds until the
@@ -1088,6 +1099,13 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			if err := sess.Append(llm.Message{Role: llm.RoleUser, Content: content, Media: opts.Media}); err != nil {
 				yield(nil, err)
 				return
+			}
+			// A dequeued prompt has no transcript row yet: it joins the feed
+			// now, appended at the end — the moment the model actually got it.
+			if opts.UserID != "" {
+				if !yield(session.UserPromoted{ID: opts.UserID, Text: opts.UserDisplayText}, nil) {
+					return
+				}
 			}
 		}
 
@@ -1272,7 +1290,8 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 			// Same boundary: queued user input joins the context here, so the
 			// model answers it mid-turn instead of the user waiting out the whole
-			// agentic turn. UserPromoted clears the transcript's queued hint.
+			// agentic turn. UserPromoted lands the prompt's transcript row at
+			// this same moment — delivery, not dequeue, is what the feed shows.
 			if opts.Inject != nil {
 				for _, item := range opts.Inject() {
 					content := engine.composeUserPrompt(recall, item.Skills, item.Text, item.Text)
@@ -1283,7 +1302,8 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 						return
 					}
 					if item.UserID != "" {
-						if !yield(session.UserPromoted{ID: item.UserID}, nil) {
+						text := UserPromptDisplayText(item.Text, item.Skills)
+						if !yield(session.UserPromoted{ID: item.UserID, Text: text}, nil) {
 							return
 						}
 					}
@@ -1291,6 +1311,20 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 		}
 	}
+}
+
+// UserPromptDisplayText is the transcript text for a user prompt: the
+// typed text, or a skills summary when the submit carried only composer
+// skills. The submitter, the queue widget and the engine's promote event
+// all render the same string, so the rule lives here exactly once.
+func UserPromptDisplayText(text string, skills []string) string {
+	if text != "" {
+		return text
+	}
+	if len(skills) > 0 {
+		return "Skills: " + strings.Join(skills, ", ")
+	}
+	return ""
 }
 
 // composeUserPrompt assembles a user message the way both entry points into a

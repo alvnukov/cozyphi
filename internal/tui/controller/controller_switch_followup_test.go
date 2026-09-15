@@ -47,7 +47,7 @@ func TestControllerSwitchReservesTerminalChildFollowUpAdmission(t *testing.T) {
 			t.Cleanup(unblock)
 			manager := hooks.NewManager(hooks.Entry{Kind: hooks.KindSessionBeforeSwitch, Hook: hooks.FuncHook{
 				Sess: func(context.Context, hooks.SessionEvent) (hooks.SessionResult, error) {
-					c.StartPrompt("queued follow-up marker", nil, "queued-child")
+					c.StartPrompt("queued follow-up marker", nil)
 					close(ready)
 					<-release
 					if denied {

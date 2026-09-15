@@ -43,23 +43,23 @@ func TestPlanAutoApproveSurvivesClearAndResume(t *testing.T) {
 	ctrl := newInjectController(t, NewBus(nil), server.URL)
 	t.Cleanup(ctrl.Close)
 	ctrl.SetPlanAutoApprove(func() bool { return true })
-	runControllerPrompt(t, ctrl, &requests, "seed a resumable session", "seed")
+	runControllerPrompt(t, ctrl, &requests, "seed a resumable session")
 	originalSession := ctrl.SessionID()
 
 	require.NoError(t, ctrl.Clear())
-	runControllerPrompt(t, ctrl, &requests, "make a plan after clear", "after-clear")
+	runControllerPrompt(t, ctrl, &requests, "make a plan after clear")
 	assert.True(t, ctrl.Plan().Approved, "the replacement engine must retain auto-approval")
 
 	_, err := ctrl.Resume(originalSession)
 	require.NoError(t, err)
-	runControllerPrompt(t, ctrl, &requests, "make a plan after resume", "after-resume")
+	runControllerPrompt(t, ctrl, &requests, "make a plan after resume")
 	assert.True(t, ctrl.Plan().Approved, "the resumed engine must retain auto-approval")
 }
 
-func runControllerPrompt(t *testing.T, ctrl *Controller, requests *atomic.Int32, prompt, id string) {
+func runControllerPrompt(t *testing.T, ctrl *Controller, requests *atomic.Int32, prompt string) {
 	t.Helper()
 	before := requests.Load()
-	ctrl.StartPrompt(prompt, nil, id)
+	ctrl.StartPrompt(prompt, nil)
 	waitForCond(t, 10*time.Second, func() bool {
 		return requests.Load() >= before+2 && !ctrl.RunActive()
 	})

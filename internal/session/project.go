@@ -25,8 +25,6 @@ type Item struct {
 
 	Text  string
 	State State
-	// Queued marks a user row waiting behind the in-flight turn.
-	Queued bool
 
 	// Summary is the compaction summarize body (ItemCompaction only).
 	Summary string
@@ -71,10 +69,9 @@ func Project(s Snapshot) []Item {
 		case RoleUser:
 			if strings.TrimSpace(m.Text) != "" {
 				items = append(items, Item{
-					ID:     m.ID,
-					Kind:   ItemUser,
-					Text:   m.Text,
-					Queued: m.Queued,
+					ID:   m.ID,
+					Kind: ItemUser,
+					Text: m.Text,
 				})
 			}
 		case RoleAssistant:

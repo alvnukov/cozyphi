@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
@@ -108,23 +109,26 @@ func (s *Submitter) handleUserInput(text string, media []llm.Media) {
 		s.bash.showToast("A shell command is running. Press Esc to cancel it before submitting a prompt.")
 		return
 	}
-	runActive := s.ctrl != nil && s.ctrl.RunActive()
-
 	s.composer.HideCompleters()
 
-	if !runActive {
-		s.activity.Apply(controller.ActivitySubmitting)
+	// The queue decision is made and reported by StartPrompt, atomically with
+	// the queue mutation itself — deciding here from RunActive would race a
+	// run that finishes in between. A queued prompt gets NO transcript row:
+	// the engine appends it (session.UserPromoted) at the moment it is
+	// actually delivered to the model.
+	queued := false
+	if s.ctrl != nil {
+		queued = s.ctrl.StartPrompt(text, pendingSkills, media...)
 	}
-	display := text
-	if display == "" && len(pendingSkills) > 0 {
-		display = "Skills: " + strings.Join(pendingSkills, ", ")
-	}
-	userID := session.NewUserMessageID()
-	s.transcript.ApplySession(session.UserAppend{ID: userID, Text: display, Queued: runActive})
-	s.transcript.Sync()
-	s.transcript.StickToBottom()
 
-	if !runActive {
+	if !queued {
+		s.activity.Apply(controller.ActivitySubmitting)
+		s.transcript.ApplySession(session.UserAppend{
+			ID:   session.NewUserMessageID(),
+			Text: agent.UserPromptDisplayText(text, pendingSkills),
+		})
+		s.transcript.Sync()
+		s.transcript.StickToBottom()
 		s.activity.Apply(controller.ActivityWaiting)
 	}
 
@@ -132,7 +136,6 @@ func (s *Submitter) handleUserInput(text string, media []llm.Media) {
 	s.composer.ClearPendingSkills()
 
 	if s.ctrl != nil {
-		s.ctrl.StartPrompt(text, pendingSkills, userID, media...)
 		if s.commands != nil {
 			s.commands.RecordSkills(pendingSkills)
 		}
@@ -167,24 +170,15 @@ func (s *Submitter) Cancel() {
 }
 
 // RecallQueued pulls the newest queued prompt back out of the run and
-// returns its text for the composer to edit. Its transcript row goes away
-// with it: the prompt was never delivered, so the "(queued)" row must not
-// outlive the recall. Not-ok means nothing is queued and the caller keeps
-// its previous behavior.
-func (s *Submitter) RecallQueued() (string, bool) {
+// returns everything the composer needs to restore the draft: text, media
+// and pending skills. A queued prompt never had a transcript row, so there
+// is nothing to remove — the queue widget simply loses a line. Not-ok means
+// nothing is queued and the caller keeps its previous behavior.
+func (s *Submitter) RecallQueued() (string, []llm.Media, []string, bool) {
 	if s == nil || s.ctrl == nil {
-		return "", false
+		return "", nil, nil, false
 	}
-	text, id, ok := s.ctrl.RecallQueuedPrompt()
-	if !ok {
-		return "", false
-	}
-	if id != "" {
-		s.transcript.ApplySession(session.UserRecalled{ID: id})
-		s.transcript.Sync()
-		s.transcript.StickToBottom()
-	}
-	return text, true
+	return s.ctrl.RecallQueuedPrompt()
 }
 
 // RunningBash reports whether a local "!cmd" is in flight.

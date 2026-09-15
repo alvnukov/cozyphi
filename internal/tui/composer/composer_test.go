@@ -10,6 +10,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/palette"
+	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
 
@@ -167,9 +168,11 @@ type stubSubmitter struct {
 	recallOK   bool
 }
 
-func (s *stubSubmitter) CanSubmit() bool              { return !s.busy }
-func (*stubSubmitter) SyncBashBorder(string)          {}
-func (s *stubSubmitter) RecallQueued() (string, bool) { return s.recallText, s.recallOK }
+func (s *stubSubmitter) CanSubmit() bool     { return !s.busy }
+func (*stubSubmitter) SyncBashBorder(string) {}
+func (s *stubSubmitter) RecallQueued() (string, []llm.Media, []string, bool) {
+	return s.recallText, nil, nil, s.recallOK
+}
 
 // TestComposerEscRecallsQueuedPromptIntoChat: while the submit side is busy
 // and a prompt is queued, Esc hands the queued text back to the input —

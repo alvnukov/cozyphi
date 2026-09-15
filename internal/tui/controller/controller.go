@@ -488,7 +488,7 @@ func (c *Controller) wakeForWatches() {
 		return
 	}
 	c.wakeStreak++
-	c.startPromptLocked("", nil, nil, agent.TurnAutonomous)
+	c.startPromptLocked("", nil, nil, agent.TurnAutonomous, "")
 }
 
 // drainWatchLocked takes the queued events and disarms any pending wake for
@@ -1058,7 +1058,7 @@ func (c *Controller) maybeResumeApprovedWorkLocked() {
 	if !plan.Approved || (!c.planGateBlocked && !directApprovalReady) {
 		return
 	}
-	c.startPromptLocked(approvalResumePrompt, nil, nil, agent.TurnAutonomous)
+	c.startPromptLocked(approvalResumePrompt, nil, nil, agent.TurnAutonomous, "")
 }
 
 func hasActivePlanStep(plan session.Plan) bool {
@@ -2286,28 +2286,35 @@ func (c *Controller) ReplaySnapshot() session.Snapshot {
 }
 
 // StartPrompt starts a new agent loop. When another run is already in flight
-// the prompt queues instead of aborting it. userID is the transcript row id of
-// the submitted message, so dequeue can promote it out of the queued state.
+// the prompt queues instead of aborting it, and StartPrompt reports queued
+// so the caller can skip the transcript row: a queued prompt has no row
+// until the engine delivers it (session.UserPromoted). The queue decision is
+// made here, atomically under streamMu, so it cannot disagree with the
+// RunActive check the caller made a moment earlier.
 // A zero-model refusal is startPromptLocked's business: every start path
 // funnels through it.
-func (c *Controller) StartPrompt(text string, pendingSkills []string, userID string, media ...llm.Media) {
+func (c *Controller) StartPrompt(text string, pendingSkills []string, media ...llm.Media) (queued bool) {
 	if c == nil {
-		return
+		return false
 	}
 	pendingSkills = append([]string(nil), pendingSkills...)
 	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
 	// The user said something: whatever the watches have been doing, the
 	// streak that throttles them starts over.
 	c.wakeStreak = 0
 	c.wakeSuppressed = false
 	if c.closing {
-		c.streamMu.Unlock()
-		return
+		return false
 	}
 	if c.childRole != "" && c.assignment != nil && c.assignment.Terminal && c.switchDone == nil {
-		c.startFollowUpLocked(queuedPrompt{text: text, pendingSkills: pendingSkills, media: media, id: userID})
-		c.streamMu.Unlock()
-		return
+		c.startFollowUpLocked(queuedPrompt{
+			text:          text,
+			pendingSkills: pendingSkills,
+			media:         media,
+			id:            session.NewUserMessageID(),
+		})
+		return true
 	}
 	a := c.assignment
 	reserved := a != nil && !a.Terminal && (!a.claimed || c.childAttached != nil || a.Turn == TurnIdle)
@@ -2317,13 +2324,18 @@ func (c *Controller) StartPrompt(text string, pendingSkills []string, userID str
 	if c.switchDone != nil || c.streamRunning || reserved {
 		c.promptQueue = append(
 			c.promptQueue,
-			queuedPrompt{text: text, pendingSkills: pendingSkills, media: media, id: userID},
+			queuedPrompt{
+				text:          text,
+				pendingSkills: pendingSkills,
+				media:         media,
+				id:            session.NewUserMessageID(),
+			},
 		)
-		c.streamMu.Unlock()
-		return
+		c.publishPromptQueueLocked()
+		return true
 	}
-	c.startPromptLocked(text, pendingSkills, media, agent.TurnUserInput)
-	c.streamMu.Unlock()
+	c.startPromptLocked(text, pendingSkills, media, agent.TurnUserInput, "")
+	return false
 }
 
 // refuseNoModelSubmit answers a turn the session cannot run: no model is
@@ -2343,7 +2355,9 @@ func (c *Controller) refuseNoModelSubmit() {
 	c.publish(RunEndedMsg{})
 }
 
-// queuedPrompt is a submit waiting for the in-flight run to finish.
+// queuedPrompt is a submit waiting for the in-flight run to finish. id is
+// the transcript row id assigned at enqueue; the engine promotes it into a
+// UserPromoted row when the prompt is actually delivered to the model.
 type queuedPrompt struct {
 	text          string
 	pendingSkills []string
@@ -2351,33 +2365,46 @@ type queuedPrompt struct {
 	id            string
 }
 
-// dropQueuedPromptsLocked clears the queue and tells the UI to un-queue each
-// dropped row, so the transcript hint does not outlive the queue. The caller
-// holds streamMu.
-func (c *Controller) dropQueuedPromptsLocked() {
+// publishPromptQueueLocked mirrors the queue to the composer widget, which
+// draws one line per waiting prompt above the input. Published on every
+// mutation so the widget never disagrees with the queue. The caller holds
+// streamMu.
+func (c *Controller) publishPromptQueueLocked() {
+	items := make([]string, 0, len(c.promptQueue))
 	for _, q := range c.promptQueue {
-		if q.id != "" {
-			c.publish(SessionEventMsg{Event: session.UserPromoted{ID: q.id}})
-		}
+		items = append(items, agent.UserPromptDisplayText(q.text, q.pendingSkills))
+	}
+	c.publish(PromptQueueMsg{Items: items})
+}
+
+// dropQueuedPromptsLocked clears the queue and refreshes the widget. No
+// transcript event: queued prompts never had rows, so there is nothing to
+// un-queue. The caller holds streamMu.
+func (c *Controller) dropQueuedPromptsLocked() {
+	if len(c.promptQueue) == 0 {
+		return
 	}
 	c.promptQueue = nil
+	c.publishPromptQueueLocked()
 }
 
 // RecallQueuedPrompt pops the most recently queued prompt back out of the
-// queue and returns its text and transcript row id, newest first (Esc
-// recall). Not-ok means nothing is left to recall — the queue is empty or
-// the entry was just drained into the running turn, in which case the
-// message was already delivered and Esc keeps its cancel meaning. The lock
-// makes the pop atomic against drainQueuedForRun and finishRun.
-func (c *Controller) RecallQueuedPrompt() (text, id string, ok bool) {
+// queue, newest first (Esc recall), and returns everything the composer
+// needs to restore the draft: text, attached media and pending skills.
+// Not-ok means nothing is left to recall — the queue is empty or the entry
+// was just drained into the running turn, in which case the message was
+// already delivered and Esc keeps its cancel meaning. The lock makes the
+// pop atomic against drainQueuedForRun and finishRun.
+func (c *Controller) RecallQueuedPrompt() (text string, media []llm.Media, pendingSkills []string, ok bool) {
 	c.streamMu.Lock()
 	defer c.streamMu.Unlock()
 	if len(c.promptQueue) == 0 {
-		return "", "", false
+		return "", nil, nil, false
 	}
 	last := c.promptQueue[len(c.promptQueue)-1]
 	c.promptQueue = c.promptQueue[:len(c.promptQueue)-1]
-	return last.text, last.id, true
+	c.publishPromptQueueLocked()
+	return last.text, last.media, last.pendingSkills, true
 }
 
 // startPromptLocked launches a run; the caller holds streamMu and the stream
@@ -2389,6 +2416,7 @@ func (c *Controller) startPromptLocked(
 	pendingSkills []string,
 	media []llm.Media,
 	origin agent.TurnOrigin,
+	userID string,
 ) {
 	if c.closing || c.switchDone != nil {
 		return
@@ -2397,6 +2425,10 @@ func (c *Controller) startPromptLocked(
 		c.refuseNoModelSubmit()
 		return
 	}
+	// The transcript text is the user's words, captured before the watch
+	// reminder is folded in for the model: the row must never show
+	// background prose.
+	display := agent.UserPromptDisplayText(text, pendingSkills)
 	// Whatever the watches queued rides along with this prompt — including
 	// when the prompt is empty, which is what a wake turn is. The reminder
 	// never reaches the transcript row: the submitter published that from the
@@ -2425,7 +2457,7 @@ func (c *Controller) startPromptLocked(
 	engine := c.engine
 	c.streamWG.Go(func() {
 		defer cancel()
-		c.runLoop(ctx, gen, engine, text, pendingSkills, media, origin)
+		c.runLoop(ctx, gen, engine, text, pendingSkills, media, origin, userID, display)
 	})
 }
 
@@ -2471,19 +2503,26 @@ func (c *Controller) startNextLocked(stopped bool) bool {
 	startedNext := false
 	assignmentStopped := c.assignment != nil && c.assignment.stop
 	if !assignmentStopped && len(c.promptQueue) > 0 {
-		next := c.promptQueue[0]
-		c.promptQueue = c.promptQueue[1:]
-		if c.childRole != "" && c.assignment != nil && c.assignment.Terminal {
-			// A switch can queue input on a retained terminal child. Admit a
-			// linked assignment instead of trying to revive the finished one.
-			c.startFollowUpLocked(next)
+		// Refuse without dequeuing: the prompt stays queued — the model can
+		// come back — and finishRun emits its single RunEndedMsg as usual.
+		if c.configuredModelName() == "" {
+			c.refuseNoModelSubmit()
+			startedNext = true
 		} else {
-			c.startPromptLocked(next.text, next.pendingSkills, next.media, agent.TurnUserInput)
+			next := c.promptQueue[0]
+			c.promptQueue = c.promptQueue[1:]
+			c.publishPromptQueueLocked()
+			if c.childRole != "" && c.assignment != nil && c.assignment.Terminal {
+				// A switch can queue input on a retained terminal child. Admit a
+				// linked assignment instead of trying to revive the finished one.
+				c.startFollowUpLocked(next)
+			} else {
+				c.startPromptLocked(next.text, next.pendingSkills, next.media, agent.TurnUserInput, next.id)
+			}
+			// No transcript event here: the engine promotes the row when it
+			// actually delivers the prompt to the model.
+			startedNext = true
 		}
-		if next.id != "" {
-			c.publish(SessionEventMsg{Event: session.UserPromoted{ID: next.id}})
-		}
-		startedNext = true
 	}
 	if !startedNext && !assignmentStopped && (!stopped || c.assignment == nil) {
 		c.maybeResumeApprovedWorkLocked()
@@ -2495,7 +2534,7 @@ func (c *Controller) startNextLocked(stopped bool) bool {
 		// Events that arrived mid-turn but after the last tool round: the
 		// turn had no boundary left to inject them at, so they get their own.
 		c.wakeStreak++
-		c.startPromptLocked("", nil, nil, agent.TurnAutonomous)
+		c.startPromptLocked("", nil, nil, agent.TurnAutonomous, "")
 		startedNext = true
 	}
 	return startedNext
@@ -2562,7 +2601,10 @@ func (c *Controller) shutdownPrompts() {
 	if c.assignment != nil {
 		c.stopAssignmentLocked(c.assignment, context.Canceled)
 	}
-	c.promptQueue = nil
+	if len(c.promptQueue) > 0 {
+		c.promptQueue = nil
+		c.publishPromptQueueLocked()
+	}
 	if c.watchWake != nil {
 		c.watchWake.Stop()
 		c.watchWake = nil
@@ -2894,8 +2936,15 @@ func (c *Controller) runLoop(
 	pendingSkills []string,
 	media []llm.Media,
 	origin agent.TurnOrigin,
+	userID string,
+	userDisplayText string,
 ) {
 	defer c.finishRun(gen)
+	// Prompts the engine drained but never promoted — Esc or a superseding
+	// run cut the turn between drain and delivery — go back to the front of
+	// the queue so finishRun (or a later turn) still delivers them.
+	var drained []queuedPrompt
+	defer func() { c.requeueUndelivered(drained) }()
 	if !c.waitOrDone(ctx, gen, 120*time.Millisecond) {
 		return
 	}
@@ -2936,6 +2985,10 @@ func (c *Controller) runLoop(
 		queued := c.promptQueue
 		c.promptQueue = nil
 		fired := c.drainWatchLocked()
+		drained = append(drained, queued...)
+		if len(queued) > 0 {
+			c.publishPromptQueueLocked()
+		}
 		c.streamMu.Unlock()
 
 		out := make([]agent.InjectedPrompt, 0, len(queued)+1)
@@ -2950,7 +3003,14 @@ func (c *Controller) runLoop(
 		return out
 	}
 
-	opts := agent.LoopOpts{Origin: origin, PendingSkills: pendingSkills, Media: media, Inject: drainQueuedForRun}
+	opts := agent.LoopOpts{
+		Origin:          origin,
+		PendingSkills:   pendingSkills,
+		Media:           media,
+		Inject:          drainQueuedForRun,
+		UserID:          userID,
+		UserDisplayText: userDisplayText,
+	}
 	if c.childRole == "" {
 		opts.Inbox = func(parent *agent.Session) error {
 			if err := c.deliverOutcomes(ctx, gen, parent); err != nil {
@@ -2964,8 +3024,17 @@ func (c *Controller) runLoop(
 		if p, ok := ev.(session.UserPromoted); ok {
 			// Row-scoped, not gen-scoped: publish even while the turn is being
 			// cancelled — the engine appended the message before yielding, and
-			// skipping here would leave the "(queued)" hint stuck forever.
+			// the transcript is the record of what the model saw.
 			c.publish(SessionEventMsg{Event: p})
+			for i, q := range drained {
+				if q.id == p.ID {
+					drained = append(drained[:i], drained[i+1:]...)
+					break
+				}
+			}
+			// Handled above: fall through to the generic publish would append
+			// the delivered user row a second time.
+			continue
 		}
 		if !c.Alive(gen) {
 			return
@@ -2994,6 +3063,25 @@ func (c *Controller) runLoop(
 			}
 		}
 	}
+}
+
+// requeueUndelivered puts drained-but-never-delivered prompts back at the
+// front of the queue, in order. A turn can drain a prompt and then be cut by
+// Esc or a superseding run before the engine appends it — the model never
+// saw it, so it keeps waiting instead of being lost. Registered as a defer
+// right after finishRun's, so it runs first and finishRun starts the
+// requeued head normally. Closing drops them: the session is going away.
+func (c *Controller) requeueUndelivered(drained []queuedPrompt) {
+	if len(drained) == 0 {
+		return
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if c.closing {
+		return
+	}
+	c.promptQueue = append(append([]queuedPrompt(nil), drained...), c.promptQueue...)
+	c.publishPromptQueueLocked()
 }
 
 // workspaceRoot is the root the gate is built against.

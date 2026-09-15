@@ -104,11 +104,11 @@ func TestController_QueueInjectsMidTurn(t *testing.T) {
 	ctrl.SetAllowAll(true)
 	t.Cleanup(ctrl.Close)
 
-	ctrl.StartPrompt("first", nil, "u1")
+	ctrl.StartPrompt("first", nil)
 	waitForCond(t, 5*time.Second, func() bool { return len(bodies()) >= 1 })
 
 	// Queue a prompt while round 1 is blocked mid-stream.
-	ctrl.StartPrompt("queued question", nil, "u2")
+	ctrl.StartPrompt("queued question", nil)
 
 	// The queue must not leak into a finished state: marker hint clears and
 	// the model sees the message in the very next request.
@@ -129,14 +129,15 @@ func TestController_QueueInjectsMidTurn(t *testing.T) {
 				continue
 			}
 			if p, ok := event.Event.(session.UserPromoted); ok {
-				promoted = p.ID
+				promoted = p.Text
 			}
 		}
 		if promoted == "" {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
-	assert.Equal(t, "u2", promoted, "UserPromoted must fire when the model sees the message")
+	assert.Equal(t, "queued question", promoted,
+		"UserPromoted must carry the prompt's display text when the model sees the message")
 }
 
 // newInjectController builds a controller whose engine talks to baseURL —

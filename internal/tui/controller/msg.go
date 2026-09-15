@@ -75,6 +75,14 @@ type RunEndedMsg struct{}
 
 func (RunEndedMsg) isMsg() {}
 
+// PromptQueueMsg carries the controller's prompt queue as display lines, in
+// order. It is published on every queue mutation (enqueue, dequeue, recall,
+// drop, drain, requeue) so the composer can draw what waits behind the
+// running turn — the transcript itself shows only delivered messages.
+type PromptQueueMsg struct{ Items []string }
+
+func (PromptQueueMsg) isMsg() {}
+
 // MentionResultsMsg delivers async @-file search results to the UI goroutine.
 type MentionResultsMsg struct {
 	Gen     int

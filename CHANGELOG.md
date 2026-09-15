@@ -15,6 +15,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   child watched live reads exactly like the same session reopened from disk,
   and a typed follow-up into a retained child still gets its one row from the
   composer.
+- Fixed: a prompt submitted while a reply is running now waits in a queue
+  strip above the input instead of appearing in the transcript with a
+  "(queued)" hint, and its transcript row is appended at the end of the feed
+  when the model actually receives it — mid-turn injection and dequeue can no
+  longer strand it above rows that arrived later.
 - Added: `kimi-code` models default to `temperature: 1`, the only value Kimi's
   coding endpoint accepts. The default rides the model entry, so a
   project-config or opencode-import model with the same name can still

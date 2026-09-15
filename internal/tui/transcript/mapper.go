@@ -307,9 +307,8 @@ func (m *Mapper) patchItem(w components.Widget, it session.Item) (ok, dirty bool
 		if !ok {
 			return false, false
 		}
-		dirty = u.Text != it.Text || u.Queued != it.Queued
+		dirty = u.Text != it.Text
 		u.Text = it.Text
-		u.Queued = it.Queued
 		u.Theme = m.theme
 		return true, dirty
 	case session.ItemAssistant:
@@ -534,7 +533,7 @@ func (m *Mapper) widgetFor(it session.Item) components.Widget {
 			},
 		}
 	case session.ItemUser:
-		return &block.UserBlock{Text: it.Text, Queued: it.Queued, Theme: m.theme}
+		return &block.UserBlock{Text: it.Text, Theme: m.theme}
 	case session.ItemThinking:
 		return &block.ThinkingBlock{
 			Text:        it.Thinking,
@@ -727,7 +726,7 @@ func (m *Mapper) groupTurns(items []session.Item, snap session.Snapshot) []sessi
 	}
 	var starts []int
 	for i, it := range items {
-		if it.Kind == session.ItemUser && !it.Queued {
+		if it.Kind == session.ItemUser {
 			starts = append(starts, i)
 		}
 	}
@@ -835,7 +834,7 @@ func turnDurations(snap session.Snapshot) map[string]time.Duration {
 	current := ""
 	for _, msg := range snap.Messages {
 		switch {
-		case msg.Role == session.RoleUser && !msg.Queued:
+		case msg.Role == session.RoleUser:
 			current = msg.ID
 		case msg.Role == session.RoleAssistant && current != "":
 			out[current] += msg.TurnDuration()

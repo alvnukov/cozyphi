@@ -18,8 +18,8 @@ func TestController_StartPromptQueuesWhileRunning(t *testing.T) {
 	bus := NewBus(nil)
 	ctrl := &Controller{bus: bus, modelCfg: llm.ModelConfig{Name: "test-model"}}
 
-	ctrl.StartPrompt("first", nil, "")
-	ctrl.StartPrompt("second", nil, "")
+	ctrl.StartPrompt("first", nil)
+	ctrl.StartPrompt("second", nil)
 
 	deadline := time.After(time.Second)
 	completed := 0
@@ -42,36 +42,47 @@ func TestController_StartPromptQueuesWhileRunning(t *testing.T) {
 	}
 }
 
-// TestController_DequeuePromotesQueuedUser: when the in-flight turn finishes
-// and the controller dequeues the next prompt, it emits UserPromoted so the
-// transcript can drop the "(queued)" hint on that row.
-func TestController_DequeuePromotesQueuedUser(t *testing.T) {
+// TestController_DequeueUpdatesQueueWidget: enqueuing behind a running turn
+// mirrors the queue into PromptQueueMsg for the composer widget, and the
+// dequeue that follows the turn's end mirrors the empty queue back. No
+// UserPromoted fires here: without an engine the prompt is never delivered,
+// and promote means "the model received it".
+func TestController_DequeueUpdatesQueueWidget(t *testing.T) {
 	bus := NewBus(nil)
 	ctrl := &Controller{bus: bus, modelCfg: llm.ModelConfig{Name: "test-model"}}
 
-	ctrl.StartPrompt("first", nil, "")
-	ctrl.StartPrompt("second", nil, "u2")
+	ctrl.StartPrompt("first", nil)
+	ctrl.StartPrompt("second", nil)
 
 	deadline := time.After(time.Second)
-	promoted := ""
-	for promoted == "" {
+	var sawQueued, sawEmpty, sawPromote bool
+	for !sawEmpty {
 		select {
 		case <-bus.Chan():
 			for _, msg := range bus.Drain() {
-				event, ok := msg.(SessionEventMsg)
-				if !ok {
-					continue
-				}
-				if p, ok := event.Event.(session.UserPromoted); ok {
-					promoted = p.ID
+				switch m := msg.(type) {
+				case PromptQueueMsg:
+					if len(m.Items) == 1 && m.Items[0] == "second" {
+						sawQueued = true
+					}
+					if len(m.Items) == 0 {
+						sawEmpty = true
+					}
+				case SessionEventMsg:
+					if _, ok := m.Event.(session.UserPromoted); ok {
+						sawPromote = true
+					}
 				}
 			}
 		case <-deadline:
-			t.Fatal("queued prompt was never promoted")
+			t.Fatal("queue widget was never told the queue drained")
 		}
 	}
-	if promoted != "u2" {
-		t.Fatalf("promoted id = %q, want u2", promoted)
+	if !sawQueued {
+		t.Fatal("queue widget never saw the queued prompt")
+	}
+	if sawPromote {
+		t.Fatal("no engine => no delivery => no UserPromoted")
 	}
 }
 

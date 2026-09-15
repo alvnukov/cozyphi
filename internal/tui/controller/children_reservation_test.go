@@ -84,7 +84,7 @@ func TestReservedChildContinuationWaitsForAttachmentAndSurvivesLeave(t *testing.
 	go func() { _, err := ctrl.RunAssignment(ctx, "reserved", "original"); finished <- err }()
 	waitForCond(t, 5*time.Second, func() bool { return ctrl.Assignment().JobID == "reserved" })
 	ctrl.Cancel()
-	ctrl.StartPrompt("continue instead", nil, "queued-continuation")
+	ctrl.StartPrompt("continue instead", nil)
 	require.Equal(t, TurnInterrupted, ctrl.Assignment().Turn, "continuation cannot bypass View readiness")
 	ctrl.LeaveAssignment()
 	require.False(t, ctrl.Assignment().Terminal, "accepted continuation is not abandonment")

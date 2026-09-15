@@ -29,7 +29,7 @@ func TestTerminalChildFollowUpRetainsSessionAndLinksNewAssignment(t *testing.T) 
 	require.NoError(t, err)
 	require.True(t, child.Controller.Assignment().Terminal)
 	require.False(t, old.Info.UserIntervened, "selecting/attaching a child is not intervention")
-	child.Controller.StartPrompt("follow-up assignment", nil, "follow-up-row")
+	child.Controller.StartPrompt("follow-up assignment", nil)
 	waitForCond(t, 5*time.Second, func() bool {
 		state := child.Controller.Assignment()
 		return state.JobID != first.ID && state.Terminal

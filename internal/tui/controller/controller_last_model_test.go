@@ -117,7 +117,7 @@ func TestControllerResumeDoesNotOverwriteLastModel(t *testing.T) {
 	t.Cleanup(ctrl.Close)
 
 	// A session is only resumable once it holds a turn.
-	ctrl.StartPrompt("seed a resumable session", nil, "seed")
+	ctrl.StartPrompt("seed a resumable session", nil)
 	waitForCond(t, 10*time.Second, func() bool { return requests.Load() >= 1 && !ctrl.RunActive() })
 	resumable := ctrl.SessionID()
 	require.NotEmpty(t, resumable)

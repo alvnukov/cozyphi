@@ -223,6 +223,16 @@ func (c *ComposerPane) AttachedMedia() []llm.Media {
 	return c.attachedMedia
 }
 
+// SetPromptQueue mirrors the controller's prompt queue into the composer
+// frame — one line per prompt waiting behind the running turn. Called on
+// every PromptQueueMsg; the transcript itself shows delivered messages only.
+func (c *ComposerPane) SetPromptQueue(items []string) {
+	if c == nil {
+		return
+	}
+	c.Chat.Queued = append([]string(nil), items...)
+}
+
 // SetClipboardReader replaces the system clipboard image read. Assemblies
 // whose paste path must not depend on the host clipboard (tests driving a
 // PasteEvent through the shell) install a reader that reports no image.
@@ -636,7 +646,7 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 				// it can be edited and resubmitted; the run is untouched. The
 				// recall must be tried before CancelStreamMsg — that path ends
 				// in Ctrl.Cancel, which drops the whole queue.
-				if text, ok := c.submitter.RecallQueued(); ok {
+				if text, media, skills, ok := c.submitter.RecallQueued(); ok {
 					c.Chat.ClearSelection()
 					// A draft typed while the run was busy survives; the recalled
 					// text is appended as a new line rather than overwriting it.
@@ -646,6 +656,14 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 						c.Chat.Value = text
 					}
 					c.Chat.Cursor = len(c.Chat.Value)
+					// Media and skills travel with the queue entry, so recall puts
+					// them back too — the user gets the exact draft they sent.
+					for _, m := range media {
+						c.AttachMedia(m)
+					}
+					for _, name := range skills {
+						c.Chat.AddPendingSkill(name)
+					}
 					ctx.ConsumeAndRedraw()
 					return
 				}

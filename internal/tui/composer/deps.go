@@ -3,6 +3,7 @@ package composer
 import (
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/palette"
+	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
 
@@ -20,9 +21,10 @@ type Input interface {
 type BusyChecker interface {
 	CanSubmit() bool
 	SyncBashBorder(text string)
-	// RecallQueued hands the newest queued prompt back for editing; not-ok
-	// means nothing is queued, and Esc keeps its stop-the-run meaning.
-	RecallQueued() (string, bool)
+	// RecallQueued hands the newest queued prompt back for editing — text,
+	// attached media and pending skills; not-ok means nothing is queued, and
+	// Esc keeps its stop-the-run meaning.
+	RecallQueued() (string, []llm.Media, []string, bool)
 }
 
 // SubmitBus is the bus/frame surface ComposerPane submits and schedules through.

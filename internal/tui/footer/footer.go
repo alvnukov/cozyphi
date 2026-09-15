@@ -595,7 +595,7 @@ func liveTurn(snap session.Snapshot) (start time.Time, completion int) {
 	msgs := snap.Messages
 	turn := 0
 	for i, m := range msgs {
-		if m.Role == session.RoleUser && !m.Queued {
+		if m.Role == session.RoleUser {
 			turn = i + 1
 		}
 	}
