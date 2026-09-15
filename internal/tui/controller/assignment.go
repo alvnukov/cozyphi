@@ -133,6 +133,7 @@ func (c *Controller) runAssignment(
 		} else if c.configuredModelName() == "" {
 			c.stopAssignmentLocked(a, errors.New("cannot start assignment: configure a model first"))
 		} else if a.Turn == TurnIdle {
+			c.publishAssignmentBriefLocked(prompt)
 			c.startPromptLocked(prompt.text, prompt.pendingSkills, prompt.media, agent.TurnAutonomous)
 		} else if a.Turn == TurnInterrupted && len(c.promptQueue) > 0 {
 			// A continuation accepted during assembly replaces the interrupted
@@ -148,6 +149,27 @@ func (c *Controller) runAssignment(
 	c.streamMu.Unlock()
 	<-a.done
 	return a.summary, a.err
+}
+
+// publishAssignmentBriefLocked opens the child's transcript with the brief it
+// was spawned on. A sub-agent's first user message is assembled rather than
+// typed, so no composer published a row for it, and without this the screen
+// would open on the model's first thinking row — the assignment itself, the
+// one thing that explains every step below it, invisible. Replaying the same
+// session from disk does build that row, so publishing it here is also what
+// keeps a child that is watched live and a child that is reopened later
+// reading alike. The caller holds streamMu.
+//
+// A row id means the composer already published one: a human follow-up into a
+// retained child arrives that way, and appending again would double it.
+func (c *Controller) publishAssignmentBriefLocked(prompt queuedPrompt) {
+	if prompt.id != "" || strings.TrimSpace(prompt.text) == "" {
+		return
+	}
+	c.publish(SessionEventMsg{Event: session.UserAppend{
+		ID:   session.NewUserMessageID(),
+		Text: prompt.text,
+	}})
 }
 
 // ErrLeftInterrupted records a deliberate assignment stop, not turn cancellation.

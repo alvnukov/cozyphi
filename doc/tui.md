@@ -31,6 +31,12 @@ elapsed time the parent's sub-agent store already keeps; the panel invents nothi
 its own. A success leaves the panel at once, and the footer says `/agents to see
 agents` for 30 seconds instead.
 
+A child's transcript opens on the brief that started it: the assignment is the first
+row on the screen — the same assembled first message, description, prompt, role hint
+and any skills, that the session shows when it is reopened from disk. Everything the
+child does reads below it, so the screen never starts mid-way. A prompt typed into a
+retained child gets its row from the composer, like any other prompt.
+
 `↓` in the composer moves the keyboard into the panel once the caret sits at the end
 of the last visual line and the history has no later entry to recall; `↑` on the
 `main` row and `Esc` give it back. While the panel holds the keyboard the selected row
