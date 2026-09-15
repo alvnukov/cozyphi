@@ -92,7 +92,7 @@ func TestSubmitter_CanSubmitRunActive(t *testing.T) {
 	if !sub.CanSubmit() {
 		t.Fatal("fresh controller must accept prompts")
 	}
-	ctrl.StartPrompt("run", nil, "")
+	ctrl.StartPrompt("run", nil)
 	if sub.CanSubmit() {
 		t.Fatal("in-flight run must block submit")
 	}
@@ -173,10 +173,11 @@ func TestSubmitter_SubmitQueuesPromptWhileStreaming(t *testing.T) {
 	assert.Equal(t, controller.ActivityWaiting, activity.Current)
 }
 
-// TestSubmitter_SubmitMarksQueuedWhileRunActive: a submit accepted while the
-// controller reports an in-flight run must carry the queued flag into the
-// transcript, so the UI can render it as waiting rather than as sent.
-func TestSubmitter_SubmitMarksQueuedWhileRunActive(t *testing.T) {
+// TestSubmitter_SubmitQueuedWhileRunActiveStaysOutOfTranscript: a submit
+// accepted behind an in-flight run must NOT appear in the transcript — it
+// waits in the composer's queue widget and its row is appended by
+// session.UserPromoted only when the engine actually delivers it.
+func TestSubmitter_SubmitQueuedWhileRunActiveStaysOutOfTranscript(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
@@ -201,22 +202,21 @@ func TestSubmitter_SubmitMarksQueuedWhileRunActive(t *testing.T) {
 	}})
 	sub := NewSubmitter(ctrl, nil, tp, activity, stubComposer{}, nil, nil, nil, nil, nil, nil, nil)
 
-	ctrl.StartPrompt("first", nil, "") // makes RunActive true
+	ctrl.StartPrompt("first", nil) // makes RunActive true
 	sub.Submit("follow up")
 
 	msgs := tp.Snapshot().Messages
-	require.Len(t, msgs, 2)
-	require.Equal(t, session.RoleUser, msgs[1].Role)
-	require.Equal(t, "follow up", msgs[1].Text)
-	require.True(t, msgs[1].Queued, "submit while a run is active must mark the message queued")
+	require.Len(t, msgs, 1, "a queued prompt must not enter the transcript")
+	require.Equal(t, "a1", msgs[0].ID)
+	require.True(t, ctrl.RunActive(), "the queued prompt keeps the pipeline busy")
 
 	ctrl.Cancel()
 }
 
-// TestSubmitter_RecallQueuedRemovesRowAndReturnsText: Esc recall hands the
-// queued prompt back for editing and drops its "(queued)" row — the prompt
-// never reached the model, so the row must not survive the recall.
-func TestSubmitter_RecallQueuedRemovesRowAndReturnsText(t *testing.T) {
+// TestSubmitter_RecallQueuedReturnsTextAndLeavesTranscript: Esc recall
+// hands the queued prompt back for editing. The transcript never held a row
+// for it, so nothing is removed — recall only pops the controller's queue.
+func TestSubmitter_RecallQueuedReturnsTextAndLeavesTranscript(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
@@ -241,19 +241,19 @@ func TestSubmitter_RecallQueuedRemovesRowAndReturnsText(t *testing.T) {
 	}})
 	sub := NewSubmitter(ctrl, nil, tp, activity, stubComposer{}, nil, nil, nil, nil, nil, nil, nil)
 
-	ctrl.StartPrompt("first", nil, "") // makes RunActive true
+	ctrl.StartPrompt("first", nil) // makes RunActive true
 	sub.Submit("follow up")
-	require.Len(t, tp.Snapshot().Messages, 2)
+	require.Len(t, tp.Snapshot().Messages, 1, "queued prompt never entered the transcript")
 
-	text, ok := sub.RecallQueued()
+	text, _, _, ok := sub.RecallQueued()
 	require.True(t, ok, "a queued prompt must come back")
 	require.Equal(t, "follow up", text)
 
 	msgs := tp.Snapshot().Messages
-	require.Len(t, msgs, 1, "the recalled row must leave the transcript")
+	require.Len(t, msgs, 1, "recall must not touch the transcript")
 	require.Equal(t, "a1", msgs[0].ID, "the streaming assistant row must stay")
 
-	_, ok = sub.RecallQueued()
+	_, _, _, ok = sub.RecallQueued()
 	require.False(t, ok, "empty queue has nothing to recall")
 
 	ctrl.Cancel()
@@ -267,7 +267,7 @@ func TestSubmitter_RecallQueuedWithoutController(t *testing.T) {
 	tp := transcript.NewTranscriptPane(th, spin, "CozyPhi test")
 	sub := NewSubmitter(nil, nil, tp, nil, stubComposer{}, nil, nil, nil, nil, nil, nil, nil)
 
-	_, ok := sub.RecallQueued()
+	_, _, _, ok := sub.RecallQueued()
 	require.False(t, ok)
 }
 

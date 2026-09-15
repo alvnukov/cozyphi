@@ -130,9 +130,10 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 }
 
 // TestEditorQueuedSubmitReachesModel is the UI-level integration test for the
-// queue: a prompt submitted while the model is answering is shown as queued,
-// the marker clears when the in-flight turn finishes, and the queued prompt is
-// then sent to the model and answered — all through View.Handle, the bus, and
+// queue: a prompt submitted while the model is answering stays OUT of the
+// transcript (it waits in the composer queue widget), and when the in-flight
+// turn finishes the engine delivers it — its row lands at the END of the
+// transcript, followed by the answer. All through View.Handle, the bus, and
 // the transcript projection, with a real streaming fake model server.
 func TestEditorQueuedSubmitReachesModel(t *testing.T) {
 	srv, bodies, firstStarted, release := queuedSSEServer(t)
@@ -161,22 +162,18 @@ func TestEditorQueuedSubmitReachesModel(t *testing.T) {
 		return len(snap.Messages) >= 2 && snap.Messages[1].Role == session.RoleAssistant
 	})
 
-	// Submit while the model is still answering: the row must be marked queued.
+	// Submit while the model is still answering: the prompt waits in the
+	// queue widget, no transcript row yet.
 	submitPrompt(e, "second")
 	e.DrainNow()
 
 	snap := e.transcript.Snapshot()
-	var second *session.Message
-	for i := range snap.Messages {
-		if snap.Messages[i].Role == session.RoleUser && snap.Messages[i].Text == "second" {
-			second = &snap.Messages[i]
-		}
-	}
-	require.NotNil(t, second, "second user row must be in the transcript")
-	require.True(t, second.Queued, "second user row must be marked (queued) while the first turn runs")
+	require.Len(t, snap.Messages, 2, "queued prompt must not enter the transcript")
+	require.Equal(t, 0, countUserRows(snap, "second"))
+	require.True(t, ctrl.RunActive(), "queued prompt keeps the pipeline busy")
 
-	// Finish the first turn: the controller must dequeue the second prompt and
-	// answer it, clearing the queued marker on the way.
+	// Finish the first turn: the controller dequeues the second prompt, the
+	// engine delivers it, and its row is appended at the end.
 	release()
 
 	waitFor(t, 10*time.Second, func() bool {
@@ -192,7 +189,6 @@ func TestEditorQueuedSubmitReachesModel(t *testing.T) {
 	assert.Equal(t, "first reply", snap.Messages[1].FlatText())
 	assert.Equal(t, session.RoleUser, snap.Messages[2].Role)
 	assert.Equal(t, "second", snap.Messages[2].Text)
-	assert.False(t, snap.Messages[2].Queued, "queued marker must clear after dequeue")
 	assert.Equal(t, session.RoleAssistant, snap.Messages[3].Role)
 	assert.Equal(t, "second reply", snap.Messages[3].FlatText())
 
@@ -274,13 +270,13 @@ func inPlaceSSEServer(
 	return srv, bodies, firstStartedCh, release
 }
 
-// TestEditorQueuedRowStaysInPlaceUntilDelivered pins the transcript semantics
-// the user asked for: a row submitted mid-run stays exactly where it was
-// submitted, and nothing may render below it while it is still queued. The
-// (queued) hint clears at the moment the model receives the message — the
-// tool-round boundary — which is visible in the final order: round 1, the
-// user row, then the model's answer to it.
-func TestEditorQueuedRowStaysInPlaceUntilDelivered(t *testing.T) {
+// TestEditorQueuedRowAppendedAtDelivery pins the transcript semantics the
+// user asked for: a prompt submitted mid-run has NO transcript row while it
+// waits — it hangs in the queue widget above the input. The row appears at
+// the END of the transcript at the moment the model receives the message
+// (the tool-round boundary), so the final order is: round 1, the user row,
+// then the model's answer to it.
+func TestEditorQueuedRowAppendedAtDelivery(t *testing.T) {
 	cwd := t.TempDir()
 	readFile := filepath.Join(cwd, "note.txt")
 	require.NoError(t, os.WriteFile(readFile, []byte("hello"), 0o644))
@@ -311,42 +307,49 @@ func TestEditorQueuedRowStaysInPlaceUntilDelivered(t *testing.T) {
 		return len(snap.Messages) >= 2 && snap.Messages[1].Role == session.RoleAssistant
 	})
 
-	// Submit while round 1 is mid-stream: the row lands below the streaming
-	// assistant, marked queued, with nothing below it yet.
+	// Submit while round 1 is mid-stream: no transcript row — the prompt
+	// waits in the queue widget above the input.
 	submitPrompt(e, "hold my place")
 	e.DrainNow()
 	snap := e.transcript.Snapshot()
-	require.Len(t, snap.Messages, 3, "user, streaming assistant, queued user")
-	queued := snap.Messages[2]
-	require.Equal(t, session.RoleUser, queued.Role)
-	require.Equal(t, "hold my place", queued.Text)
-	require.True(t, queued.Queued, "row must be marked (queued) while undelivered")
-	queuedID := queued.ID
+	require.Len(t, snap.Messages, 2, "queued prompt must not enter the transcript")
+	require.Equal(t, 0, countUserRows(snap, "hold my place"))
 
 	// Release round 1: the tool runs, the boundary delivers the queued row
-	// mid-turn, and round 2 answers it below. Every sampled snapshot must keep
-	// the row at its index, and any content below it requires delivery first.
+	// mid-turn, and round 2 answers it below. Once the row appears it must
+	// sit at the end (only the answering assistant may follow it), keep its
+	// id, and never duplicate.
 	release()
+	queuedID := ""
 	waitFor(t, 10*time.Second, func() bool {
 		e.DrainNow()
 		s := e.transcript.Snapshot()
-		require.Equal(t, 1, countUserRows(s, "hold my place"),
-			"the queued row must not be duplicated by the mid-turn injection")
-		if s.Messages[2].ID != queuedID || s.Messages[2].Text != "hold my place" {
-			t.Fatalf("queued row moved: got %+v at index 2", s.Messages[2])
-		}
-		if len(s.Messages) > 3 && s.Messages[2].Queued {
-			t.Fatal("content rendered below the row while it was still queued")
+		n := countUserRows(s, "hold my place")
+		require.LessOrEqual(t, n, 1, "the queued row must not be duplicated by the mid-turn injection")
+		if n == 1 {
+			idx := len(s.Messages) - 1
+			if s.Messages[idx].Text != "hold my place" {
+				idx--
+			}
+			row := s.Messages[idx]
+			require.Equal(t, "hold my place", row.Text)
+			require.Equal(t, session.RoleUser, row.Role)
+			if queuedID == "" {
+				queuedID = row.ID
+			} else {
+				require.Equal(t, queuedID, row.ID, "the delivered row must keep its id")
+			}
 		}
 		return len(s.Messages) >= 4 && !session.IsStreaming(s)
 	})
 
 	snap = e.transcript.Snapshot()
-	require.Len(t, snap.Messages, 4, "round 1, queued row, round 2")
+	require.Len(t, snap.Messages, 4, "round 1, delivered row, round 2")
 	assert.Equal(t, session.RoleAssistant, snap.Messages[1].Role)
 	assert.Equal(t, "round one ", snap.Messages[1].FlatText())
-	assert.Equal(t, queuedID, snap.Messages[2].ID, "same row, same place")
-	assert.False(t, snap.Messages[2].Queued, "hint clears when the model sees the row")
+	assert.Equal(t, session.RoleUser, snap.Messages[2].Role)
+	assert.Equal(t, "hold my place", snap.Messages[2].Text)
+	assert.Equal(t, queuedID, snap.Messages[2].ID, "same row the engine promoted")
 	assert.Equal(t, session.RoleAssistant, snap.Messages[3].Role)
 	assert.Equal(t, "answered in round two", snap.Messages[3].FlatText())
 
@@ -367,9 +370,9 @@ func countUserRows(s session.Snapshot, text string) int {
 
 // TestEditorEscRecallsQueuedPrompt is the UI-level contract for Esc recall:
 // while the first turn streams and a second prompt sits queued, Esc pulls
-// the newest queued message back into the composer, drops its transcript
-// row, and leaves the run alone — the model never sees the recalled prompt,
-// and the input is submittable again once the turn ends.
+// the newest queued message back into the composer — the transcript never
+// held a row for it — and leaves the run alone: the model never sees the
+// recalled prompt, and the input is submittable again once the turn ends.
 func TestEditorEscRecallsQueuedPrompt(t *testing.T) {
 	srv, bodies, firstStarted, release := queuedSSEServer(t)
 	defer srv.Close()
@@ -394,20 +397,20 @@ func TestEditorEscRecallsQueuedPrompt(t *testing.T) {
 		return len(snap.Messages) >= 2 && snap.Messages[1].Role == session.RoleAssistant
 	})
 
-	// Submit while the model is still answering: the row must be marked queued.
+	// Submit while the model is still answering: the prompt waits in the
+	// queue widget — no transcript row yet.
 	submitPrompt(e, "second")
 	e.DrainNow()
 	snap := e.transcript.Snapshot()
-	require.Len(t, snap.Messages, 3, "user, streaming assistant, queued user")
-	require.Equal(t, "second", snap.Messages[2].Text)
-	require.True(t, snap.Messages[2].Queued, "second user row must be marked (queued) while the run is live")
+	require.Len(t, snap.Messages, 2, "queued prompt must not enter the transcript")
+	require.Equal(t, 0, countUserRows(snap, "second"))
 
-	// Esc recalls: the queued row disappears and the text returns to the input.
+	// Esc recalls: the text returns to the input, the transcript is untouched.
 	e.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
 	e.DrainNow()
 
 	snap = e.transcript.Snapshot()
-	require.Equal(t, 0, countUserRows(snap, "second"), "the recalled row must be gone")
+	require.Equal(t, 0, countUserRows(snap, "second"), "recall must not add a row")
 	require.Len(t, snap.Messages, 2, "only the first turn's rows remain")
 	assert.Contains(t, e.composer.Chat.Value, "second", "the recalled text must land in the input")
 

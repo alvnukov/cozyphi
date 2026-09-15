@@ -574,10 +574,10 @@ func (t *TranscriptPane) JumpTurn(ctx *components.EventContext, dir int) {
 }
 
 // isTurnStart reports a sent user prompt's row — the anchor a turn jump
-// lands on. A queued prompt waits inside someone else's turn and is skipped.
+// lands on.
 func isTurnStart(w components.Widget) bool {
-	u, ok := w.(*block.UserBlock)
-	return ok && !u.Queued
+	_, ok := w.(*block.UserBlock)
+	return ok
 }
 
 // SetExpandEdits sets whether edit (diff) cards render expanded. Turning

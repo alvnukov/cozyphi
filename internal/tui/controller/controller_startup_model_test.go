@@ -117,7 +117,7 @@ func TestStartPromptRefusedWithoutModel(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 
-	ctrl.StartPrompt("hello", nil, "u1")
+	ctrl.StartPrompt("hello", nil)
 
 	assert.False(t, ctrl.RunActive(), "a refused submit must not start a turn")
 	ctrl.streamMu.Lock()

@@ -59,7 +59,7 @@ func TestControllerSwitchReservesTurnAdmission(t *testing.T) {
 						c.streamMu.Unlock()
 						c.wakeForWatches() // force the timer callback; no timing-dependent race window
 						if userPrompt {
-							c.StartPrompt("user marker", nil, "queued-user")
+							c.StartPrompt("user marker", nil)
 						}
 						c.Compact() // compaction is the other engine-writing admission path
 						close(ready)
@@ -192,7 +192,7 @@ func TestControllerCloseJoinsSessionSwitch(t *testing.T) {
 			}))
 			_, err := session.OpenSession(current.SessionFile())
 			require.ErrorIs(t, err, session.ErrBusy)
-			c.StartPrompt("must not start after Close", nil, "")
+			c.StartPrompt("must not start after Close", nil)
 			c.wakeForWatches()
 			c.streamMu.Lock()
 			generation := c.streamGen
@@ -243,7 +243,7 @@ func TestControllerSwitchCancelKeepsWatchQueued(t *testing.T) {
 	require.Zero(t, generation)
 	require.Equal(t, 1, queued)
 	require.False(t, armed)
-	c.StartPrompt("resume after cancel", nil, "")
+	c.StartPrompt("resume after cancel", nil)
 	waitForCond(t, 5*time.Second, func() bool { return len(bodies()) > 0 && !c.RunActive() })
 	require.Len(t, bodies(), 1)
 	require.Contains(t, bodies()[0], "watch marker")

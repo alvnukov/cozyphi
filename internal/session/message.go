@@ -134,9 +134,6 @@ type Message struct {
 	State      State      // assistant
 	StopReason StopReason // assistant when complete
 	Text       string     // user visible text
-	// Queued marks a user message accepted while a run was in flight: it is
-	// shown as waiting behind the running turn, not as sent.
-	Queued bool
 	// Summary is the compaction summarize body (RoleCompaction only); the
 	// transcript row expands to show it. Empty on every other role.
 	Summary string
@@ -215,34 +212,42 @@ type Event interface {
 	isSessionEvent()
 }
 
-// UserAppend appends a user message. Queued marks a submit accepted behind a
-// running turn.
+// UserPromptText is the transcript text for a user prompt: the typed text,
+// or a skills summary when the submit carried only composer skills. The
+// submitter, the queue widget and the engine's promote event all render the
+// same string, so the rule lives here exactly once — beside the events that
+// carry it.
+func UserPromptText(text string, skills []string) string {
+	if text != "" {
+		return text
+	}
+	if len(skills) > 0 {
+		return "Skills: " + strings.Join(skills, ", ")
+	}
+	return ""
+}
+
+// UserAppend appends a user message the moment it is submitted. A prompt
+// accepted behind a running turn has no row yet — it lands via UserPromoted
+// when the model actually receives it.
 type UserAppend struct {
-	ID     string
-	Text   string
-	Queued bool
+	ID   string
+	Text string
 }
 
 func (UserAppend) isSessionEvent() {}
 
-// UserPromoted clears the queued flag on the matching user row once the
-// in-flight turn finishes and that prompt dequeues to run.
+// UserPromoted appends the user row for a queued prompt at the moment the
+// engine delivers it to the model. The transcript holds only delivered
+// messages, so the row joins the feed at the end — after every event the
+// in-flight turn produced while the prompt waited. An unknown ID still
+// appends: delivery is the fact, the id is bookkeeping.
 type UserPromoted struct {
-	ID string
+	ID   string
+	Text string
 }
 
 func (UserPromoted) isSessionEvent() {}
-
-// UserRecalled deletes a still-queued user row: Esc pulled the newest queued
-// prompt back into the composer for editing, so it was never sent. The event
-// is UI-only and never journaled — an undelivered queued row exists only in
-// the live transcript; the durable journal is written by the engine when the
-// prompt is actually delivered to the model.
-type UserRecalled struct {
-	ID string
-}
-
-func (UserRecalled) isSessionEvent() {}
 
 // LocalBashStart appends a user-initiated "!cmd" bash row.
 type LocalBashStart struct {

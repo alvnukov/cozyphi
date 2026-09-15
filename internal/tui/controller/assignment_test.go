@@ -79,7 +79,7 @@ func TestAssignmentInterruptRetainsAssignmentUntilContinuation(t *testing.T) {
 			if leave {
 				ctrl.LeaveAssignment()
 			} else {
-				ctrl.StartPrompt("continue", nil, "continuation")
+				ctrl.StartPrompt("continue", nil)
 				ctrl.LeaveAssignment()
 			}
 			select {

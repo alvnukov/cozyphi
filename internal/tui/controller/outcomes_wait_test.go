@@ -70,7 +70,7 @@ func TestExplicitWaitConsumesOutcomeWithoutAnotherWake(t *testing.T) {
 	require.NoError(t, err)
 	jobID.Store(info.ID)
 	lateHint <- func() { ctrl.runtime.notifyOutcome(ctrl.jobOwnerID, parentID) }
-	ctrl.StartPrompt("wait for that assignment", nil, "user-wait")
+	ctrl.StartPrompt("wait for that assignment", nil)
 	waitForCond(t, 5*time.Second, func() bool { return len(bodies()) >= 2 && !ctrl.RunActive() })
 	require.Equal(
 		t,

@@ -238,30 +238,36 @@ func TestController_SetPlanApprovedUnapproveStopsStream(t *testing.T) {
 	assert.False(t, ctrl.Plan().Approved)
 }
 
-// TestController_UnapproveClearsQueuedHints: dropping the queue on plan
-// unapproval must emit UserPromoted for each queued row, otherwise the
-// transcript keeps the "(queued)" hint on a message that will never run.
-func TestController_UnapproveClearsQueuedHints(t *testing.T) {
+// TestController_UnapproveDropsQueueWithoutPromote: dropping the queue on
+// plan unapproval must NOT emit UserPromoted — those prompts never reached
+// the model, and promote means "delivered". The queue widget is told the
+// queue is empty, and that is all.
+func TestController_UnapproveDropsQueueWithoutPromote(t *testing.T) {
 	ctrl := newReadyController(t)
 	require.NoError(t, ctrl.SetPlanApproved(true))
 
 	ctrl.streamMu.Lock()
 	ctrl.streamCancel = func() {}
 	ctrl.streamRunning = true
-	ctrl.promptQueue = []queuedPrompt{{text: "a", id: "u1"}, {text: "b", id: "u2"}, {text: "no row"}}
+	ctrl.promptQueue = []queuedPrompt{{text: "a", id: "u1"}, {text: "b", id: "u2"}}
 	ctrl.streamMu.Unlock()
 
 	require.NoError(t, ctrl.SetPlanApproved(false))
 
-	var promoted []string
+	var promoted bool
+	var queueEmptied bool
 	for _, msg := range ctrl.bus.Drain() {
-		event, ok := msg.(SessionEventMsg)
-		if !ok {
-			continue
-		}
-		if p, ok := event.Event.(session.UserPromoted); ok {
-			promoted = append(promoted, p.ID)
+		switch m := msg.(type) {
+		case SessionEventMsg:
+			if _, ok := m.Event.(session.UserPromoted); ok {
+				promoted = true
+			}
+		case PromptQueueMsg:
+			if len(m.Items) == 0 {
+				queueEmptied = true
+			}
 		}
 	}
-	assert.ElementsMatch(t, []string{"u1", "u2"}, promoted)
+	assert.False(t, promoted, "dropped prompts were never delivered — no UserPromoted")
+	assert.True(t, queueEmptied, "the queue widget must learn the queue is empty")
 }

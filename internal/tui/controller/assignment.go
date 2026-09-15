@@ -129,21 +129,24 @@ func (c *Controller) runAssignment(
 	c.childAttached = nil
 	if !a.Terminal {
 		if err := ctx.Err(); err != nil {
+			// The assignment is over before it ran: an accepted prompt that
+			// still has a row to grow goes back to the queue rather than
+			// disappearing with it.
 			c.stopAssignmentLocked(a, err)
+			c.requeueLocked(prompt)
 		} else if c.configuredModelName() == "" {
 			c.stopAssignmentLocked(a, errors.New("cannot start assignment: configure a model first"))
+			c.requeueLocked(prompt)
 		} else if a.Turn == TurnIdle {
 			c.publishAssignmentBriefLocked(prompt)
-			c.startPromptLocked(prompt.text, prompt.pendingSkills, prompt.media, agent.TurnAutonomous)
+			c.startPromptLocked(prompt, agent.TurnAutonomous)
 		} else if a.Turn == TurnInterrupted && len(c.promptQueue) > 0 {
 			// A continuation accepted during assembly replaces the interrupted
 			// initial turn, but still waits for the same View readiness fence.
 			next := c.promptQueue[0]
 			c.promptQueue = c.promptQueue[1:]
-			c.startPromptLocked(next.text, next.pendingSkills, next.media, agent.TurnUserInput)
-			if next.id != "" {
-				c.publish(SessionEventMsg{Event: session.UserPromoted{ID: next.id}})
-			}
+			c.publishPromptQueueLocked()
+			c.startPromptLocked(next, agent.TurnUserInput)
 		}
 	}
 	c.streamMu.Unlock()
@@ -160,8 +163,9 @@ func (c *Controller) runAssignment(
 // keeps a child that is watched live and a child that is reopened later
 // reading alike. The caller holds streamMu.
 //
-// A row id means the composer already published one: a human follow-up into a
-// retained child arrives that way, and appending again would double it.
+// A row id means the transcript row is still owed and the engine will promote
+// it at delivery: a human follow-up into a retained child arrives that way,
+// and appending here would draw it twice.
 func (c *Controller) publishAssignmentBriefLocked(prompt queuedPrompt) {
 	if prompt.id != "" || strings.TrimSpace(prompt.text) == "" {
 		return

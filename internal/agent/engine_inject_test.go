@@ -52,7 +52,7 @@ func TestLoopInjectsQueuedPromptAtToolBoundary(t *testing.T) {
 	require.NoError(t, err)
 
 	queue := []InjectedPrompt{{Text: "queued question", UserID: "u2"}}
-	var promoted []string
+	var promoted []session.UserPromoted
 	for ev := range engine.Loop(t.Context(), "first", LoopOpts{
 		Inject: func() []InjectedPrompt {
 			out := queue
@@ -61,7 +61,7 @@ func TestLoopInjectsQueuedPromptAtToolBoundary(t *testing.T) {
 		},
 	}) {
 		if p, ok := ev.(session.UserPromoted); ok {
-			promoted = append(promoted, p.ID)
+			promoted = append(promoted, p)
 		}
 	}
 
@@ -71,6 +71,51 @@ func TestLoopInjectsQueuedPromptAtToolBoundary(t *testing.T) {
 	require.Len(t, got, 2, "one turn: tool round + final round, no extra run")
 	assert.Contains(t, got[1], "queued question",
 		"the queued prompt must reach the model at the tool-round boundary, not after the turn ends")
-	assert.Equal(t, []string{"u2"}, promoted,
-		"injection must emit UserPromoted so the UI clears the queued hint the moment the model sees the message")
+	assert.Equal(t, []session.UserPromoted{{ID: "u2", Text: "queued question"}}, promoted,
+		"injection must emit UserPromoted with the display text the moment the model sees the message")
+}
+
+// TestLoopPromotesDequeuedOpeningPrompt pins the other delivery point: a
+// turn whose opening prompt dequeued from the controller's queue carries
+// UserID/UserDisplayText, and the loop yields UserPromoted right after the
+// prompt lands in the session. A turn without them (immediate submit — the
+// submitter already drew the row) yields nothing.
+func TestLoopPromotesDequeuedOpeningPrompt(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, sseTextChunk())
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	newEngine := func(t *testing.T) *Engine {
+		t.Helper()
+		engine, err := NewEngine(EngineOpts{
+			Model:       llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"},
+			SessionOpts: SessionOpts{Cwd: t.TempDir()},
+			Gate:        permission.AllowAll{},
+		})
+		require.NoError(t, err)
+		return engine
+	}
+
+	var promoted []session.UserPromoted
+	for ev := range newEngine(t).Loop(t.Context(), "follow up", LoopOpts{
+		UserID:          "u9",
+		UserDisplayText: "follow up",
+	}) {
+		if p, ok := ev.(session.UserPromoted); ok {
+			promoted = append(promoted, p)
+		}
+	}
+	assert.Equal(t, []session.UserPromoted{{ID: "u9", Text: "follow up"}}, promoted,
+		"a dequeued opening prompt must land its transcript row at delivery")
+
+	promoted = nil
+	for ev := range newEngine(t).Loop(t.Context(), "direct", LoopOpts{}) {
+		if p, ok := ev.(session.UserPromoted); ok {
+			promoted = append(promoted, p)
+		}
+	}
+	assert.Empty(t, promoted, "an immediate submit already has its row; no promote")
 }

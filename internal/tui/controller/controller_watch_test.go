@@ -125,7 +125,7 @@ func TestWakeStreakStopsARunawayWatch(t *testing.T) {
 	assert.Equal(t, 1, queued, "but the event is kept, not dropped")
 
 	// The user saying anything at all lifts the brake.
-	ctrl.StartPrompt("what happened?", nil, "u1")
+	ctrl.StartPrompt("what happened?", nil)
 	ctrl.streamMu.Lock()
 	streak := ctrl.wakeStreak
 	remaining := len(ctrl.watchQueue)
@@ -160,7 +160,7 @@ func TestEscCallsOffAPendingWake(t *testing.T) {
 	time.Sleep(3 * watchWakeDelay)
 	assert.Empty(t, bodies(), "Esc means no turn starts")
 
-	ctrl.StartPrompt("anything new?", nil, "u1")
+	ctrl.StartPrompt("anything new?", nil)
 	waitForCond(t, 10*time.Second, func() bool { return len(bodies()) >= 1 })
 	assert.Contains(t, bodies()[0], "ERROR later", "the event waited for the user instead")
 	assert.Contains(t, bodies()[0], "anything new?")

@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"unicode"
@@ -70,6 +71,12 @@ type ChatInput struct {
 	// PendingSkills are skill names shown inside the frame as the first
 	// content row: "Skills: name1 name2".
 	PendingSkills []string
+
+	// Queued lists prompts waiting behind the running turn, oldest first,
+	// shown inside the frame between the skills row and the text area. They
+	// belong to the controller's queue, not the transcript — the composer
+	// mirrors them from PromptQueueMsg.
+	Queued []string
 
 	// OnSubmit is called when Enter is pressed (without modifiers).
 	OnSubmit func(text string)
@@ -240,14 +247,14 @@ func (c *ChatInput) minBodyRows() int {
 // number layout code clamps short screens against, instead of re-deriving
 // the floor at every call site.
 func (c *ChatInput) MinHeight() int {
-	return c.pendingSkillsHeight() + c.minBodyRows() + 5
+	return c.pendingSkillsHeight() + c.queuedHeight() + c.minBodyRows() + 5
 }
 
 // PreferredHeight returns total height (pad + skills/body + gap + meta + tail
 // + hints), growing with content up to MaxBodyRows so the composer cannot
 // expand forever.
 func (c *ChatInput) PreferredHeight(width int, method xui.WidthMethod) int {
-	return c.pendingSkillsHeight() + c.bodyRows(width, method) + 5
+	return c.pendingSkillsHeight() + c.queuedHeight() + c.bodyRows(width, method) + 5
 }
 
 func (c *ChatInput) pendingSkillsHeight() int {
@@ -256,6 +263,20 @@ func (c *ChatInput) pendingSkillsHeight() int {
 	}
 	return 1
 }
+
+// maxQueuedRows bounds the strip. MinHeight is a hard floor for the layout
+// arbiter, so an unbounded strip pushes the input itself off the bottom of
+// the screen — a 24-row terminal loses it at 14 queued prompts. Past the cap
+// the remainder collapses into one counter row.
+const maxQueuedRows = 4
+
+// queuedChromeWidth is what the label and the hint take from a queued row,
+// leaving the rest for the prompt text.
+const queuedChromeWidth = len("queued: ") + len("  (Esc to recall)")
+
+// queuedHeight reserves one row per prompt waiting behind the running turn,
+// up to the cap.
+func (c *ChatInput) queuedHeight() int { return min(len(c.Queued), maxQueuedRows) }
 
 // AddPendingSkill appends name if not already pending.
 func (c *ChatInput) AddPendingSkill(name string) {
@@ -1072,21 +1093,23 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 	if w <= 0 {
 		w = 40
 	}
-	pendingH := c.pendingSkillsHeight()
+	skillsH := c.pendingSkillsHeight()
+	queuedH := c.queuedHeight()
+	chromeH := skillsH + queuedH // fixed rows above the text area
 	editorRows := c.bodyRows(w, ctx.Method)
-	body := pendingH + editorRows // content rows inside the frame
-	h := body + 5                 // pad + body + gap + meta + tail + hints
+	body := chromeH + editorRows // content rows inside the frame
+	h := body + 5                // pad + body + gap + meta + tail + hints
 	if ctx.Max.Height > 0 && h > ctx.Max.Height {
 		h = ctx.Max.Height
 		body = h - 5
-		if body < 1+pendingH {
-			body = 1 + pendingH
+		if body < 1+chromeH {
+			body = 1 + chromeH
 			h = body + 5
 		}
-		editorRows = body - pendingH
+		editorRows = body - chromeH
 		if editorRows < 1 {
 			editorRows = 1
-			body = pendingH + editorRows
+			body = chromeH + editorRows
 			h = body + 5
 		}
 	}
@@ -1155,8 +1178,11 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 	innerW := w - 5
 	innerW = max(innerW, 1)
 
-	if pendingH > 0 {
+	if skillsH > 0 {
 		c.paintPendingSkills(&s, textX, 1, innerW, panelTh, ctx.Method)
+	}
+	if queuedH > 0 {
+		c.paintQueued(&s, textX, 1+skillsH, innerW, panelTh, ctx.Method)
 	}
 
 	// The body shows the draft, except in reverse-i-search: there it previews
@@ -1181,7 +1207,7 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 		scroll = curLine - editorRows + 1
 	}
 	c.rowsScroll = scroll
-	editorTop := 1 + pendingH
+	editorTop := 1 + chromeH
 	for i := range editorRows {
 		li := i + scroll
 		if li < 0 || li >= len(rows) {
@@ -1264,7 +1290,7 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 			innerW,
 			body,
 			editorRows,
-			pendingH,
+			chromeH,
 			len(rows),
 			curLine,
 			curCol,
@@ -1451,6 +1477,40 @@ func (c *ChatInput) paintPendingSkills(
 		return
 	}
 	components.PaintSpans(s, x, y, lines[0], method)
+}
+
+// paintQueued draws one row per prompt waiting behind the running turn,
+// oldest first: "queued: <first line> (Esc to recall)". A queued prompt has
+// no transcript row — this strip is its only visible trace until the engine
+// delivers it. Past maxQueuedRows the last row counts the rest instead, so a
+// long queue cannot grow the composer without bound.
+func (c *ChatInput) paintQueued(
+	s *components.Surface,
+	x, y, width int,
+	th components.Theme,
+	method xui.WidthMethod,
+) {
+	labelSt := th.Muted
+	labelSt.Dim = true
+	textSt := th.Foreground
+	rows := c.queuedHeight()
+	shown := rows
+	if len(c.Queued) > rows {
+		shown = rows - 1
+	}
+	for i, text := range c.Queued[:shown] {
+		line, _, _ := strings.Cut(text, "\n")
+		spans := []components.Span{
+			{Text: "queued: ", Style: labelSt},
+			{Text: layout.TruncateToWidth(line, width-queuedChromeWidth, method), Style: textSt},
+			{Text: "  (Esc to recall)", Style: labelSt},
+		}
+		components.PaintSpans(s, x, y+i, spans, method)
+	}
+	if shown < len(c.Queued) {
+		rest := fmt.Sprintf("queued: %d more", len(c.Queued)-shown)
+		components.PaintSpans(s, x, y+shown, []components.Span{{Text: rest, Style: labelSt}}, method)
+	}
 }
 
 func lineStart(s string, off int) int {

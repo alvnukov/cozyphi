@@ -859,6 +859,12 @@ func (e *View) Update(m controller.Msg) {
 		if e.vx != nil {
 			e.vx.QueueRefresh()
 		}
+	case controller.PromptQueueMsg:
+		e.composer.SetPromptQueue(msg.Items)
+		if e.vx != nil {
+			// The queue lines change the composer's minimum height.
+			e.vx.QueueRefresh()
+		}
 	case controller.HookCommandResultMsg:
 		if e.hookCmds != nil {
 			e.hookCmds.Apply(msg)

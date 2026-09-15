@@ -106,7 +106,7 @@ func testCloseRetainsHistoryUntilShellPublication(t *testing.T, route string) {
 				defer cancel()
 				require.NoError(t, view.Close(ctx))
 			})
-			ctrl.StartPrompt("wait for cancellation", nil, "prompt")
+			ctrl.StartPrompt("wait for cancellation", nil)
 			awaitDisposalSignal(t, started)
 			require.True(t, runner.HandleSubmit(tc.command))
 			awaitResult := func() {

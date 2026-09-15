@@ -149,13 +149,13 @@ func TestChildLivesInItsParentsFamilyAndCannotResurrect(t *testing.T) {
 						Max: components.Size{Width: 160, Height: 60}, Method: xui.WidthUnicode,
 					})))
 			}
-			parent.StartPrompt("launch a child", nil, "")
+			parent.StartPrompt("launch a child", nil)
 			pumpUntil(func() bool { return parentView.Family().Len() == 1 })
 			require.True(t, parentView.Family().Has(child.JobID), "the child belongs to the family that spawned it")
 			require.Equal(t, 1, registry.Len(), "a sub-agent never becomes a tab")
 			pumpUntil(func() bool { return child.Controller.Assignment().Terminal && !child.Controller.RunActive() })
 			if running {
-				child.Controller.StartPrompt("continue the retained child", nil, "")
+				child.Controller.StartPrompt("continue the retained child", nil)
 				pumpUntil(func() bool {
 					select {
 					case <-childStarted:

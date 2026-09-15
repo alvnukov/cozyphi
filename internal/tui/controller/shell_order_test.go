@@ -46,7 +46,7 @@ func TestImmediateShellCompletionCannotOvertakeNativeToolResult(t *testing.T) {
 	defer c.Close()
 	c.SetAllowAll(true)
 	c.SetPlanEnabled(false)
-	c.StartPrompt("run the approved background shell", nil, "user")
+	c.StartPrompt("run the approved background shell", nil)
 	snapshot := func() []string { mu.Lock(); defer mu.Unlock(); return append([]string(nil), bodies...) }
 	waitForCond(t, 8*time.Second, func() bool {
 		requests := snapshot()

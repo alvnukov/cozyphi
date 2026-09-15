@@ -38,7 +38,7 @@ func TestOutcomeInterruptAndConversationFence(t *testing.T) {
 			if replace {
 				require.NoError(t, ctrl.Clear())
 			}
-			ctrl.StartPrompt("continue", nil, "resume-input")
+			ctrl.StartPrompt("continue", nil)
 			waitForCond(t, 5*time.Second, func() bool { return len(bodies()) > 0 && !ctrl.RunActive() })
 			require.Equal(t, !replace, strings.Contains(bodies()[0], "fenced child result"))
 			pending, err = ctrl.jobs.PendingOutcomes(t.Context(), ctrl.jobOwnerID, parentID, 1)

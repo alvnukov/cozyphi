@@ -55,37 +55,25 @@ func cloneSnapshot(s Snapshot) Snapshot {
 	}
 }
 
+// newUserMessage builds the one user-row shape both user events share.
+// count is how many rows the snapshot already holds, which names a row that
+// arrived without an id.
+func newUserMessage(id, text string, count int) Message {
+	if id == "" {
+		id = fmt.Sprintf("user-%d", count+1)
+	}
+	return Message{ID: id, Role: RoleUser, Text: text}
+}
+
 func applyInPlace(out *Snapshot, ev Event) {
 	switch e := ev.(type) {
 	case UserAppend:
-		id := e.ID
-		if id == "" {
-			id = fmt.Sprintf("user-%d", len(out.Messages)+1)
-		}
-		out.Messages = append(out.Messages, Message{
-			ID:     id,
-			Role:   RoleUser,
-			Text:   e.Text,
-			Queued: e.Queued,
-		})
+		out.Messages = append(out.Messages, newUserMessage(e.ID, e.Text, len(out.Messages)))
 	case UserPromoted:
-		for i := range slices.Backward(out.Messages) {
-			if out.Messages[i].ID == e.ID && out.Messages[i].Role == RoleUser {
-				out.Messages[i].Queued = false
-				break
-			}
-		}
-	case UserRecalled:
-		// Only a still-queued row may be deleted: an unknown id, or one the
-		// model already received (promoted), is a replay-safe no-op.
-		for i := range slices.Backward(out.Messages) {
-			if out.Messages[i].ID == e.ID && out.Messages[i].Role == RoleUser {
-				if out.Messages[i].Queued {
-					out.Messages = slices.Delete(out.Messages, i, i+1)
-				}
-				break
-			}
-		}
+		// Delivery appends at the end: the prompt waited in the controller's
+		// queue while the turn produced rows, and the transcript shows only
+		// what the model has actually seen.
+		out.Messages = append(out.Messages, newUserMessage(e.ID, e.Text, len(out.Messages)))
 	case LocalBashStart:
 		id := e.ID
 		if id == "" {
@@ -332,9 +320,9 @@ func applyInPlace(out *Snapshot, ev Event) {
 
 // assistantReplaceIndex finds the assistant row to replace for message-update.
 // The in-flight (streaming) turn always absorbs its updates, even when a
-// queued user message was appended below it — submit-while-streaming inserts
-// the user row behind the running turn. When no turn is streaming, the update
-// replaces the last assistant with the same ID; otherwise it is a new turn.
+// delivered user row was appended below it mid-turn. When no turn is
+// streaming, the update replaces the last assistant with the same ID;
+// otherwise it is a new turn.
 func assistantReplaceIndex(msgs []Message, update Message) (int, bool) {
 	for i := range slices.Backward(msgs) {
 		if msgs[i].Role == RoleAssistant && msgs[i].State == StateStreaming {
