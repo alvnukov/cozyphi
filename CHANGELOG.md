@@ -7,6 +7,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Added: `kimi-code` models default to `temperature: 1`, the only value Kimi's
+  coding endpoint accepts. The default rides the model entry, so a
+  project-config or opencode-import model with the same name can still
+  override it.
+- Added: `kimi-code` reports its subscription state in the usage view like
+  the Codex and Z.AI providers: usage windows (the managed 5-hour, 7-day,
+  and monthly view, or the generic windowed limits the endpoint reports
+  otherwise) and the top-up wallet balance come from the authenticated
+  `GET /usages` endpoint on the coding API.
+- Changed: the OpenAI device-code sign-in method is labeled
+  "ChatGPT Pro/Plus (device code)": the flow opens the verification page in
+  the browser automatically now, so "headless" no longer describes it.
+- Added: the `kimi-code` provider connects to Kimi (Moonshot) with a
+  subscription sign-in — OAuth 2.0 device flow against `auth.kimi.com`
+  (port of the verified logic from the opencode `t94j0/opencode-kimi-subscription`
+  plugin, which mirrors the official kimi CLI), OpenAI-compatible API at
+  `api.kimi.com/coding/v1`, automatic token refresh, and live model discovery
+  from `/models` with an offline baseline (k3, kimi-for-coding,
+  kimi-for-coding-highspeed). API-key sign-in is not offered; chat-completions
+  requests now honor the model config's `RequestAuthenticator`, so oauth-backed
+  providers ride the same client. The sign-in opens the verification page in
+  the browser automatically (Kimi's `verification_uri_complete` carries the
+  code, so the page asks only for the account confirmation); when no browser
+  opens, the URL and code stay on screen for a headless machine.
+- Changed: the device-code subscription sign-in (OpenAI device-code method and
+  `kimi-code`) now opens the verification URL in the browser automatically,
+  with the URL and code still shown when the browser could not open.
 - Added: the `task` tool names the registry it means. The default target is
   the launch checkout's git root, so a session in a worktree works that
   worktree's own notes instead of dirtying the main checkout's ledger; `main`

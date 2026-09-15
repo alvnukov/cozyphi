@@ -293,6 +293,7 @@ type ProviderDeviceCodeMsg struct {
 	ProviderID      string
 	VerificationURL string
 	UserCode        string
+	BrowserErrText  string
 	ErrText         string
 }
 

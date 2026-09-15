@@ -1681,17 +1681,23 @@ func (e *View) authorizeProviderBrowser(ctx context.Context, providerID string) 
 	e.publishConnectResult(providerID, e.ctrl.CompleteProviderAuthorization(ctx, flow))
 }
 
-// authorizeProviderDevice runs the headless flow, for a machine with no browser
-// to hand off to: the user carries the code to another device, so nothing here
-// waits on a local browser or a loopback port.
+// authorizeProviderDevice runs the device-code flow: the browser opens the
+// verification page when one is available (Kimi's verification_uri_complete
+// carries the code, like the kimi CLI does), and the URL and code stay on
+// screen for a headless machine where nothing could open.
 func (e *View) authorizeProviderDevice(ctx context.Context, providerID string) {
 	flow, err := e.ctrl.BeginProviderDeviceAuthorization(ctx, providerID)
 	if err != nil {
 		e.Publish(controller.ProviderDeviceCodeMsg{ProviderID: providerID, ErrText: err.Error()})
 		return
 	}
+	openErrText := ""
+	if openErr := util.OpenBrowser(ctx, flow.VerificationURL); openErr != nil {
+		openErrText = openErr.Error()
+	}
 	e.Publish(controller.ProviderDeviceCodeMsg{
 		ProviderID: providerID, VerificationURL: flow.VerificationURL, UserCode: flow.UserCode,
+		BrowserErrText: openErrText,
 	})
 	e.publishConnectResult(providerID, e.ctrl.CompleteProviderDeviceAuthorization(ctx, flow))
 }

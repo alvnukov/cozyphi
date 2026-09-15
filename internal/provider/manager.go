@@ -41,6 +41,10 @@ const (
 	legacyCodexProviderID = "codex"
 	openaiAPIBaseURL      = "https://api.openai.com/v1"
 	chatgptCodexBaseURL   = "https://chatgpt.com/backend-api/codex"
+	// kimiProviderID is the subscription-backed Kimi coding endpoint. There is
+	// no API-key variant: the only way in is the device-code sign-in.
+	kimiProviderID = "kimi-code"
+	kimiAPIBaseURL = "https://api.kimi.com/coding/v1"
 )
 
 // Options configures catalog and credential persistence.
@@ -190,6 +194,9 @@ type Manager struct {
 	credsPath   string
 	httpClient  *http.Client
 	oauthIssuer string
+	// kimiIssuer is Kimi's OAuth issuer. Like oauthIssuer, it is a field only
+	// so a test can point the flows at a local server.
+	kimiIssuer string
 	// callbackAddr is where the browser sign-in listener binds. It is a field
 	// only so a test can take an ephemeral port instead of the one OpenAI pins.
 	callbackAddr string
@@ -225,6 +232,32 @@ func chatgptModels() []Model {
 	}
 }
 
+// kimiModels is the offline baseline for a Kimi subscription, pinned from the
+// reference opencode-kimi-subscription plugin. The live list comes from the
+// authenticated GET /models endpoint on sign-in and refresh.
+func kimiModels() []Model {
+	return []Model{
+		{ID: "k3", Name: "Kimi K3", ContextWindow: 1048576, MaxOutputTokens: kimiMaxOutputTokens},
+		{ID: "kimi-for-coding", Name: "Kimi K2.7 Coding", ContextWindow: 262144, MaxOutputTokens: kimiMaxOutputTokens},
+		{
+			ID:              "kimi-for-coding-highspeed",
+			Name:            "Kimi K2.7 Coding Highspeed",
+			ContextWindow:   262144,
+			MaxOutputTokens: kimiMaxOutputTokens,
+		},
+	}
+}
+
+// kimiDefaultTemperature is the only sampling temperature Kimi's coding
+// endpoint accepts (confirmed against the reference opencode-kimi-subscription
+// plugin, which rewrites the request body when any other value arrives). A
+// fresh pointer per call: ModelOptions shares pointers across merges, and a
+// shared default must never be a mutation target.
+func kimiDefaultTemperature() *float64 {
+	temperature := 1.0
+	return &temperature
+}
+
 func builtinProviders() map[string]Info {
 	return map[string]Info{
 		openaiProviderID: {
@@ -244,7 +277,7 @@ func builtinProviders() map[string]Info {
 					Models: chatgptModels(),
 				},
 				{
-					Kind: AuthOAuthDevice, Label: "ChatGPT Pro/Plus (headless device code)",
+					Kind: AuthOAuthDevice, Label: "ChatGPT Pro/Plus (device code)",
 					BaseURL: chatgptCodexBaseURL, Protocol: llm.ProtocolOpenAIResponses,
 					Models: chatgptModels(),
 				},
@@ -266,6 +299,11 @@ func builtinProviders() map[string]Info {
 				{ID: "glm-5.2", Name: "GLM-5.2", ContextWindow: 1000000, MaxOutputTokens: 131072},
 				{ID: "glm-5v-turbo", Name: "GLM-5V-Turbo", ContextWindow: 200000, MaxOutputTokens: 131072},
 			},
+		},
+		kimiProviderID: {
+			ID: kimiProviderID, Name: "Kimi",
+			BaseURL: kimiAPIBaseURL, Protocol: llm.ProtocolOpenAI, Auth: AuthOAuthDevice,
+			Models: kimiModels(),
 		},
 	}
 }
@@ -333,6 +371,7 @@ func Open(opts Options) (*Manager, error) {
 		credsPath:     opts.CredentialsPath,
 		httpClient:    client,
 		oauthIssuer:   defaultOAuthIssuer,
+		kimiIssuer:    defaultKimiIssuer,
 		callbackAddr:  oauthCallbackAddr,
 		providers:     providers,
 		credentials:   creds,
@@ -534,6 +573,15 @@ func (m *Manager) Models() []llm.ModelConfig {
 			if (id == openaiProviderID && cred.Protocol == llm.ProtocolOpenAIResponses) ||
 				(id == "zai-coding-plan" && supportsReasoningEffort(model.ID)) {
 				base.ReasoningEfforts = slices.Clone(reasoningEfforts)
+			}
+			if id == kimiProviderID {
+				// Kimi's coding endpoint accepts only temperature 1 (confirmed
+				// against the reference opencode-kimi-subscription plugin, which
+				// rewrites the request body when any other value arrives). This
+				// is a default, not a pin: a project-config or opencode-import
+				// model entry with the same name carries its own options and wins
+				// through the usual options merge.
+				base.Options.Temperature = kimiDefaultTemperature()
 			}
 			result = append(result, base)
 		}

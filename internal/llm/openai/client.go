@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"iter"
 	"net/http"
@@ -183,7 +184,14 @@ func Compact(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, 
 		return "", err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	if cfg.APIKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	}
+	if cfg.Authenticator != nil {
+		if err := cfg.Authenticator.Authorize(ctx, httpReq); err != nil {
+			return "", fmt.Errorf("authorize chat request: %w", err)
+		}
+	}
 
 	httpResp, err := util.DoWithRetry(httpClient, httpReq)
 	if err != nil {
@@ -209,12 +217,14 @@ func Compact(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, 
 	return resp.Choices[0].Message.Content, nil
 }
 
-// StreamChatCompletion POSTs a streaming chat completion and yields normalized events.
+// StreamChatCompletion POSTs a streaming chat completion and yields
+// normalized events. Credentials come from the model config: a static API
+// key rides the Bearer header, an oauth-backed config routes through its
+// RequestAuthenticator — the same routing as the responses client.
 func StreamChatCompletion(
 	ctx context.Context,
 	httpClient *http.Client,
-	baseURL string,
-	apiKey string,
+	cfg llm.ModelConfig,
 	payload any,
 ) iter.Seq2[llm.StreamEvent, error] {
 	return func(yield func(llm.StreamEvent, error) bool) {
@@ -224,7 +234,7 @@ func StreamChatCompletion(
 			return
 		}
 
-		url := baseURL
+		url := cfg.BaseURL
 		if !strings.HasSuffix(url, chatCompletionsPath) {
 			url += chatCompletionsPath
 		}
@@ -235,8 +245,16 @@ func StreamChatCompletion(
 			return
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 		httpReq.Header.Set("Accept", util.ContentEventStream)
+		if cfg.APIKey != "" {
+			httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+		}
+		if cfg.Authenticator != nil {
+			if err := cfg.Authenticator.Authorize(ctx, httpReq); err != nil {
+				yield(llm.StreamEvent{}, fmt.Errorf("authorize chat request: %w", err))
+				return
+			}
+		}
 
 		httpResp, err := util.DoWithRetry(httpClient, httpReq)
 		if err != nil {

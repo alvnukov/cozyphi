@@ -83,8 +83,8 @@ func TestTheHarnessNamesTheProviderCatalogItActuallyHolds(t *testing.T) {
 	assert.Equal(t, diag.StateNotApplicable, catalog.Configured.State,
 		"a catalog is fetched and cached, never configured")
 	require.Equal(t, diag.StatePresent, catalog.Effective.State)
-	assert.Equal(t, int64(3), catalog.Effective.Value.Int,
-		"the saved provider joins the two built-in ones")
+	assert.Equal(t, int64(4), catalog.Effective.Value.Int,
+		"the saved provider joins the three built-in ones")
 	assert.Equal(t, diag.SourceConfigFile, catalog.Effective.Source.Kind)
 	assert.Contains(t, catalog.Effective.Source.Ref, "last-known-good",
 		"the answer says which of the two origins it came from")

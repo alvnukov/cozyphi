@@ -65,7 +65,7 @@ func openAIWithMethods() provider.Info {
 				BaseURL: "https://chatgpt.com/backend-api/codex", Protocol: llm.ProtocolOpenAIResponses,
 			},
 			{
-				Kind: provider.AuthOAuthDevice, Label: "ChatGPT Pro/Plus (headless device code)",
+				Kind: provider.AuthOAuthDevice, Label: "ChatGPT Pro/Plus (device code)",
 				BaseURL: "https://chatgpt.com/backend-api/codex", Protocol: llm.ProtocolOpenAIResponses,
 			},
 			{
@@ -76,8 +76,10 @@ func openAIWithMethods() provider.Info {
 	}
 }
 
-func renderConnect(o *Overlays, width, height int) string {
-	surface := o.drawConnect(components.DrawContext{Method: xui.WidthUnicode}, width, height)
+func renderConnect(o *Overlays, height int) string {
+	// Width is fixed: the connect overlay lays its rows out for a wide
+	// terminal, and every assertion here only needs that layout stable.
+	surface := o.drawConnect(components.DrawContext{Method: xui.WidthUnicode}, 90, height)
 	var rendered strings.Builder
 	for _, cell := range surface.Buffer {
 		rendered.WriteString(cell.Char)
@@ -94,9 +96,9 @@ func TestConnectOverlayOffersEveryOpenAISignInMethod(t *testing.T) {
 	require.NotNil(t, o.connect)
 	require.Equal(t, connectMethod, o.connect.phase, "a provider with several methods asks which one")
 
-	rendered := renderConnect(o, 90, 12)
+	rendered := renderConnect(o, 12)
 	assert.Contains(t, rendered, "ChatGPT Pro/Plus (browser)")
-	assert.Contains(t, rendered, "ChatGPT Pro/Plus (headless device code)")
+	assert.Contains(t, rendered, "ChatGPT Pro/Plus (device code)")
 	assert.Contains(t, rendered, "OpenAI API key")
 	assert.Equal(t, 0, o.connect.methodRing.Selected(), "browser sign-in is preselected")
 }
@@ -122,9 +124,16 @@ func TestConnectOverlayShowsDeviceCodeAndCancels(t *testing.T) {
 	o.Apply(controller.ProviderDeviceCodeMsg{
 		ProviderID: "openai", VerificationURL: "https://auth.openai.com/codex/device", UserCode: "ABCD-EFGH",
 	})
-	rendered := renderConnect(o, 90, 12)
+	rendered := renderConnect(o, 12)
 	assert.Contains(t, rendered, "https://auth.openai.com/codex/device")
 	assert.Contains(t, rendered, "ABCD-EFGH")
+
+	o.Apply(controller.ProviderDeviceCodeMsg{
+		ProviderID: "openai", VerificationURL: "https://auth.openai.com/codex/device", UserCode: "ABCD-EFGH",
+		BrowserErrText: "no browser",
+	})
+	rendered = renderConnect(o, 12)
+	assert.Contains(t, rendered, "Browser did not open automatically: no browser")
 
 	o.HandleConnectEvent(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
 	assert.True(t, canceled)
@@ -146,7 +155,7 @@ func TestConnectOverlayAsksForAKeyOnTheOpenAIAPIEndpoint(t *testing.T) {
 	o.HandleConnectEvent(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
 	require.NotNil(t, o.connect)
 	require.Equal(t, connectSecret, o.connect.phase)
-	assert.Contains(t, renderConnect(o, 90, 10), "Endpoint: https://api.openai.com/v1")
+	assert.Contains(t, renderConnect(o, 10), "Endpoint: https://api.openai.com/v1")
 
 	o.HandleConnectEvent(ctx, xui.PasteEvent{Text: "sk-openai"})
 	o.HandleConnectEvent(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEnter})

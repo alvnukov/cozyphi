@@ -162,7 +162,7 @@ func validateCredentialModels(providerID string, item credential) error {
 	}
 	seen := make(map[string]struct{}, len(item.Models))
 	for _, model := range item.Models {
-		if !validCodexModelID(model.ID) || model.Name == "" || len(model.Name) > maxStringBytes ||
+		if !validModelID(model.ID) || model.Name == "" || len(model.Name) > maxStringBytes ||
 			model.ContextWindow < 0 || model.MaxOutputTokens < 0 {
 			return fmt.Errorf("invalid cached model metadata for %q", providerID)
 		}

@@ -52,7 +52,7 @@ func (c *Client) Stream(ctx context.Context, messages []llm.Message) iter.Seq2[l
 			}
 		default:
 			req := openai.BuildRequest(c.cfg, c.system, messages, c.tools)
-			for ev, err := range openai.StreamChatCompletion(ctx, c.httpClient, c.cfg.BaseURL, c.cfg.APIKey, req) {
+			for ev, err := range openai.StreamChatCompletion(ctx, c.httpClient, c.cfg, req) {
 				if !yield(ev, err) {
 					return
 				}

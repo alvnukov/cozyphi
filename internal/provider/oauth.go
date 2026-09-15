@@ -33,6 +33,37 @@ const (
 	refreshSkew       = 30 * time.Second
 )
 
+// oauthGrant is one provider's subscription OAuth shape: how device sign-in
+// starts and polls, how tokens refresh, and how an authorized request carries
+// them. Two adapters exist: OpenAI's two-step deviceauth handshake with a code
+// exchange, and Kimi's RFC 8628 device grant. A new subscription provider
+// brings a new grant, not new branches in the flows below.
+type oauthGrant interface {
+	// beginDevice starts sign-in and returns the code the user must enter.
+	beginDevice(ctx context.Context, m *Manager) (DeviceAuthorization, error)
+	// pollDevice advances a pending flow; pending=true means keep waiting, and
+	// a grant may slow the poll interval down (RFC 8628 slow_down).
+	pollDevice(ctx context.Context, m *Manager, flow *DeviceAuthorization) (oauthTokenResponse, bool, error)
+	// refresh exchanges a stored refresh token for fresh access tokens.
+	refresh(ctx context.Context, m *Manager, current credential) (oauthTokenResponse, error)
+	// authorize applies the stored credential to an API request.
+	authorize(req *http.Request, current credential) error
+}
+
+// grantFor reports the OAuth grant a provider signs in with. Only a provider
+// with a grant can run an OAuth flow; the auth-method check stays separate
+// because it is the user-visible connection contract.
+func grantFor(providerID string) (oauthGrant, bool) {
+	switch providerID {
+	case openaiProviderID:
+		return codexGrant{}, true
+	case kimiProviderID:
+		return kimiGrant{}, true
+	default:
+		return nil, false
+	}
+}
+
 // BrowserAuthorization is a pending authorization-code flow. Secrets and the
 // callback server stay inside the provider package.
 type BrowserAuthorization struct {
@@ -63,9 +94,11 @@ type DeviceAuthorization struct {
 	ProviderID      string
 	VerificationURL string
 	UserCode        string
-	deviceAuthID    string
-	interval        time.Duration
-	issuer          string
+	// deviceCode is the server's handle for this authorization attempt
+	// (OpenAI's device_auth_id, Kimi's device_code).
+	deviceCode string
+	interval   time.Duration
+	issuer     string
 }
 
 type deviceCodeResponse struct {
@@ -310,11 +343,22 @@ func (m *Manager) BeginDeviceAuthorization(ctx context.Context, providerID strin
 	id := strings.TrimSpace(providerID)
 	m.mu.RLock()
 	item, ok := m.providers[id]
-	issuer := m.oauthIssuer
 	m.mu.RUnlock()
-	if _, hasMethod := methodOfKind(item, AuthOAuthDevice); !ok || !hasMethod {
+	grant, supported := grantFor(id)
+	if _, hasMethod := methodOfKind(item, AuthOAuthDevice); !ok || !hasMethod || !supported {
 		return DeviceAuthorization{}, fmt.Errorf("provider: %q does not support device subscription sign-in", id)
 	}
+	return grant.beginDevice(ctx, m)
+}
+
+// codexGrant is OpenAI's OAuth shape: a deviceauth endpoint pair that yields a
+// one-time authorization code, then a PKCE exchange against /oauth/token.
+type codexGrant struct{}
+
+func (codexGrant) beginDevice(ctx context.Context, m *Manager) (DeviceAuthorization, error) {
+	m.mu.RLock()
+	issuer := m.oauthIssuer
+	m.mu.RUnlock()
 
 	payload, err := json.Marshal(map[string]string{"client_id": codexClientID})
 	if err != nil {
@@ -346,8 +390,8 @@ func (m *Manager) BeginDeviceAuthorization(ctx context.Context, providerID strin
 		return DeviceAuthorization{}, errors.New("provider: subscription sign-in returned an incomplete device code")
 	}
 	return DeviceAuthorization{
-		ProviderID: id, VerificationURL: issuer + "/codex/device", UserCode: response.UserCode,
-		deviceAuthID: response.DeviceAuthID, interval: interval, issuer: issuer,
+		ProviderID: openaiProviderID, VerificationURL: issuer + "/codex/device", UserCode: response.UserCode,
+		deviceCode: response.DeviceAuthID, interval: interval, issuer: issuer,
 	}, nil
 }
 
@@ -356,13 +400,17 @@ func (m *Manager) CompleteDeviceAuthorization(ctx context.Context, flow DeviceAu
 	if m == nil {
 		return errors.New("provider: manager is nil")
 	}
-	if flow.ProviderID == "" || flow.deviceAuthID == "" || flow.UserCode == "" || flow.issuer == "" {
+	if flow.ProviderID == "" || flow.deviceCode == "" || flow.UserCode == "" || flow.issuer == "" {
 		return errors.New("provider: invalid device authorization")
 	}
 	ctx, cancel := context.WithTimeout(ctx, deviceFlowTimeout)
 	defer cancel()
+	grant, supported := grantFor(flow.ProviderID)
+	if !supported {
+		return errors.New("provider: invalid device authorization")
+	}
 	for {
-		token, pending, err := m.pollDeviceAuthorization(ctx, flow)
+		token, pending, err := grant.pollDevice(ctx, m, &flow)
 		if err != nil {
 			return err
 		}
@@ -382,12 +430,13 @@ func (m *Manager) CompleteDeviceAuthorization(ctx context.Context, flow DeviceAu
 	}
 }
 
-func (m *Manager) pollDeviceAuthorization(
+func (codexGrant) pollDevice(
 	ctx context.Context,
-	flow DeviceAuthorization,
+	m *Manager,
+	flow *DeviceAuthorization,
 ) (oauthTokenResponse, bool, error) {
 	payload, err := json.Marshal(map[string]string{
-		"device_auth_id": flow.deviceAuthID,
+		"device_auth_id": flow.deviceCode,
 		"user_code":      flow.UserCode,
 	})
 	if err != nil {
@@ -421,12 +470,13 @@ func (m *Manager) pollDeviceAuthorization(
 	if code.AuthorizationCode == "" || code.CodeVerifier == "" {
 		return oauthTokenResponse{}, false, errors.New("provider: device token response is incomplete")
 	}
-	token, err := m.exchangeAuthorizationCode(ctx, flow.issuer, code)
+	token, err := codexGrant{}.exchangeAuthorizationCode(ctx, m, flow.issuer, code)
 	return token, false, err
 }
 
-func (m *Manager) exchangeAuthorizationCode(
+func (codexGrant) exchangeAuthorizationCode(
 	ctx context.Context,
+	m *Manager,
 	issuer string,
 	code deviceTokenResponse,
 ) (oauthTokenResponse, error) {
@@ -438,6 +488,18 @@ func (m *Manager) exchangeAuthorizationCode(
 		"code_verifier": {code.CodeVerifier},
 	}
 	return m.requestToken(ctx, issuer, form, true)
+}
+
+func (codexGrant) refresh(ctx context.Context, m *Manager, current credential) (oauthTokenResponse, error) {
+	form := url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {current.Refresh},
+		"client_id":     {codexClientID},
+	}
+	m.mu.RLock()
+	issuer := m.oauthIssuer
+	m.mu.RUnlock()
+	return m.requestToken(ctx, issuer, form, false)
 }
 
 func (m *Manager) requestToken(
@@ -498,10 +560,16 @@ func decodeOAuthBody(body io.Reader, target any) error {
 // subscription sign-in. Failing to read it is a warning, not a failed sign-in:
 // the credential is stored and the pinned offline list keeps the provider usable.
 func (m *Manager) refreshSignedInModels(ctx context.Context, providerID string) error {
-	if providerID != openaiProviderID {
+	var err error
+	switch providerID {
+	case openaiProviderID:
+		err = m.refreshCodexModels(ctx, true)
+	case kimiProviderID:
+		err = m.refreshKimiModels(ctx, true)
+	default:
 		return nil
 	}
-	if err := m.refreshCodexModels(ctx, true); err != nil {
+	if err != nil {
 		return &ModelCatalogWarning{err: err}
 	}
 	return nil
@@ -535,6 +603,11 @@ func (m *Manager) storeOAuthCredential(
 	accountID := extractAccountID(token)
 	if accountID == "" {
 		accountID = previous.AccountID
+	}
+	// Kimi's tokens carry no account id. A constant key marks "the one kimi
+	// subscription connection" so account-bound model caching keeps working.
+	if accountID == "" && providerID == kimiProviderID {
+		accountID = kimiAccountID
 	}
 	updated := credential{
 		Type: "oauth", Access: token.AccessToken, Refresh: token.RefreshToken,
@@ -570,14 +643,18 @@ func (a *oauthAuthenticator) Authorize(ctx context.Context, req *http.Request) e
 	if a == nil || a.manager == nil {
 		return errors.New("provider: OAuth authenticator is unavailable")
 	}
+	grant, supported := grantFor(a.providerID)
+	if !supported {
+		return fmt.Errorf("provider: %q has no subscription sign-in", a.providerID)
+	}
 	credential, err := a.manager.validOAuthCredential(ctx, a.providerID)
 	if err != nil {
 		return err
 	}
-	return authorizeOAuthRequest(req, credential)
+	return grant.authorize(req, credential)
 }
 
-func authorizeOAuthRequest(req *http.Request, credential credential) error {
+func (codexGrant) authorize(req *http.Request, credential credential) error {
 	if !requestWithinBaseURL(req, credential.BaseURL) {
 		return errors.New("provider: OAuth request target does not match the connected endpoint")
 	}
@@ -627,7 +704,6 @@ func (m *Manager) validOAuthCredential(ctx context.Context, providerID string) (
 	m.mu.RLock()
 	current, ok := m.credentials[providerID]
 	item, providerExists := m.providers[providerID]
-	issuer := m.oauthIssuer
 	generation := m.credentialGeneration
 	m.mu.RUnlock()
 	if !ok || current.Type != "oauth" {
@@ -643,12 +719,11 @@ func (m *Manager) validOAuthCredential(ctx context.Context, providerID string) (
 	if time.Now().Add(refreshSkew).UnixMilli() < current.Expires {
 		return current, nil
 	}
-	form := url.Values{
-		"grant_type":    {"refresh_token"},
-		"refresh_token": {current.Refresh},
-		"client_id":     {codexClientID},
+	grant, supported := grantFor(providerID)
+	if !supported {
+		return credential{}, fmt.Errorf("provider: %q has no subscription sign-in", providerID)
 	}
-	token, err := m.requestToken(ctx, issuer, form, false)
+	token, err := grant.refresh(ctx, m, current)
 	if err != nil {
 		return credential{}, fmt.Errorf("provider: refresh subscription credential: %w", err)
 	}
