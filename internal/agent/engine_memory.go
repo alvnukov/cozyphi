@@ -119,11 +119,11 @@ func prependReminder(reminder, content string) string {
 	return reminder + "\n\n" + content
 }
 
-// syncMemory refreshes MEMORY.md when a turn ends, however it ended, and
-// rebinds the client when what memory contributes to the system prompt has
-// changed — a fact written this turn has to reach the next one. Failure is
-// logged, never fatal: memory is an accessory to a turn, not a precondition
-// for one.
+// syncMemory refreshes MEMORY.md when a turn ends, however it ended, spreads
+// what is global to the other corpora, and rebinds the client when what memory
+// contributes to the system prompt has changed — a fact written this turn has
+// to reach the next one. Failure is logged, never fatal: memory is an
+// accessory to a turn, not a precondition for one.
 func (engine *Engine) syncMemory() {
 	if engine == nil || engine.memory == nil {
 		return
@@ -134,6 +134,11 @@ func (engine *Engine) syncMemory() {
 	if engine.memoryTouched() {
 		engine.memory.Invalidate()
 	}
+	// A global fact is one file in every corpus the harness knows, and any of
+	// them — this one, another repository's, Claude Code's — may hold the
+	// newest version. The pass costs one stat per file and writes only what
+	// actually moved.
+	engine.memory.Reconcile()
 	// Exact duplicates — one fact saved twice under two names — are archived
 	// here. It is the only compaction the harness performs by itself, because
 	// it is the only one that cannot lose anything.

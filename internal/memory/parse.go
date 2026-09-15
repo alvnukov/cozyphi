@@ -46,7 +46,8 @@ func ParseFile(path string) (Entry, error) {
 // parse splits frontmatter from body. The frontmatter grammar is deliberately
 // narrow: flat "key: value" lines plus the one nested block this format uses,
 // metadata.type. A flat "type:" is accepted too, because that is the mistake
-// a model makes when it writes the file from memory.
+// a model makes when it writes the file from memory, and "scope:" is read the
+// same way for the same reason.
 func parse(raw string) (Entry, error) {
 	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
 	i := 0
@@ -112,6 +113,8 @@ func parseFrontmatter(fields []string) Entry {
 			entry.Kind = ParseKind(value)
 		case key == "pin" && (!nested || parent == "metadata"):
 			entry.Pinned = truthy(value)
+		case key == "scope" && (!nested || parent == "metadata"):
+			entry.Global = strings.EqualFold(value, globalScope)
 		}
 	}
 	return entry

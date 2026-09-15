@@ -17,14 +17,22 @@ project is in the middle of, where to find things outside the repo.
 Claude Code uses. The key comes from Git's common repository root, so every
 subdirectory and linked worktree shares one corpus. Outside Git, the project
 root is the key. It is machine-local owner data and never travels with the repo.
-Legacy `~/.cozyphi/memory/` data is not read or imported.
+
+A session reads exactly one of those directories: this repository's. A fact
+marked global is not an exception to that — the harness puts a copy of it in
+each of the others, so reading it is still reading an ordinary file in the
+corpus at hand. `~/.cozyphi/memory/` holds the canonical copy of every global
+fact; no session reads it, and the legacy per-project trees under it are
+directories rather than topic files, so they stay unread.
 
 ```sh
 cozyphi memory                # what the agent remembers here
-cozyphi memory path           # the directory
+cozyphi memory path           # the directory and the canonical store
 cozyphi memory show <name>    # one memory file
 cozyphi memory forget <name>  # move one into forgotten/
 cozyphi memory forgotten      # what has been forgotten
+cozyphi memory global <name>  # keep one in every repository (* in the list)
+cozyphi memory local <name>   # keep it only in this one
 ```
 
 ## One fact, one file
@@ -74,6 +82,59 @@ The harness refreshes it from disk at startup and when a turn ends, however it
 ended, so a fact written by cozyphi is visible when Claude Code next starts.
 Change a fact in its topic file; both agents use the same corpus.
 
+## One fact in every repository
+
+Some facts are not about a repository at all: how the user wants to be talked
+to, which tools they refuse, what they call a thing. `scope: global` in the
+frontmatter says so — flat, or under `metadata:` like `type` and `pin`:
+
+```markdown
+---
+name: speak-russian
+description: The user writes in Russian and wants answers in it.
+scope: global
+metadata:
+  type: user
+---
+```
+
+The harness then keeps a copy of that file in every corpus it knows — each
+`memory/` under `~/.claude/projects/`, plus the canonical store — and rewrites
+the catalog of each one it wrote. Nothing about reading changes: the next
+session in another repository opens one directory and finds an ordinary file
+in it. `*` marks it in `cozyphi memory` and in the tool's list.
+
+A fact becomes global through `cozyphi memory global <name>`, through the
+`memory` tool (action=global), or by the key arriving in the file some other
+way — a hand edit, or Claude Code writing it. The next pass adopts it either
+way.
+
+**Reconciliation runs when a session opens and when a turn ends.** It compares
+modification times: the newest copy of a name wins and is written over the
+older ones, in whichever direction that points. That is what makes a global
+fact editable from any repository and from either harness — whoever wrote last
+is the source, and nobody copies anything by hand. Each copy is stamped with
+the winner's time, so a tree that has settled costs one `stat` per file and
+writes nothing.
+
+Three things the pass will not do:
+
+- **It never deletes and never moves.** A corpus that vanished cannot cascade
+  into losing the fact everywhere, and a copy removed with `rm` comes back on
+  the next pass. Taking a fact out is always an explicit call.
+- **It never overwrites a local memory.** A corpus that already holds its own
+  file of that name keeps it; the publish succeeds everywhere else, and the
+  prompt names the corpus that refused — a rule silently not applying in one
+  repository is the thing this exists to prevent.
+- **It is the harness's business, not the model's.** No action of the `memory`
+  tool takes a path, a repository or another corpus. The whole vocabulary is a
+  name in the corpus at hand.
+
+`cozyphi memory local <name>` takes a fact back: the key leaves the file here,
+and every copy elsewhere moves into that corpus's `forgotten/`. Stripping and
+sweeping happen in one call, because a copy left behind would be the newest of
+its name on the next pass and would publish the fact all over again.
+
 ## What the model sees
 
 Two tiers, and which one a memory lands in is decided by its kind.
@@ -116,11 +177,15 @@ memory {"action":"list","query":"hashline anchors"}   → names, ranked
 memory {"action":"read","name":"hashline-edits"}      → the file in full
 memory {"action":"overlaps"}                          → what says the same twice
 memory {"action":"forget","name":"release-freeze"}    → out of the way
+memory {"action":"global","name":"speak-russian"}     → into every repository
+memory {"action":"local","name":"speak-russian"}      → back to this one
 ```
 
-It never writes a memory. Creating and changing one stays with `write`, through
+It never writes a fact. Creating and changing one stays with `write`, through
 the permission gate, like any other file — a memory the agent could rewrite
-through a tool of its own is a memory the gate never sees.
+through a tool of its own is a memory the gate never sees. What `forget`,
+`global` and `local` change is the fact's own bookkeeping: where the file goes
+and how far it reaches, never a word of what it says.
 
 ## How a memory is found
 
@@ -158,6 +223,10 @@ make a fact invisible in the prompt; they can never make it unreachable. The
 last rung is a decision — the model's, through `memory` (action=forget), or
 yours, through `cozyphi memory forget` — and it is a move into `forgotten/`,
 not an unlink, so a wrong call costs a `mv` to undo.
+
+A global fact is forgotten everywhere in that one call: the copies in the other
+corpora move into their own `forgotten/` too. A rule retired here must not keep
+applying in a repository nobody has opened this month.
 
 What decides the rung:
 
@@ -216,6 +285,19 @@ Below those thresholds memory says nothing at all: a small directory with one
 idle fact is not a problem, and nagging about it would train the model to
 ignore the block that matters.
 
+The same block carries what the last reconciliation did, whether or not there
+is any pressure, because a write outside this repository must never be silent:
+
+```text
+## Memory needs attention
+
+- copied into 3 corpora just now: speak-russian.
+  A global fact is kept in every repository; nothing else left this one.
+- release-freeze is global, but …/projects/beta/memory has its own memory of
+  that name and kept it: the global one does not apply there. Rename one of
+  the two to fix it.
+```
+
 ## What it can cost
 
 Every tier is capped, so no directory can grow the prompt:
@@ -271,6 +353,11 @@ Three things keep it there, in order of how much they matter:
   in place and yields a term only when there is one, because indexing a
   directory walks every byte of every memory.
 
+Reconciling the global facts is a fourth cost, and a separate one: it reads
+every corpus's directory listing, and parses only the files whose size or mtime
+moved since the last pass. On a machine with a few dozen corpora that is a few
+dozen `readdir` calls per turn and nothing else.
+
 `go test ./internal/memory/ -bench .` re-measures all of it.
 
 ## Code map
@@ -282,13 +369,14 @@ Three things keep it there, in order of how much they matter:
 | `internal/memory/prompt.go` | The protocol block, the two tiers, and the caps on both |
 | `internal/memory/index.go` | The inverted index: cache, staleness, incremental update |
 | `internal/memory/forget.go` | Forgetting, staleness, duplicate compaction, merge candidates |
+| `internal/memory/global.go` | `scope: global`: the registry of corpora, the mtime reconciler, publish and un-publish |
 | `internal/memory/recall.go` | `Turn()` → the per-turn pass: query weighting, scoring, the reminder; `Search` for the tool |
-| `internal/tools/memorytool/` | The `memory` tool: list and read, read-only |
+| `internal/tools/memorytool/` | The `memory` tool: list, read, forget, global, local — never the fact itself |
 | `internal/agent/engine.go` | Prompt block on rebind; the query for each user message; invalidation and prompt refresh when a turn ends |
 | `internal/usage/` | Use counts and recency, shared with the pickers |
-| `cmd/memory.go` | `cozyphi memory list \| path \| show \| forget \| forgotten` |
+| `cmd/memory.go` | `cozyphi memory list \| path \| show \| forget \| forgotten \| global \| local` |
 
-Four properties the code holds to:
+Five properties the code holds to:
 
 - **Fail-open.** A directory that cannot be read, a file that is not a memory,
   an index that cannot be written — each is logged to debuglog and skipped.
@@ -296,7 +384,8 @@ Four properties the code holds to:
 - **Bounded.** No tier may grow without limit; a directory that keeps growing
   costs a constant prompt and a constant turn.
 - **Nothing is deleted.** The harness demotes; forgetting is a move into
-  `forgotten/`; only a person removes a file for good.
+  `forgotten/`; reconciliation only ever creates and updates; only a person
+  removes a file for good.
 - **The harness owns the index.** The agent owns fact files; nothing else.
 - **Sub-agents have no memory.** `EngineRunner` passes no store, so remembering
   stays a decision of the session the user is actually in.

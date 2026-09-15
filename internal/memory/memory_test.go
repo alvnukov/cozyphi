@@ -114,7 +114,7 @@ func TestParseFileRejectsNonMemoryFiles(t *testing.T) {
 func TestOpenCreatesDirectoryAndIndex(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "memory", "--proj--")
 
-	store, err := Open(dir, nil)
+	store, err := Open(dir, nil, Registry{})
 	require.NoError(t, err)
 	assert.Equal(t, dir, store.Dir())
 
@@ -125,7 +125,7 @@ func TestOpenCreatesDirectoryAndIndex(t *testing.T) {
 
 func TestSyncIndexWritesClaudeCompatibleCatalogAndReportsChange(t *testing.T) {
 	dir := t.TempDir()
-	store, err := Open(dir, nil)
+	store, err := Open(dir, nil, Registry{})
 	require.NoError(t, err)
 
 	write(t, dir, "table-driven-tests.md", feedbackFile)
@@ -154,7 +154,7 @@ Works on cozyphi daily.
 
 func TestSyncIndexSwapsCatalogInAtomically(t *testing.T) {
 	dir := t.TempDir()
-	store, err := Open(dir, nil)
+	store, err := Open(dir, nil, Registry{})
 	require.NoError(t, err)
 
 	write(t, dir, "table-driven-tests.md", feedbackFile)
@@ -173,7 +173,7 @@ func TestSyncIndexSwapsCatalogInAtomically(t *testing.T) {
 
 func TestEntriesSkipsIndexAndUnreadableFiles(t *testing.T) {
 	dir := t.TempDir()
-	store, err := Open(dir, nil)
+	store, err := Open(dir, nil, Registry{})
 	require.NoError(t, err)
 
 	write(t, dir, "table-driven-tests.md", feedbackFile)
@@ -188,7 +188,7 @@ func TestEntriesSkipsIndexAndUnreadableFiles(t *testing.T) {
 
 func TestPromptBlockCarriesProtocolAndFacts(t *testing.T) {
 	dir := t.TempDir()
-	store, err := Open(dir, nil)
+	store, err := Open(dir, nil, Registry{})
 	require.NoError(t, err)
 
 	assert.Contains(t, store.PromptBlock(), "None saved yet.")

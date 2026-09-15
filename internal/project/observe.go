@@ -18,7 +18,7 @@ func (p *Project) StoreAnchors() diag.StorageAnchors {
 	return diag.StorageAnchors{
 		Known:       true,
 		SessionBase: p.global.SessionBase(),
-		MemoryBase:  p.global.claudeProjectsDir(),
+		MemoryBase:  p.global.ClaudeProjectsDir(),
 		UsageDir:    p.global.Root(),
 		UsageFile:   p.global.UsageFile(),
 		// Inside Git the corpus is keyed by the checkout, so every worktree

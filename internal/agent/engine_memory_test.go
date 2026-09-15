@@ -71,7 +71,7 @@ func TestLoopCarriesMemoryIntoTheTurn(t *testing.T) {
 	dir := t.TempDir()
 	writeMemory(t, dir, "feedback", "hashline-edits", "Edits anchor on a hashline tag.",
 		"Never swap hashline edits for a whole-file rewrite.")
-	store, err := memory.Open(dir, nil)
+	store, err := memory.Open(dir, nil, memory.Registry{})
 	require.NoError(t, err)
 
 	server, bodies := recordingServer(t, func(int, http.ResponseWriter) {})
@@ -104,7 +104,7 @@ func TestLoopRecallsAProjectMemoryForTheTurn(t *testing.T) {
 	for _, name := range []string{"alpha", "beta", "gamma"} {
 		writeMemory(t, dir, "project", name+"-note", "A note about "+name+".", "Body of "+name+".")
 	}
-	store, err := memory.Open(dir, nil)
+	store, err := memory.Open(dir, nil, memory.Registry{})
 	require.NoError(t, err)
 
 	server, bodies := recordingServer(t, func(int, http.ResponseWriter) {})
@@ -148,7 +148,7 @@ func TestLoopWithoutMemoryStoreAddsNothing(t *testing.T) {
 // system prompt carries it.
 func TestLoopIndexesAMemoryWrittenDuringTheTurn(t *testing.T) {
 	dir := t.TempDir()
-	store, err := memory.Open(dir, nil)
+	store, err := memory.Open(dir, nil, memory.Registry{})
 	require.NoError(t, err)
 
 	server, bodies := recordingServer(t, func(n int, w http.ResponseWriter) {
@@ -208,7 +208,7 @@ func TestLoopSeesAMemoryRewrittenInPlace(t *testing.T) {
 	dir := t.TempDir()
 	writeMemory(t, dir, "project", "release-freeze", "No releases until 2026-09-15.",
 		"Ship nothing until the freeze lifts.")
-	store, err := memory.Open(dir, nil)
+	store, err := memory.Open(dir, nil, memory.Registry{})
 	require.NoError(t, err)
 
 	path := filepath.Join(dir, "release-freeze.md")

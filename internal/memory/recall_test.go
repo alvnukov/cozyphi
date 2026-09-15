@@ -14,7 +14,7 @@ func storeWith(t *testing.T, files map[string]string) *Store {
 	for name, content := range files {
 		write(t, dir, name, content)
 	}
-	store, err := Open(dir, nil)
+	store, err := Open(dir, nil, Registry{})
 	require.NoError(t, err)
 	return store
 }

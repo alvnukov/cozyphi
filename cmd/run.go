@@ -309,7 +309,7 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 	store, memErr := memory.Open(bs.Proj.MemoryDir(), usage.Memory{
 		Store: history,
 		Dir:   bs.Proj.MemoryDir(),
-	})
+	}, memoryRegistry(bs.Proj))
 	memoryStore, memoryOpen = store, memory.ObserveOpen(memErr)
 	if memErr != nil {
 		fmt.Fprintln(os.Stderr, "warning: memory:", memErr)

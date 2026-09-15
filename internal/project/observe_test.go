@@ -43,7 +43,7 @@ func TestStoreAnchorsAreTheLayoutsOwnDirectories(t *testing.T) {
 
 	assert.True(t, anchors.Known)
 	assert.Equal(t, proj.Global().SessionBase(), anchors.SessionBase)
-	assert.Equal(t, proj.Global().claudeProjectsDir(), anchors.MemoryBase)
+	assert.Equal(t, proj.Global().ClaudeProjectsDir(), anchors.MemoryBase)
 	assert.Equal(t, proj.Global().Root(), anchors.UsageDir)
 	assert.Equal(t, proj.Global().UsageFile(), anchors.UsageFile)
 	assert.Equal(t, filepath.Dir(anchors.UsageFile), anchors.UsageDir,

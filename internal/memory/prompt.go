@@ -233,52 +233,94 @@ func (s *Store) Budget() Budget {
 }
 
 // maintenance is the pressure valve. It appears only when memory has a problem
-// the model can act on, names what to act on, and disappears when it is fixed.
-// Below the thresholds it renders nothing: a small directory is never nagged.
+// the model can act on, or something to report about the last fan-out of a
+// global fact, names what to act on, and disappears when it is fixed. Below
+// the thresholds it renders nothing: a small directory is never nagged.
 func (s *Store) maintenance(dropped int, entries []Entry) string {
 	stale := s.Stale()
 	overlaps := s.Overlaps(overlapThreshold, maintenanceOverlaps)
-	if dropped == 0 && len(stale) < stalePressure && len(overlaps) < overlapPressure {
+	fanout := s.LastFanout()
+	pressure := dropped > 0 || len(stale) >= stalePressure || len(overlaps) >= overlapPressure
+	if !pressure && fanout.quiet() {
 		return ""
 	}
 
 	var sb strings.Builder
 	sb.WriteString("## Memory needs attention\n\n")
-	sb.WriteString("Room here is finite, and this directory is past it. Merge what overlaps into\n")
-	sb.WriteString("one file with `write`, then `memory` (action=forget) the file left over.\n")
-	sb.WriteString("Forgetting is a move to forgotten/, not a delete, so a wrong call is undone\n")
-	sb.WriteString("with `bash mv`. What must never be dropped takes `pin: true` in its\n")
-	sb.WriteString("frontmatter.\n\n")
-	if dropped > 0 {
-		fmt.Fprintf(&sb, "- %d of %d memories have no room in the prompt. They are still found by\n"+
-			"  retrieval and by `memory`, but nothing above names them.\n", dropped, len(entries))
+	if pressure {
+		sb.WriteString("Room here is finite, and this directory is past it. Merge what overlaps into\n")
+		sb.WriteString("one file with `write`, then `memory` (action=forget) the file left over.\n")
+		sb.WriteString("Forgetting is a move to forgotten/, not a delete, so a wrong call is undone\n")
+		sb.WriteString("with `bash mv`. What must never be dropped takes `pin: true` in its\n")
+		sb.WriteString("frontmatter.\n\n")
+		if dropped > 0 {
+			fmt.Fprintf(&sb, "- %d of %d memories have no room in the prompt. They are still found by\n"+
+				"  retrieval and by `memory`, but nothing above names them.\n", dropped, len(entries))
+		}
+		if len(stale) > 0 {
+			fmt.Fprintf(&sb, "- %d unused for %d days: %s.\n  Forget what is finished; pin what is not.\n",
+				len(stale), int(staleWindow.Hours()/24), names(stale))
+		}
+		for _, pair := range overlaps {
+			fmt.Fprintf(&sb, "- %s and %s overlap %.2f — one file, or a reason they are two.\n",
+				pair.A.Name, pair.B.Name, round(pair.Similarity))
+		}
+		if len(s.Overlaps(overlapThreshold, maintenanceOverlaps+1)) > maintenanceOverlaps {
+			sb.WriteString("- `memory` (action=overlaps) lists the rest of the merge candidates.\n")
+		}
 	}
-	if len(stale) > 0 {
-		fmt.Fprintf(&sb, "- %d unused for %d days: %s.\n  Forget what is finished; pin what is not.\n",
-			len(stale), int(staleWindow.Hours()/24), names(stale))
-	}
-	for _, pair := range overlaps {
-		fmt.Fprintf(&sb, "- %s and %s overlap %.2f — one file, or a reason they are two.\n",
-			pair.A.Name, pair.B.Name, round(pair.Similarity))
-	}
-	if len(s.Overlaps(overlapThreshold, maintenanceOverlaps+1)) > maintenanceOverlaps {
-		sb.WriteString("- `memory` (action=overlaps) lists the rest of the merge candidates.\n")
-	}
+	sb.WriteString(fanoutLines(fanout))
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// names spells out the first few and counts the rest.
-func names(entries []Entry) string {
-	shown := min(len(entries), maintenanceNames)
-	out := make([]string, 0, shown)
-	for _, entry := range entries[:shown] {
-		out = append(out, entry.Name)
+// fanoutLines reports the last reconciliation of global facts: what the
+// harness copied into other repositories, so a write outside this one is never
+// silent, and every corpus that kept its own memory of a global name, so a
+// rule not applying somewhere is something the user finds out about.
+func fanoutLines(fanout Fanout) string {
+	var sb strings.Builder
+	if len(fanout.Facts) > 0 {
+		fmt.Fprintf(&sb, "- copied into %d %s just now: %s.\n"+
+			"  A global fact is kept in every repository; nothing else left this one.\n",
+			fanout.Dirs, plural(fanout.Dirs, "corpus", "corpora"), list(fanout.Facts))
 	}
-	listed := strings.Join(out, ", ")
-	if rest := len(entries) - shown; rest > 0 {
+	shown := min(len(fanout.Clashes), clashNames)
+	for _, clash := range fanout.Clashes[:shown] {
+		fmt.Fprintf(&sb, "- %s is global, but %s has its own memory of that name and kept it:\n"+
+			"  the global one does not apply there. Rename one of the two to fix it.\n",
+			clash.Name, clash.Dir)
+	}
+	if rest := len(fanout.Clashes) - shown; rest > 0 {
+		fmt.Fprintf(&sb, "- and %d more corpora with a memory of their own under a global name.\n", rest)
+	}
+	return sb.String()
+}
+
+// list spells out the first few of anything and counts the rest, which is how
+// every line of this block stays one line whatever the directory holds.
+func list(items []string) string {
+	shown := min(len(items), maintenanceNames)
+	listed := strings.Join(items[:shown], ", ")
+	if rest := len(items) - shown; rest > 0 {
 		return fmt.Sprintf("%s (+%d more)", listed, rest)
 	}
 	return listed
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
+// names spells out the first few memories and counts the rest.
+func names(entries []Entry) string {
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, entry.Name)
+	}
+	return list(out)
 }
 
 // factCost is what one memory costs when rendered in full.

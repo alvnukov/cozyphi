@@ -68,7 +68,13 @@ Every change is weighed on six axes; when they conflict, trade them off out loud
   costs posting lists, not files. Nothing is ever deleted — the harness demotes
   no further than "findable but unlisted", and `forget` moves a file into
   `forgotten/`; `pin: true` is never demoted. The `memory` tool reads, prunes
-  and never writes a fact. Sub-agents get no store, and so no tool.
+  and never writes a fact. `scope: global` marks a fact that is true in every
+  repository: the harness copies the file into every corpus under
+  `~/.claude/projects/` plus the canonical `~/.cozyphi/memory/`, reconciles
+  them by mtime (newest wins, in any direction) at session open and at the end
+  of every turn, and never deletes — a session still reads exactly one corpus,
+  and no tool action names a path or another repository. Sub-agents get no
+  store, and so no tool.
 - **Watches:** a watch is a background shell command whose output wakes the
   session. Starting one is judged by the bash deny list and default — never the
   bash allowlist, which clears a command to run once, not forever. Events reach

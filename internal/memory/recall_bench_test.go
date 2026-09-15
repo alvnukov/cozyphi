@@ -36,7 +36,7 @@ var benchSizes = []int{100, 10_000}
 func BenchmarkReminder(b *testing.B) {
 	for _, size := range benchSizes {
 		b.Run(strconv.Itoa(size), func(b *testing.B) {
-			store, err := Open(benchDir(b, size), nil)
+			store, err := Open(benchDir(b, size), nil, Registry{})
 			require.NoError(b, err)
 			query := Query{Prompt: "when does the kerberos ticket expire"}
 			require.NotEmpty(b, store.Turn().Reminder(query), "the benchmark must measure a hit")
@@ -56,7 +56,7 @@ func BenchmarkReminder(b *testing.B) {
 func BenchmarkIndexBuild(b *testing.B) {
 	for _, size := range benchSizes {
 		b.Run(strconv.Itoa(size), func(b *testing.B) {
-			store, err := Open(benchDir(b, size), nil)
+			store, err := Open(benchDir(b, size), nil, Registry{})
 			require.NoError(b, err)
 
 			b.ReportAllocs()
@@ -76,7 +76,7 @@ func BenchmarkIndexRebuildAfterOneWrite(b *testing.B) {
 	for _, size := range benchSizes {
 		b.Run(strconv.Itoa(size), func(b *testing.B) {
 			dir := benchDir(b, size)
-			store, err := Open(dir, nil)
+			store, err := Open(dir, nil, Registry{})
 			require.NoError(b, err)
 			path := filepath.Join(dir, "note-00042"+fileExt)
 

@@ -47,6 +47,11 @@ type Overlap struct {
 // Forget moves one memory out of the directory and into forgotten/, where it
 // leaves the index, the prompt and retrieval — but not the disk.
 //
+// A global memory is forgotten everywhere: the copies in the other corpora and
+// in the canonical store move into their own forgotten/ in the same call. A
+// rule retired here must not keep applying in a repository nobody opened this
+// month, and a copy left behind would republish it on the next pass.
+//
 // A pinned memory is refused: unpinning is the deliberate step that says the
 // fact really is finished.
 func (s *Store) Forget(name string) (Entry, error) {
@@ -60,22 +65,30 @@ func (s *Store) Forget(name string) (Entry, error) {
 	if entry.Pinned {
 		return Entry{}, fmt.Errorf("memory: %s is pinned; remove `pin: true` from the file first", entry.Name)
 	}
-
-	archive := filepath.Join(s.dir, forgottenDir)
-	if err := os.MkdirAll(archive, 0o755); err != nil {
-		return Entry{}, fmt.Errorf("memory: create %s: %w", archive, err)
-	}
-	target := filepath.Join(archive, entry.File)
-	if _, err := os.Stat(target); err == nil {
-		// Forgotten twice under the same name: keep both.
-		stamp := time.Now().UTC().Format("20060102-150405")
-		target = filepath.Join(archive, strings.TrimSuffix(entry.File, fileExt)+"-"+stamp+fileExt)
-	}
-	if err := os.Rename(entry.Path, target); err != nil {
+	if err := archive(s.dir, entry.File, entry.Path); err != nil {
 		return Entry{}, fmt.Errorf("memory: forget %s: %w", entry.File, err)
 	}
 	s.Invalidate()
+	if entry.Global {
+		s.archiveCopies(entry.File)
+	}
 	return entry, nil
+}
+
+// archive moves one memory file into dir's forgotten/. Forgotten twice under
+// the same name keeps both: the archive is what makes a wrong call cost a move
+// back rather than a retype, so it may not overwrite either.
+func archive(dir, file, path string) error {
+	home := filepath.Join(dir, forgottenDir)
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		return fmt.Errorf("create %s: %w", home, err)
+	}
+	target := filepath.Join(home, file)
+	if _, err := os.Stat(target); err == nil {
+		stamp := time.Now().UTC().Format("20060102-150405")
+		target = filepath.Join(home, strings.TrimSuffix(file, fileExt)+"-"+stamp+fileExt)
+	}
+	return os.Rename(path, target)
 }
 
 // Forgotten lists what is in the archive, newest first. Nothing reads it back
@@ -138,8 +151,9 @@ func (s *Store) Stale() []Entry {
 // same description and the same body. The newer file stays.
 //
 // It is the only compaction the harness performs by itself, because it is the
-// only one that cannot lose anything. A duplicate that is pinned, or that
-// another memory links to, is left alone — the name is part of the fact then.
+// only one that cannot lose anything. A duplicate that is pinned, that another
+// memory links to, or that is global is left alone — the name is part of the
+// fact then, or the fact reaches further than this directory.
 func (s *Store) Compact() []string {
 	if s == nil {
 		return nil
@@ -164,9 +178,21 @@ func (s *Store) Compact() []string {
 		if len(group) < 2 {
 			continue
 		}
-		slices.SortFunc(group, func(a, b Entry) int { return b.Modified.Compare(a.Modified) })
+		// A global fact outranks a local twin whatever their dates: archiving
+		// it would retire the fact in every repository because one of them
+		// happened to hold the same words under another name.
+		slices.SortFunc(group, func(a, b Entry) int {
+			switch {
+			case a.Global && !b.Global:
+				return -1
+			case b.Global && !a.Global:
+				return 1
+			default:
+				return b.Modified.Compare(a.Modified)
+			}
+		})
 		for _, duplicate := range group[1:] {
-			if duplicate.Pinned || linked[strings.ToLower(duplicate.Name)] {
+			if duplicate.Pinned || duplicate.Global || linked[strings.ToLower(duplicate.Name)] {
 				continue
 			}
 			if _, err := s.Forget(duplicate.Name); err != nil {
