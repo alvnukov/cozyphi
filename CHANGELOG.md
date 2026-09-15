@@ -42,12 +42,32 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (`watch start/stop`, `memory forget`, `shell_task stop`,
   `task done/block/reopen/update`) wait for approval and resume cleanly
   afterwards. The exemption list itself is now configurable as
-  `permissions.plan.exemptions` (default: context, harness, memory, question,
-  session, shell_task, task); `plan` is a mandatory floor. **Breaking:** the
-  old `permissions.plan.additional_exemptions` key is renamed to
-  `permissions.plan.exemptions` with no legacy alias — a config still naming
+  `plan.defaults.exemptions` (default: context, harness, memory, question,
+  session, shell_task, task); `plan` is a mandatory floor, and an empty list
+  means that floor alone. **Breaking:** the old
+  `plan.defaults.additional_exemptions` key is renamed to
+  `plan.defaults.exemptions` with no legacy alias — a config still naming
   the old key falls back to the default list. Watch stays a known, exemptable
   name, but its `start`/`stop` obey the read-only rule whatever the list says.
+- Fixed: `watch` is reachable again from inside an approved plan. Dropping it
+  from the exemptions left it with no rank in the capability ladder, so the
+  gate denied it on every step type and no config could grant it — a plan
+  could not run a watch at all. It now ships on the `run` step, alongside
+  `bash`, and is assignable to any step type. Outside a plan it is still
+  denied, which was the point of the 2026-09-14 fix.
+- Fixed: the *Allowed outside plan* checkboxes in `/settings → Plan` hold
+  their state. Tools the gate knows only as exemptions (`context`, `harness`,
+  `memory`, `question`, `session`, `shell_task`, `task`) were also offered a
+  per-step-type row; ticking one moved the name out of the exemptions into a
+  step type that cannot hold it, so the exemption box cleared itself and the
+  next save failed to compile.
+- Fixed: clearing every exemption now survives a restart. The empty list was
+  written as an omitted key, which reads back as *not configured* and
+  restored the seven shipped defaults on the next start.
+- Fixed: a `plan.defaults` section assembled through a YAML anchor or a `<<`
+  merge key keeps its `exemptions`. The presence check scanned keys
+  literally, called a merged-in list absent, and replaced it with the shipped
+  defaults.
 - Added: the `task` tool names the registry it means. The default target is
   the launch checkout's git root, so a session in a worktree works that
   worktree's own notes instead of dirtying the main checkout's ledger; `main`

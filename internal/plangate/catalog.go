@@ -2,11 +2,17 @@ package plangate
 
 import "sort"
 
-// ToolInfo describes one tool understood by the plan gate. Mandatory
-// exemptions are shown by editors but cannot be assigned to a step type.
+// ToolInfo describes one tool understood by the plan gate. Two flags say
+// what an editor may do with the name: a mandatory exemption is shown but
+// never editable, and an exemption-only tool may be listed as an exemption
+// yet carries no capability rank, so assigning it to a step type is a
+// policy Compile error rather than a setting.
 type ToolInfo struct {
 	Name               string
 	MandatoryExemption bool
+	// ExemptionOnly marks a tool the plan gate knows only as an exemption:
+	// it has no rank in the capability ladder, so no step type can hold it.
+	ExemptionOnly bool
 }
 
 // KnownTools returns every tool understood by the plan gate in a stable,
@@ -53,7 +59,8 @@ func KnownTools() []ToolInfo {
 	}
 	sort.Strings(remaining)
 	for _, name := range remaining {
-		out = append(out, ToolInfo{Name: name})
+		_, ranked := toolLevel[name]
+		out = append(out, ToolInfo{Name: name, ExemptionOnly: !ranked})
 	}
 	return out
 }

@@ -756,13 +756,52 @@ func decodeDefaults(node *yaml.Node) (plangate.Defaults, error) {
 	return defaults, nil
 }
 
-// mappingHasKey reports whether a mapping node carries the given key.
+// maxMergeDepth bounds alias and merge-key following: deep enough for any
+// hand-written config, shallow enough that a cyclic anchor cannot spin.
+const maxMergeDepth = 8
+
+// mappingHasKey reports whether a mapping node carries the given key, reading
+// the node the way Decode does: an alias stands for its anchor, and a `<<`
+// merge key contributes the keys of every mapping it merges in. A literal
+// scan would call a merged-in `exemptions` absent and silently replace the
+// user's list with the shipped default.
 func mappingHasKey(node *yaml.Node, key string) bool {
+	return mappingHasKeyAt(node, key, 0)
+}
+
+func mappingHasKeyAt(node *yaml.Node, key string, depth int) bool {
+	if node == nil || depth > maxMergeDepth {
+		return false
+	}
+	if node.Kind == yaml.AliasNode {
+		return mappingHasKeyAt(node.Alias, key, depth+1)
+	}
 	if node.Kind != yaml.MappingNode {
 		return false
 	}
+	var merged []*yaml.Node
 	for i := 0; i+1 < len(node.Content); i += 2 {
-		if keyNode := node.Content[i]; keyNode.Kind == yaml.ScalarNode && keyNode.Value == key {
+		keyNode := node.Content[i]
+		if keyNode.Kind != yaml.ScalarNode {
+			continue
+		}
+		if keyNode.Value == key {
+			return true
+		}
+		if keyNode.Tag == "!!merge" || keyNode.Value == "<<" {
+			merged = append(merged, node.Content[i+1])
+		}
+	}
+	for _, source := range merged {
+		if source.Kind == yaml.SequenceNode {
+			for _, item := range source.Content {
+				if mappingHasKeyAt(item, key, depth+1) {
+					return true
+				}
+			}
+			continue
+		}
+		if mappingHasKeyAt(source, key, depth+1) {
 			return true
 		}
 	}

@@ -1,7 +1,7 @@
 ---
 id: watch-command-start-bypasses-plan-gate
 title: pre-plan tool exemptions are user-configurable
-status: done
+status: in_progress
 priority: high
 task_type: feature
 branch: feature/watch-command-start-bypasses-plan-gate
@@ -21,7 +21,7 @@ verification_plan:
     - один golangci-lint run по изменённым пакетам
     - 'живой прогон: watch с командой без плана — отказ; отключение тулзы в конфиге — отказ; plan доступен всегда'
 created_at: "2026-09-14T21:49:55.354889Z"
-updated_at: "2026-09-14T22:40:46.674584Z"
+updated_at: "2026-09-15T00:00:00.000000Z"
 ---
 
 ## Body
@@ -36,9 +36,20 @@ updated_at: "2026-09-14T22:40:46.674584Z"
 
 **Открытые вопросы реализации:** какой settings-механизм наследовать; как текст политики (список экземтов в промпте) обновляется — статика или шаблон; где живёт классификация действий read/mutate.
 
-**Note (2026-09-15).** 2026-09-15: Landed on feature/watch-command-start-bypasses-plan-gate — configurable permissions.plan.exemptions (default context, harness, memory, question, session, shell_task, task; plan is a hard floor; breaking rename additional_exemptions -> exemptions), pre-approval read-only enforcement in plangate (ToolCall.Action, ActionFromArgs, preApprovalMutatingActions; ReasonPlanNotApproved with MissApprovalRequired/MissPlanRequired), executor wiring, PromptBlock teaches the rule from the enforcement table, AGENTS.md + doc/watch.md + CHANGELOG synced. Scoped gates green: golangci-lint 0 issues, go test plangate/agent/harnesssettings/tui-settings/tui-sessions/tui-controller ok.
+**Note (2026-09-15).** 2026-09-15: Landed on feature/watch-command-start-bypasses-plan-gate — configurable plan.defaults.exemptions (default context, harness, memory, question, session, shell_task, task; plan is a hard floor; breaking rename additional_exemptions -> exemptions), pre-approval read-only enforcement in plangate (ToolCall.Action, ActionFromArgs, preApprovalMutatingActions; ReasonPlanNotApproved with MissApprovalRequired/MissPlanRequired), executor wiring, PromptBlock teaches the rule from the enforcement table, AGENTS.md + doc/watch.md + CHANGELOG synced. Scoped gates green: golangci-lint 0 issues, go test plangate/agent/harnesssettings/tui-settings/tui-sessions/tui-controller ok.
 
-**Done (2026-09-15).** Landed in worktree commit 402ff68a on feature/watch-command-start-bypasses-plan-gate (SSH-signed, verified G): configurable permissions.plan.exemptions with plan floor and breaking rename, pre-approval read-only enforcement (ReasonPlanNotApproved), executor wiring, PromptBlock from the enforcement table, docs+CHANGELOG synced, ledger note included. Scoped gates green (golangci-lint 0 issues; go test plangate/agent/harnesssettings/tui settings/sessions/controller ok). Not published — awaiting explicit permission.
+**Correction (2026-09-15).** Предыдущая запись объявляла задачу done и ссылалась на коммит 402ff68a — такого коммита в ветке нет, реальный единственный коммит 1f480c1a поверх 215dc051. Статус возвращён в in_progress: живая проверка настроек не проводилась, и по ней нашлись невыполненные критерии (ниже).
+
+**Note (2026-09-15).** Разбор жалобы «в /settings → Plan галочки снимаются» нашёл четыре дефекта, все воспроизведены исполнением, не чтением, и все закрыты регрессиями на этой же ветке:
+
+1. **watch стал недостижим.** Убрав watch из экземптов, коммит 1f480c1a оставил его без ранга в лестнице возможностей: `Policy.Check` отказывал ему на каждом типе шага одобренного плана, а конфиг спасти не мог — `Compile` отвечал `unknown tool "watch"`. Гейт превратился в запрет. Починено: `toolLevel["watch"]=3` и watch в дефолтном наборе шага `run`. Вне плана отказ сохраняется — ради чего фикс и делался.
+2. **Жалоба пользователя.** Тулзы, известные гейту только как экземпты (context, harness, memory, question, session, shell_task, task), рендерились ещё и строкой «· for <type>». Один клик по `[ ] task · for explore` снимал `task · allowed outside plan` и заклинивал драфт: Ctrl+S возвращал `plangate: step type "explore": unknown tool "task"`. Починено: `ToolInfo.ExemptionOnly` + пропуск таких строк в pane.
+3. **Пустой набор экземптов непредставим.** `yaml:"exemptions,omitempty"` — снять все галочки, сохранить, перезапустить, получить обратно семь дефолтных. Починено: снят omitempty, пустой набор пишется как `exemptions: []`.
+4. **`mappingHasKey` не видел YAML-алиасы и merge-ключи.** Конфиг с `<<: *base`, несущим exemptions, молча получал вместо своего списка семь дефолтных. Починено: обход с разыменованием алиасов и merge-ключей, глубина ограничена.
+
+Дубликат plan-settings-checkboxes-reset удалён — он был частью этой задачи.
+
+**Осталось:** живая проверка бинарём с этой ветки (в `~/bin/cozyphi` лежит сборка с main, она фичу не содержит — часть наблюдений пользователя пришла оттуда), rebase на текущий main (ветка отстала, в main влит PR #30), PR с разрешения.
 
 ## Acceptance Criteria
 

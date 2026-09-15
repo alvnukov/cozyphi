@@ -1485,7 +1485,10 @@ func (p *Pane) rows(tab Tab) []paneRow {
 			typeIndex: i,
 		})
 		for _, tool := range catalog {
-			if tool.MandatoryExemption {
+			// A mandatory exemption is not editable, and an exemption-only
+			// tool has no capability rank — offering it a step-type row
+			// would trade its exemption for a draft the policy rejects.
+			if tool.MandatoryExemption || tool.ExemptionOnly {
 				continue
 			}
 			availability := p.toolAvailability(tool.Name)

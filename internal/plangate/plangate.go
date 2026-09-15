@@ -98,7 +98,9 @@ var exemptTools = map[string]struct{}{
 // the planning-adjacent defaults and anything a config re-adds. Watch is
 // known but ships unlisted: its start action executes shell, and a
 // mandatory exemption let it run commands in sessions with no plan at all
-// (2026-09-14, task watch-command-start-bypasses-plan-gate).
+// (2026-09-14, task watch-command-start-bypasses-plan-gate). Unlisted is
+// not unreachable — watch carries a toolLevel and ships on the run step,
+// so an approved plan still runs it.
 var knownExemptTools = map[string]struct{}{
 	"context":    {},
 	"session":    {},
@@ -133,6 +135,7 @@ var toolLevel = map[string]int{
 	"write":        2,
 	"edit":         2,
 	"bash":         3,
+	"watch":        3,
 	"agent_spawn":  4,
 	"agent_wait":   4,
 	"agent_list":   4,

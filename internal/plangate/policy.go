@@ -46,8 +46,8 @@ type TypeDefaults struct {
 // alone. Exemptions bypass only this gate; the executor's permission gate
 // still runs.
 type Defaults struct {
-	Types      []TypeDefaults `yaml:"types"                json:"types"`
-	Exemptions []string       `yaml:"exemptions,omitempty" json:"exemptions,omitempty"`
+	Types      []TypeDefaults `yaml:"types"      json:"types"`
+	Exemptions []string       `yaml:"exemptions" json:"exemptions,omitempty"`
 	// Actions are the plan-scope plan actions (plan_start / plan_end) a new
 	// plan inherits when its author defines none.
 	Actions []session.PlanAction `yaml:"actions,omitempty" json:"actions,omitempty"`
@@ -85,16 +85,17 @@ func (d Defaults) StepTypeNames() []string {
 
 // DefaultDefaults returns the built-in policy used when config.yaml has no
 // plan.defaults section, and the exemption list used when that section has
-// no exemptions key: planning-adjacent tools only. Watch is absent — its
-// start action executes shell, and an unconditional exemption carried it
-// past the gate in plan-less sessions (2026-09-14).
+// no exemptions key: planning-adjacent tools only. Watch is absent from the
+// exemptions — its start action executes shell, and an unconditional
+// exemption carried it past the gate in plan-less sessions (2026-09-14) —
+// but it sits on the run step, so a plan that asks for it gets it.
 func DefaultDefaults() Defaults {
 	return Defaults{
 		Exemptions: []string{"context", "harness", "memory", "question", "session", "shell_task", "task"},
 		Types: []TypeDefaults{
 			{Name: session.StepExplore, Tools: []string{"read", "grep", "find", "ls", "lsp"}},
 			{Name: session.StepEdit, Tools: []string{"write", "edit"}},
-			{Name: session.StepRun, Tools: []string{"bash"}},
+			{Name: session.StepRun, Tools: []string{"bash", "watch"}},
 			{Name: session.StepDelegate, Tools: []string{"agent_spawn", "agent_wait", "agent_list", "agent_cancel"}},
 			{Name: session.StepIntegrate, Tools: []string{"mcp_list", "mcp_inspect", "mcp_call"}},
 		},

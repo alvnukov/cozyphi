@@ -233,7 +233,7 @@ func TestPolicyVisibleToolsMirrorsTheGate(t *testing.T) {
 				Content: "later", Status: session.PlanPending, Type: session.StepRun,
 			}}},
 			want: []string{
-				"read", "grep", "find", "ls", "lsp", "write", "edit", "bash",
+				"read", "grep", "find", "ls", "lsp", "write", "edit", "bash", "watch",
 				"plan", "context", "question", "memory", "task", "harness", "session", "shell_task",
 			},
 		},
@@ -261,7 +261,7 @@ func TestPolicyVisibleToolsMirrorsTheGate(t *testing.T) {
 				{Content: "run", Status: session.PlanInProgress, Type: session.StepRun},
 			}},
 			want: []string{
-				"read", "grep", "find", "ls", "lsp", "write", "edit", "bash",
+				"read", "grep", "find", "ls", "lsp", "write", "edit", "bash", "watch",
 				"plan", "context", "question", "memory", "task", "harness", "session", "shell_task",
 			},
 		},
