@@ -30,7 +30,7 @@ type ModelCatalogWarning struct {
 }
 
 func (w *ModelCatalogWarning) Error() string {
-	return fmt.Sprintf("signed in, but OpenAI model discovery failed; using cached/offline models: %v", w.err)
+	return fmt.Sprintf("signed in, but subscription model discovery failed; using cached/offline models: %v", w.err)
 }
 
 func (w *ModelCatalogWarning) Unwrap() error { return w.err }
@@ -47,10 +47,11 @@ type codexModelInfo struct {
 	ContextWindow int    `json:"context_window"`
 }
 
-// RefreshSubscriptionModels refreshes account-specific model availability.
-// A fresh, account-bound cache avoids unnecessary startup network traffic.
+// RefreshSubscriptionModels refreshes account-specific model availability for
+// every connected subscription provider. A fresh, account-bound cache avoids
+// unnecessary startup network traffic.
 func (m *Manager) RefreshSubscriptionModels(ctx context.Context) error {
-	return m.refreshCodexModels(ctx, false)
+	return errors.Join(m.refreshCodexModels(ctx, false), m.refreshKimiModels(ctx, false))
 }
 
 func (m *Manager) refreshCodexModels(ctx context.Context, force bool) error {
@@ -103,7 +104,7 @@ func (m *Manager) fetchCodexModels(ctx context.Context, credential credential) (
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "cozyphi")
-	if err := authorizeOAuthRequest(req, credential); err != nil {
+	if err := (codexGrant{}).authorize(req, credential); err != nil {
 		return nil, fmt.Errorf("provider: authorize OpenAI model request: %w", err)
 	}
 
@@ -151,7 +152,7 @@ func decodeCodexModels(r io.Reader) ([]Model, error) {
 		}
 		raw.Slug = strings.TrimSpace(raw.Slug)
 		raw.DisplayName = strings.TrimSpace(raw.DisplayName)
-		if !validCodexModelID(raw.Slug) {
+		if !validModelID(raw.Slug) {
 			return nil, fmt.Errorf("invalid listed model id %q", raw.Slug)
 		}
 		if raw.DisplayName == "" {
@@ -185,7 +186,7 @@ func decodeCodexModels(r io.Reader) ([]Model, error) {
 	return models, nil
 }
 
-func validCodexModelID(value string) bool {
+func validModelID(value string) bool {
 	if value == "" || len(value) > 128 {
 		return false
 	}

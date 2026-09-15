@@ -230,7 +230,7 @@ func TestManagerRefreshKeepsLastKnownGoodCatalog(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, manager.Refresh(t.Context()))
-	require.Equal(t, []string{"acme", "openai", "zai-coding-plan"}, providerIDs(manager.Providers()))
+	require.Equal(t, []string{"acme", "kimi-code", "openai", "zai-coding-plan"}, providerIDs(manager.Providers()))
 
 	body = `{"acme":{"id":"acme","name":"Acme","api":"http://127.0.0.1:9000","npm":"@ai-sdk/openai-compatible","models":{}}}`
 	err = manager.Refresh(t.Context())
@@ -238,7 +238,7 @@ func TestManagerRefreshKeepsLastKnownGoodCatalog(t *testing.T) {
 	assert.Contains(t, err.Error(), "catalog")
 	require.Equal(
 		t,
-		[]string{"acme", "openai", "zai-coding-plan"},
+		[]string{"acme", "kimi-code", "openai", "zai-coding-plan"},
 		providerIDs(manager.Providers()),
 		"failed refresh must not replace live state",
 	)
@@ -250,7 +250,7 @@ func TestManagerRefreshKeepsLastKnownGoodCatalog(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(
 		t,
-		[]string{"acme", "openai", "zai-coding-plan"},
+		[]string{"acme", "kimi-code", "openai", "zai-coding-plan"},
 		providerIDs(reopened.Providers()),
 		"validated cache must survive restart",
 	)
@@ -289,7 +289,7 @@ func TestManagerRefreshSkipsProviderWithUnresolvedEndpoint(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, manager.Refresh(t.Context()))
-	assert.Equal(t, []string{"acme", "openai", "zai-coding-plan"}, providerIDs(manager.Providers()))
+	assert.Equal(t, []string{"acme", "kimi-code", "openai", "zai-coding-plan"}, providerIDs(manager.Providers()))
 }
 
 func TestManagerRefreshRejectsRedirectsWithoutChangingCatalog(t *testing.T) {
@@ -316,7 +316,7 @@ func TestManagerRefreshRejectsRedirectsWithoutChangingCatalog(t *testing.T) {
 	err = manager.Refresh(t.Context())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "redirect")
-	assert.Equal(t, []string{"openai", "zai-coding-plan"}, providerIDs(manager.Providers()))
+	assert.Equal(t, []string{"kimi-code", "openai", "zai-coding-plan"}, providerIDs(manager.Providers()))
 	assert.NoFileExists(t, filepath.Join(dir, "providers.json"))
 }
 
@@ -376,14 +376,14 @@ func TestManagerRejectsOversizedOrUnsupportedCatalogWithoutLosingCache(t *testin
 		CredentialsPath: filepath.Join(dir, "credentials.json"),
 	})
 	require.NoError(t, err)
-	require.Equal(t, []string{"openai", "safe", "zai-coding-plan"}, providerIDs(manager.Providers()))
+	require.Equal(t, []string{"kimi-code", "openai", "safe", "zai-coding-plan"}, providerIDs(manager.Providers()))
 
 	unsupported := strings.NewReader(catalogJSON(
 		"bedrock", "Bedrock", "https://bedrock.example", "@ai-sdk/amazon-bedrock", "model",
 	))
 	err = manager.ReplaceCatalog(unsupported)
 	require.Error(t, err)
-	require.Equal(t, []string{"openai", "safe", "zai-coding-plan"}, providerIDs(manager.Providers()))
+	require.Equal(t, []string{"kimi-code", "openai", "safe", "zai-coding-plan"}, providerIDs(manager.Providers()))
 }
 
 func TestManagerRefreshUpdatesPinnedProviderModelsWithoutChangingConnectionContract(t *testing.T) {

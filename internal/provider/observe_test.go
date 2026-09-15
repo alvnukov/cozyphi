@@ -84,7 +84,7 @@ func TestObservationNamesTheProvidersACredentialExistsForAndNothingElse(t *testi
 
 	assert.True(t, facts.Known)
 	assert.Equal(t, connectedProviders, facts.Connected, "presence is the whole of what a credential says")
-	assert.Equal(t, 3, facts.Catalog, "the saved provider joins the two built-in ones")
+	assert.Equal(t, 4, facts.Catalog, "the saved provider joins the three built-in ones")
 	assert.True(t, facts.Cached)
 
 	rendered := fmt.Sprintf("%#v", facts)
@@ -109,7 +109,7 @@ func TestObservationSaysWhetherASavedCatalogWasRead(t *testing.T) {
 
 	facts := fresh.Observation()
 	assert.False(t, facts.Cached, "nothing has been refreshed yet; the built-in table stands alone")
-	assert.Equal(t, 2, facts.Catalog)
+	assert.Equal(t, 3, facts.Catalog)
 	assert.Empty(t, facts.Connected, "an empty store is an empty list, not an unknown one")
 	assert.Equal(t, "0", facts.Revision)
 

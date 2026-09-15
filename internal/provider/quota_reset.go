@@ -249,5 +249,5 @@ func authorizeOpenAICodexResetRequest(req *http.Request, cred credential) error 
 		return ErrQuotaResetStale
 	}
 	cred.BaseURL = origin + "/backend-api/wham"
-	return authorizeOAuthRequest(req, cred)
+	return codexGrant{}.authorize(req, cred)
 }

@@ -236,7 +236,7 @@ func authorizeOpenAICodexQuotaRequest(req *http.Request, cred credential) error 
 		return errors.New("provider: OAuth request target does not match the connected endpoint")
 	}
 	cred.BaseURL = strings.TrimSuffix(endpoint, req.URL.Path) + "/backend-api/wham"
-	return authorizeOAuthRequest(req, cred)
+	return codexGrant{}.authorize(req, cred)
 }
 
 func openAICodexEndpoint(baseURL, path string) (string, error) {
