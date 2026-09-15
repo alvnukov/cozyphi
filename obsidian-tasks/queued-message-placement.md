@@ -1,0 +1,61 @@
+---
+id: queued-message-placement
+title: Queued-сообщение рисуется в ленте и применяется не по порядку
+status: in_progress
+priority: high
+task_type: bug
+tags:
+    - tui
+    - queue
+    - transcript
+branch: bug/queued-message-placement
+worktree_path: .worktrees/queued-message-placement
+acceptance_criteria:
+    - Сообщение в очереди не появляется в транскрипте до доставки модели — висит виджетом над полем ввода
+    - При доставке user-ряд добавляется в конец ленты (порядок совпадает с replay)
+    - Drop при unapprove и Esc-recall не оставляют строк в ленте; recall возвращает text+media+skills в композер
+    - Концепт Queued удалён из session/transcript (Message.Queued, Item.Queued, UserBlock.Queued, UserAppend.Queued, UserRecalled, спец-кейсы mapper.go и pane.go)
+    - go build+test по изменённым пакетам зелёные
+verification_plan:
+    - go build ./internal/... && go test по пакетам session, tui/submit, tui/controller, tui/transcript, tui/composer, tui/sessions
+    - 'Ручная проверка: сабмит во время стрима — сообщение над инпутом, не в ленте; конец хода — ряд в конце ленты; Esc — возврат в композер'
+created_at: "2026-09-15T18:16:37.848486Z"
+updated_at: "2026-09-15T19:29:02.610885Z"
+---
+
+## Body
+
+**Симптом:** при сабмите во время работающего хода сообщение сразу рисуется в ленте с пометкой "(queued)" за стримящимся ходом, а при dequeue флаг снимается in-place — ряд остаётся выше событий, пришедших после (тулы, watch-события). Ожидается: сообщение висит над полем ввода, пока в очереди; в ленту попадает в конец при реальной отправке.
+
+**Ревью (job_20260915T165808_84557c4bfdc9e3a2) нашло 5 дефектов одной хореографии:**
+1. In-place promote (`internal/session/apply.go:71-77`) — главный баг порядка.
+2. Drop при unapprove шлёт UserPromoted — ряд выглядит отправленным, при резюме исчезает (`internal/tui/controller/controller.go:2357,928`).
+3. Гонка RunActive/StartPrompt → stuck "(queued)" (`internal/tui/submit/submitter.go:111-135`).
+4. drainQueuedForRun обнуляет очередь до подтверждения доставки → strands rows при отмене.
+5. Несогласованная семантика UserPromoted (mid-turn = «модель увидел», dequeue = «ран запустился», даже при отказе).
+
+**Корень:** двойная запись о pending — promptQueue в контроллере и Queued-флаг в сессии, синхронизируемые вручную в 4 точках.
+
+**Дизайн фикса (вариант B из ревью):**
+- Удалить Queued-концепт: Message.Queued, Item.Queued, UserBlock.Queued, UserAppend.Queued, UserRecalled, спец-кейсы mapper.go:310/730/838, pane.go:578.
+- Submitter не аппендит ряд при runActive; очередь рисуется виджетом над композером (зона pending-skills, composer/pane.go:510-517).
+- UserPromoted несёт текст, становится append в конец ленты при доставке.
+- Esc-recall = pop из очереди контроллера + перерисовка виджета; recall возвращает media/skills.
+- Drain: requeue при недоставке или подтверждение движком.
+
+**Started (2026-09-15).** Беру в работу: дизайн B по ревью — удаление Queued-концепта, виджет очереди над композером, promote = append в конец.
+
+**Note (2026-09-15).** Design B implemented in worktree `.worktrees/queued-message-placement` (worker job + parent fixes): `Queued` concept removed from session/transcript (`Message.Queued`, `Item.Queued`, `UserBlock.Queued`, `UserAppend.Queued`, `UserRecalled`, mapper/pane special cases); queue lives only in controller `promptQueue` plus a new composer strip above the input (`PromptQueueMsg`); `UserPromoted{ID, Text}` is now emitted by the engine at real delivery (turn start and inject boundary) and appends the user row at the END of the feed, matching replay. Also fixed by parent: `StartPrompt` returns `(queued bool)` under `streamMu`; submitter skips the transcript row for queued submits; `dropQueuedPromptsLocked` no longer fakes `UserPromoted` on unapprove; drained-but-undelivered prompts are requeued on cancel; engine no longer double-publishes `UserPromoted` in the run loop. Recall restores text+media+pendingSkills. Tests rewritten; CHANGELOG entry added. Pending: full scoped test run, task note commit, one scoped golangci-lint run, branch commit.
+
+## Acceptance Criteria
+
+- Сообщение в очереди не появляется в транскрипте до доставки модели — висит виджетом над полем ввода
+- При доставке user-ряд добавляется в конец ленты (порядок совпадает с replay)
+- Drop при unapprove и Esc-recall не оставляют строк в ленте; recall возвращает text+media+skills в композер
+- Концепт Queued удалён из session/transcript (Message.Queued, Item.Queued, UserBlock.Queued, UserAppend.Queued, UserRecalled, спец-кейсы mapper.go и pane.go)
+- go build+test по изменённым пакетам зелёные
+
+## Verification Plan
+
+1. go build ./internal/... && go test по пакетам session, tui/submit, tui/controller, tui/transcript, tui/composer, tui/sessions
+2. Ручная проверка: сабмит во время стрима — сообщение над инпутом, не в ленте; конец хода — ряд в конце ленты; Esc — возврат в композер
