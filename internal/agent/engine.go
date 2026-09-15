@@ -1302,7 +1302,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 						return
 					}
 					if item.UserID != "" {
-						text := UserPromptDisplayText(item.Text, item.Skills)
+						text := session.UserPromptText(item.Text, item.Skills)
 						if !yield(session.UserPromoted{ID: item.UserID, Text: text}, nil) {
 							return
 						}
@@ -1311,20 +1311,6 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 		}
 	}
-}
-
-// UserPromptDisplayText is the transcript text for a user prompt: the
-// typed text, or a skills summary when the submit carried only composer
-// skills. The submitter, the queue widget and the engine's promote event
-// all render the same string, so the rule lives here exactly once.
-func UserPromptDisplayText(text string, skills []string) string {
-	if text != "" {
-		return text
-	}
-	if len(skills) > 0 {
-		return "Skills: " + strings.Join(skills, ", ")
-	}
-	return ""
 }
 
 // composeUserPrompt assembles a user message the way both entry points into a

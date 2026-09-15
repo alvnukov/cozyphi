@@ -16,6 +16,7 @@ func (c *Controller) startFollowUpLocked(prompt queuedPrompt) {
 	manager := c.runtime.jobs
 	previous, err := manager.Get(context.Background(), c.assignment.JobID)
 	if err != nil {
+		c.requeueLocked(prompt)
 		c.refuseFollowUp(err)
 		return
 	}
@@ -28,6 +29,7 @@ func (c *Controller) startFollowUpLocked(prompt queuedPrompt) {
 		WorkDir: previous.WorkDir, ParentWorkspace: previous.ParentWorkspace,
 	}, runner)
 	if err != nil {
+		c.requeueLocked(prompt)
 		c.refuseFollowUp(err)
 		return
 	}
@@ -51,6 +53,7 @@ func (r followUpRunner) Run(ctx context.Context, env job.RunEnv) (string, error)
 		c.streamMu.Lock()
 		if a := c.assignment; a != nil && a.JobID == env.Job.ID && !a.Terminal {
 			c.stopAssignmentLocked(a, err)
+			c.requeueLocked(r.prompt)
 			c.refuseFollowUp(err)
 		}
 		c.streamMu.Unlock()

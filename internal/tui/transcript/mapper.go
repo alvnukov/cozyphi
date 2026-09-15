@@ -714,7 +714,7 @@ func (m *Mapper) fillDiffBlock(d *block.DiffBlock, it session.Item) {
 // groupTurns condenses finished turns older than the trailing keepFullTurns
 // into a summary row: the user prompt and the turn's final reply stay, the
 // working rows between them fold behind a "worked 42s · 7 tools · …" line.
-// Failed tool rows, queued prompts and compaction markers never fold; the
+// Failed tool rows and compaction markers never fold; the
 // verbose switch turns grouping off wholesale.
 func (m *Mapper) groupTurns(items []session.Item, snap session.Snapshot) []session.Item {
 	if m.summaries == nil {
@@ -793,7 +793,7 @@ func (m *Mapper) condenseTurn(turn []session.Item, dur time.Duration) []session.
 }
 
 // keepVisible reports a row a condensed turn may never hide: a failed or
-// rejected tool call, a queued user prompt, a compaction marker.
+// rejected tool call, a compaction marker.
 func keepVisible(it session.Item) bool {
 	switch it.Kind {
 	case session.ItemUser, session.ItemCompaction:

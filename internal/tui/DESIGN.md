@@ -187,18 +187,19 @@ called from the pane's release path, because only the pane can tell a
 click from a selection's start); a drag that selected text copies it
 and leaves the block open.
 
-The feed condenses by turn. A turn is what a sent user prompt opens (a
-queued prompt waits inside someone else's turn); turns older than the
-last two fold their working rows — thinking, tool calls, intermediate
-text — behind one muted summary row, `▸ worked 42s · 7 tools · pane.go,
+The feed condenses by turn. A turn is what a delivered user prompt
+opens — a prompt still waiting in the queue has no row here at all,
+only a strip above the composer — and turns older than the last two
+fold their working rows — thinking, tool calls, intermediate text —
+behind one muted summary row, `▸ worked 42s · 7 tools · pane.go,
 mapper.go`, keeping the prompt and the turn's final reply in place. The
 grouping lives in the transcript mapper (`groupTurns`), above the
 projection and below the widgets, so `session.Project` stays a pure
 flattening and `syncTail` stays valid — the tail turn is never grouped.
 A summary row's toggle re-emits the hidden rows through a full resync
-(`onRegroup`); the fold rules never hide a failed or rejected tool call,
-a queued prompt, or a compaction marker. One rejection is exempt because
-it is not one: the plan gate's skill-preload refusal, which intercepts a
+(`onRegroup`); the fold rules never hide a failed or rejected tool call
+or a compaction marker. One rejection is exempt because it is not one:
+the plan gate's skill-preload refusal, which intercepts a
 step's first working call only to hand the model its skills and have it
 retry. The mapper drops that row from the projection outright
 (`dropServiceRefusals`, keyed on `plangate.ReasonSkillPreload`) — the

@@ -4,7 +4,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
@@ -125,7 +124,7 @@ func (s *Submitter) handleUserInput(text string, media []llm.Media) {
 		s.activity.Apply(controller.ActivitySubmitting)
 		s.transcript.ApplySession(session.UserAppend{
 			ID:   session.NewUserMessageID(),
-			Text: agent.UserPromptDisplayText(text, pendingSkills),
+			Text: session.UserPromptText(text, pendingSkills),
 		})
 		s.transcript.Sync()
 		s.transcript.StickToBottom()

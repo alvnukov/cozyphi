@@ -212,6 +212,21 @@ type Event interface {
 	isSessionEvent()
 }
 
+// UserPromptText is the transcript text for a user prompt: the typed text,
+// or a skills summary when the submit carried only composer skills. The
+// submitter, the queue widget and the engine's promote event all render the
+// same string, so the rule lives here exactly once — beside the events that
+// carry it.
+func UserPromptText(text string, skills []string) string {
+	if text != "" {
+		return text
+	}
+	if len(skills) > 0 {
+		return "Skills: " + strings.Join(skills, ", ")
+	}
+	return ""
+}
+
 // UserAppend appends a user message the moment it is submitted. A prompt
 // accepted behind a running turn has no row yet — it lands via UserPromoted
 // when the model actually receives it.

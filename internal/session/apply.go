@@ -55,11 +55,12 @@ func cloneSnapshot(s Snapshot) Snapshot {
 	}
 }
 
-// newUserMessage builds the one user-row shape both user events share;
-// n is the current message count, used for the fallback id.
-func newUserMessage(id, text string, n int) Message {
+// newUserMessage builds the one user-row shape both user events share.
+// count is how many rows the snapshot already holds, which names a row that
+// arrived without an id.
+func newUserMessage(id, text string, count int) Message {
 	if id == "" {
-		id = fmt.Sprintf("user-%d", n+1)
+		id = fmt.Sprintf("user-%d", count+1)
 	}
 	return Message{ID: id, Role: RoleUser, Text: text}
 }

@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"unicode"
@@ -263,8 +264,19 @@ func (c *ChatInput) pendingSkillsHeight() int {
 	return 1
 }
 
-// queuedHeight reserves one row per prompt waiting behind the running turn.
-func (c *ChatInput) queuedHeight() int { return len(c.Queued) }
+// maxQueuedRows bounds the strip. MinHeight is a hard floor for the layout
+// arbiter, so an unbounded strip pushes the input itself off the bottom of
+// the screen — a 24-row terminal loses it at 14 queued prompts. Past the cap
+// the remainder collapses into one counter row.
+const maxQueuedRows = 4
+
+// queuedChromeWidth is what the label and the hint take from a queued row,
+// leaving the rest for the prompt text.
+const queuedChromeWidth = len("queued: ") + len("  (Esc to recall)")
+
+// queuedHeight reserves one row per prompt waiting behind the running turn,
+// up to the cap.
+func (c *ChatInput) queuedHeight() int { return min(len(c.Queued), maxQueuedRows) }
 
 // AddPendingSkill appends name if not already pending.
 func (c *ChatInput) AddPendingSkill(name string) {
@@ -1470,7 +1482,8 @@ func (c *ChatInput) paintPendingSkills(
 // paintQueued draws one row per prompt waiting behind the running turn,
 // oldest first: "queued: <first line> (Esc to recall)". A queued prompt has
 // no transcript row — this strip is its only visible trace until the engine
-// delivers it.
+// delivers it. Past maxQueuedRows the last row counts the rest instead, so a
+// long queue cannot grow the composer without bound.
 func (c *ChatInput) paintQueued(
 	s *components.Surface,
 	x, y, width int,
@@ -1480,14 +1493,23 @@ func (c *ChatInput) paintQueued(
 	labelSt := th.Muted
 	labelSt.Dim = true
 	textSt := th.Foreground
-	for i, text := range c.Queued {
+	rows := c.queuedHeight()
+	shown := rows
+	if len(c.Queued) > rows {
+		shown = rows - 1
+	}
+	for i, text := range c.Queued[:shown] {
 		line, _, _ := strings.Cut(text, "\n")
 		spans := []components.Span{
 			{Text: "queued: ", Style: labelSt},
-			{Text: layout.TruncateToWidth(line, width-28, method), Style: textSt},
+			{Text: layout.TruncateToWidth(line, width-queuedChromeWidth, method), Style: textSt},
 			{Text: "  (Esc to recall)", Style: labelSt},
 		}
 		components.PaintSpans(s, x, y+i, spans, method)
+	}
+	if shown < len(c.Queued) {
+		rest := fmt.Sprintf("queued: %d more", len(c.Queued)-shown)
+		components.PaintSpans(s, x, y+shown, []components.Span{{Text: rest, Style: labelSt}}, method)
 	}
 }
 

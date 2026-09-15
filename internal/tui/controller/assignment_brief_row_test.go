@@ -65,8 +65,10 @@ func TestAssignmentBriefOpensTheChildTranscript(t *testing.T) {
 		"the row is the whole first message, as a replay of this session would show it")
 }
 
-// A human follow-up into a retained child is typed, so the composer already
-// published its row; the assignment must not append a second one.
+// A human follow-up into a retained child gets exactly one row, and it is the
+// engine that draws it when the new assignment delivers the prompt: the
+// composer publishes nothing for a queued submit, and the brief that opens a
+// child transcript is only for the assembled first message.
 func TestChildFollowUpKeepsOneUserRow(t *testing.T) {
 	server, _ := textSSEServer(t)
 	parent := newInjectController(t, NewBus(nil), server.URL)
@@ -76,10 +78,25 @@ func TestChildFollowUpKeepsOneUserRow(t *testing.T) {
 	child, first := spawnRunningChild(t, parent, "queue cleanup", "refactor the queue")
 	require.Len(t, userRows(child.Bus), 1)
 
-	child.Controller.StartPrompt("follow-up assignment", nil, "follow-up-row")
+	require.True(t, child.Controller.StartPrompt("follow-up assignment", nil))
 	waitForCond(t, 5*time.Second, func() bool {
 		state := child.Controller.Assignment()
 		return state.JobID != first && state.Terminal
 	})
-	require.Empty(t, userRows(child.Bus), "the composer owns the row for what the human typed")
+	var appended, promoted []string
+	for _, m := range child.Bus.Drain() {
+		ev, ok := m.(SessionEventMsg)
+		if !ok {
+			continue
+		}
+		switch event := ev.Event.(type) {
+		case session.UserAppend:
+			appended = append(appended, event.Text)
+		case session.UserPromoted:
+			promoted = append(promoted, event.Text)
+		}
+	}
+	require.Empty(t, appended, "no brief opens a follow-up: the human typed this one")
+	require.Equal(t, []string{"follow-up assignment"}, promoted,
+		"the row lands when the assignment actually delivers the prompt")
 }
