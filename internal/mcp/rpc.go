@@ -133,7 +133,7 @@ func parseHTTPOrSSEBody(body []byte, id int64) (jsonRPCResponse, error) {
 		return rpc, nil
 	}
 	return jsonRPCResponse{}, fmt.Errorf(
-		"no response for id %d (%w); raw=%q", id, errTransportDead, truncate(string(body), 200),
+		"no response for id %d (%w); raw=%q", id, errTransportDead, util.TruncateBytes(string(body), 200),
 	)
 }
 

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/lsp"
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 // render turns a normalized Result into bounded model-facing text. It is the
@@ -27,7 +28,7 @@ func render(op lsp.Operation, res lsp.Result) string {
 		renderLanguages(&b, res)
 	}
 	appendWarnings(&b, res)
-	return bound(b.String(), lsp.MaxOutputBytes)
+	return util.TruncateBytesWith(b.String(), lsp.MaxOutputBytes, "\n... truncated")
 }
 
 func renderLocations(b *strings.Builder, op lsp.Operation, res lsp.Result) {
@@ -149,13 +150,4 @@ func appendWarnings(b *strings.Builder, res lsp.Result) {
 	for _, w := range res.Warnings {
 		fmt.Fprintf(b, "warning: %s\n", w)
 	}
-}
-
-// bound truncates output to max bytes, never leaving a partial surrogate
-// problem since it works on raw bytes of already-valid UTF-8 text.
-func bound(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "\n... truncated"
 }

@@ -4,9 +4,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 // microFloorBytes is the smallest tool result worth stubbing. Below it the
@@ -259,14 +259,7 @@ func microFirstLine(content string) string {
 		if line == "" {
 			continue
 		}
-		if len(line) <= microFirstLineBytes {
-			return line
-		}
-		cut := microFirstLineBytes
-		for cut > 0 && !utf8.RuneStart(line[cut]) {
-			cut--
-		}
-		return line[:cut] + "…"
+		return util.TruncateBytes(line, microFirstLineBytes)
 	}
 	return ""
 }

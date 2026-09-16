@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 const (
@@ -30,7 +31,11 @@ const (
 	oauthCallbackPort = 1455
 	oauthCallbackAddr = "127.0.0.1:1455"
 	deviceFlowTimeout = 15 * time.Minute
-	refreshSkew       = 30 * time.Second
+	// oauthErrorLimit bounds an error string the authorization server chose:
+	// it reaches the user verbatim, so it is capped in bytes rather than
+	// trusted to be short.
+	oauthErrorLimit = 512
+	refreshSkew     = 30 * time.Second
 )
 
 // oauthGrant is one provider's subscription OAuth shape: how device sign-in
@@ -282,13 +287,13 @@ func (p *browserAuthorizationState) handleCallback(w http.ResponseWriter, r *htt
 	if callbackErr := strings.TrimSpace(query.Get("error_description")); callbackErr != "" {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = io.WriteString(w, oauthCallbackPage("Authorization failed", false))
-		p.finish(browserAuthorizationResult{err: errors.New(truncateOAuthError(callbackErr))})
+		p.finish(browserAuthorizationResult{err: errors.New(util.TruncateBytes(callbackErr, oauthErrorLimit))})
 		return
 	}
 	if callbackErr := strings.TrimSpace(query.Get("error")); callbackErr != "" {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = io.WriteString(w, oauthCallbackPage("Authorization failed", false))
-		p.finish(browserAuthorizationResult{err: errors.New(truncateOAuthError(callbackErr))})
+		p.finish(browserAuthorizationResult{err: errors.New(util.TruncateBytes(callbackErr, oauthErrorLimit))})
 		return
 	}
 	code := strings.TrimSpace(query.Get("code"))
@@ -315,14 +320,6 @@ func (p *browserAuthorizationState) finish(result browserAuthorizationResult) {
 
 func (p *browserAuthorizationState) close() {
 	p.closeOnce.Do(func() { _ = p.server.Close() })
-}
-
-func truncateOAuthError(message string) string {
-	const limit = 512
-	if len(message) <= limit {
-		return message
-	}
-	return message[:limit] + "…"
 }
 
 func oauthCallbackPage(message string, success bool) string {

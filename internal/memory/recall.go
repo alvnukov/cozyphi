@@ -8,7 +8,14 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/alvnukov/cozyphi/internal/util"
 )
+
+// TruncatedNotice marks a memory shown short. It names the remedy rather than
+// just the cut: the block around it carries the file name, so the model can
+// read the rest when the elided part turns out to matter.
+const TruncatedNotice = "\n… (truncated — read the file for the rest)"
 
 const (
 	reminderOpen  = "<system-reminder>"
@@ -154,7 +161,7 @@ func (r *Recall) Reminder(query Query) string {
 			break
 		}
 		entry := r.index.docs[top.docs[i]]
-		body := truncate(entry.Body, maxBodyRunes)
+		body := util.TruncateRunesWith(entry.Body, maxBodyRunes, TruncatedNotice)
 		if runes += len([]rune(body)) + factOverhead; runes > recallBudgetRunes && len(picked) > 0 {
 			break
 		}
@@ -171,7 +178,7 @@ func (r *Recall) Reminder(query Query) string {
 	sb.WriteString("flag it names before acting on it.\n")
 	for _, entry := range picked {
 		fmt.Fprintf(&sb, "\n<memory name=%q type=%q file=%q>\n", entry.Name, entry.Kind, entry.File)
-		sb.WriteString(truncate(entry.Body, maxBodyRunes))
+		sb.WriteString(util.TruncateRunesWith(entry.Body, maxBodyRunes, TruncatedNotice))
 		sb.WriteString("\n</memory>\n")
 	}
 	sb.WriteString(reminderClose)
@@ -263,14 +270,6 @@ func eachTerm(text string, limit int, fn func(string)) {
 
 func wordRune(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r)
-}
-
-func truncate(text string, limit int) string {
-	runes := []rune(text)
-	if len(runes) <= limit {
-		return text
-	}
-	return strings.TrimSpace(string(runes[:limit])) + "\n… (truncated — read the file for the rest)"
 }
 
 // Search ranks every stored memory against a free-text query, for the memory

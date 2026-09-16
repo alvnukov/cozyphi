@@ -19,6 +19,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/browse"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 // Pane is the context browser. Mutated and rendered on the UI goroutine.
@@ -670,7 +671,7 @@ func (p *Pane) compactionLine() string {
 	if c.MessagesSummarized > 0 || c.TokensBefore > 0 {
 		return " last shaped by: " + c.Report()
 	}
-	return " last shaped by: compaction — " + truncateRunes(c.Summary, 60)
+	return " last shaped by: compaction — " + util.TruncateRunes(c.Summary, 60)
 }
 
 // itemRow renders one context row; idx is the item's position in the view,
@@ -697,15 +698,6 @@ func chromeRows(v agent.ContextView) int {
 		n++
 	}
 	return n
-}
-
-// truncateRunes cuts s to at most n runes.
-func truncateRunes(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "…"
 }
 
 func tokensLabel(n int) string {

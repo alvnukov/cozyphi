@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/alvnukov/cozyphi/internal/proc"
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 const (
@@ -213,7 +214,7 @@ func readResponse(r *bufio.Reader, id int64) (jsonRPCResponse, error) {
 		var rpc jsonRPCResponse
 		if err := json.Unmarshal(line, &rpc); err != nil {
 			return jsonRPCResponse{}, fmt.Errorf(
-				"parse response: %w (%w); raw=%q", err, errTransportDead, truncate(string(line), 200),
+				"parse response: %w (%w); raw=%q", err, errTransportDead, util.TruncateBytes(string(line), 200),
 			)
 		}
 		if rpc.Method != "" {

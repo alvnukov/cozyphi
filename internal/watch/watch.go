@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 // Sentinel errors for callers that need to tell one failure from another.
@@ -247,7 +249,7 @@ func (m *Manager) run(ctx context.Context, e *entry, src Source) {
 // is spent — in which case the watch that crossed it is stopped instead, and
 // says so.
 func (m *Manager) emit(e *entry, text string) {
-	text = truncate(strings.TrimRight(text, "\n"), EventTextLimit)
+	text = util.TruncateRunesWith(strings.TrimRight(text, "\n"), EventTextLimit, "\n… (truncated)")
 	if strings.TrimSpace(text) == "" {
 		return
 	}
@@ -491,12 +493,4 @@ func normalize(spec Spec) (Spec, *regexp.Regexp, error) {
 		}
 	}
 	return spec, match, nil
-}
-
-func truncate(text string, limit int) string {
-	runes := []rune(text)
-	if len(runes) <= limit {
-		return text
-	}
-	return strings.TrimSpace(string(runes[:limit])) + "\n… (truncated)"
 }

@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 // Endpoints, client id, and response shapes below are confirmed by the
@@ -127,7 +129,7 @@ func (kimiGrant) pollDevice(
 		)
 	default:
 		return oauthTokenResponse{}, false,
-			fmt.Errorf("provider: subscription sign-in failed: %s", truncateOAuthError(failure.Error))
+			fmt.Errorf("provider: subscription sign-in failed: %s", util.TruncateBytes(failure.Error, oauthErrorLimit))
 	}
 }
 

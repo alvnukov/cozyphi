@@ -16,6 +16,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/diag"
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 // Actions the tool accepts.
@@ -243,11 +244,7 @@ func categoryNames() []string {
 // safeEcho bounds a model-supplied string before it is quoted back into an
 // error the user will read in the transcript.
 func safeEcho(s string) string {
-	const limit = 40
-	if len(s) > limit {
-		return s[:limit] + "…"
-	}
-	return s
+	return util.TruncateRunes(s, 40)
 }
 
 // detail is the one line the UI shows before the tool runs; it is computed

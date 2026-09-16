@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 // maxQuotaBytes bounds a quota response body; the document is small JSON.
@@ -449,7 +451,7 @@ func fetchZAIQuotaOnce(
 		}
 		return QuotaSnapshot{}, &zaiQuotaError{
 			rejected: true,
-			err:      fmt.Errorf("quota API rejected the request: %s", truncateText(msg, 200)),
+			err:      fmt.Errorf("quota API rejected the request: %s", util.TruncateRunes(msg, 200)),
 		}
 	}
 	return decodeZAIQuota(payload)
@@ -606,11 +608,4 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func truncateText(value string, limit int) string {
-	if len(value) <= limit {
-		return value
-	}
-	return value[:limit] + "..."
 }
