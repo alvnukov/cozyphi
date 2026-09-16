@@ -7,16 +7,22 @@ linters:
   enable:
     - asasalint
     - bodyclose
+    - cyclop
     - depguard
+    - dupl
     - errcheck
     - errorlint
+    - funlen
+    - gocognit
     - gocritic
     - godot
     - gosec
     - govet
     - ineffassign
+    - interfacebloat
     - misspell
     - modernize
+    - nestif
     - noctx
     - perfsprint
     - revive
@@ -58,6 +64,42 @@ linters:
             - pkg: crypto/md5
             - pkg: crypto/sha1
             - pkg: crypto/**/pkix
+    # Complexity and duplication ceilings. The numbers below are not targets:
+    # each is this repository's current worst, and it is written down so that
+    # nothing may get worse. The gate is a ratchet — lower a number whenever
+    # the function that set it is decomposed, and never raise one to make a
+    # build pass. scripts/lint-ceilings.sh reprints the whole set.
+    cyclop:
+      # internal/tui/composer.(*ComposerPane).Handle, and lsp.TestFakeLSP.
+      max-complexity: 73
+      # A package must not drift complex as a whole while every one of its
+      # functions stays under the ceiling. Worst today: the internal/tui/sessions
+      # tests, at 8.7.
+      package-average: 9
+    dupl:
+      # dupl's own default, counted in tokens. The clone families the
+      # repository still has are named under exclusions below, with the reason
+      # each one is repetition on purpose, rather than bought off by raising
+      # this number until nothing is reported.
+      threshold: 150
+    funlen:
+      # internal/tui/commands.registerBuiltinCommands, at 486 lines, and
+      # lsp.TestFakeLSP, at 199 statements.
+      lines: 486
+      statements: 199
+      # Doc comments are the thing this repository wants more of, not less.
+      ignore-comments: true
+    gocognit:
+      # internal/agent.(*Engine).Loop.
+      min-complexity: 155
+    interfacebloat:
+      # internal/tui/commands.Host — the 40-method surface the command registry
+      # hands to every command.
+      max: 40
+    nestif:
+      # One past internal/tui/sidebar.(*Sidebar).Handle, which sits at 40;
+      # nestif reports at the threshold rather than above it.
+      min-complexity: 41
     gocritic:
       disabled-checks:
         - appendAssign
@@ -237,6 +279,24 @@ linters:
       - linters:
           - gosec
         text: 'G402: TLS MinVersion too low.'
+      # Repetition in a test is usually the point: two tests that share a
+      # fixture are two tests that fail together, and the setup a reader needs
+      # is the setup in front of them. dupl earns its keep in code that ships.
+      - linters:
+          - dupl
+        path: _test\.go
+      # A theme is a table: every theme names the same fields with its own
+      # colors, and folding them into a loop would hide the values the file
+      # exists to state.
+      - linters:
+          - dupl
+        path: internal/components/theme\.go
+      # The block renderers really are near-copies. They get folded into shared
+      # draw primitives by the dedupe-draw-primitives-and-load-facts task, not
+      # by raising the threshold until they stop being reported.
+      - linters:
+          - dupl
+        path: internal/components/block/.*_block\.go
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
