@@ -58,7 +58,29 @@ type Mapper struct {
 	// onRegroup re-runs a full sync after a summary toggle: expanding a turn
 	// changes which rows exist, which a height invalidation alone cannot show.
 	onRegroup func()
+	// onRewind, onFork and onAside are the three context operations a message
+	// row offers through its action strip. The mapper is the only layer that
+	// knows which session entry a row stands for, so it closes each callback
+	// over that entry's id and hands the widgets plain functions.
+	onRewind, onFork, onAside func(entryID string)
+	// actionsBusy is the hint the strips show while a turn is running, empty
+	// when they act. Refreshed from the snapshot on every sync pass.
+	actionsBusy string
 }
+
+// actionsBusyHint is why the strips refuse while inference, a tool or a
+// compaction is still in flight: the same guard /compact and /clear keep.
+const actionsBusyHint = "the turn is still running; wait for it to finish"
+
+// errorRowPrefix opens the id of the row a failed turn leaves in the feed.
+// The controller mints it out of thin air and the session log never receives
+// it, so a row named this way has no entry to rewind or fork to.
+const errorRowPrefix = "assistant-error-"
+
+// textSegmentMark separates an assistant message's id from the index of the
+// text segment session.Project cut out of it. The row is a segment; the
+// anchor the actions need is the message behind it.
+const textSegmentMark = "-text-"
 
 // keepFullTurns is how many trailing turns always render in full: the
 // running turn and the finished one just before it, which the reader is most
@@ -113,6 +135,61 @@ func (m *Mapper) toolStatus(it session.Item, detail string) status.ToolStatus {
 		return status.ToolLive
 	}
 	return st
+}
+
+// SetMessageActions wires the three context operations a transcript message
+// offers. Each callback is handed the id of the session entry behind the row
+// it was clicked on, never the composite id of the row itself.
+func (m *Mapper) SetMessageActions(rewind, fork, aside func(entryID string)) {
+	if m != nil {
+		m.onRewind, m.onFork, m.onAside = rewind, fork, aside
+	}
+}
+
+// entryAnchor is the session entry a transcript row stands for. An assistant
+// message is projected as one row per text segment, named after the message
+// it was cut from, and the anchor of every one of those rows is that message.
+func entryAnchor(rowID string) string {
+	if i := strings.LastIndex(rowID, textSegmentMark); i > 0 {
+		return rowID[:i]
+	}
+	return rowID
+}
+
+// messageActions builds the strip one message row offers. boundary says the
+// row is a place the context can be cut at: every prompt is, and an
+// assistant row only when it closes a round. Elsewhere btw is left alone,
+// because asking about a moment needs no boundary.
+func (m *Mapper) messageActions(it session.Item, boundary bool) block.MessageActions {
+	if m.onRewind == nil && m.onFork == nil && m.onAside == nil {
+		return block.MessageActions{}
+	}
+	if strings.HasPrefix(it.ID, errorRowPrefix) {
+		return block.MessageActions{}
+	}
+	id := entryAnchor(it.ID)
+	actions := block.MessageActions{Disabled: m.actionsBusy}
+	if m.onAside != nil {
+		actions.OnAside = func() { m.onAside(id) }
+	}
+	if !boundary {
+		return actions
+	}
+	if m.onRewind != nil {
+		actions.OnRewind = func() { m.onRewind(id) }
+	}
+	if m.onFork != nil {
+		actions.OnFork = func() { m.onFork(id) }
+	}
+	return actions
+}
+
+// refreshActionsBusy re-reads the guard the strips show for one sync pass.
+func (m *Mapper) refreshActionsBusy(snap session.Snapshot) {
+	m.actionsBusy = ""
+	if session.IsStreaming(snap) {
+		m.actionsBusy = actionsBusyHint
+	}
 }
 
 // SetTheme updates the theme used for newly built and patched widgets.
@@ -188,6 +265,7 @@ func (m *Mapper) Sync(
 	snap session.Snapshot,
 ) (newEntries []components.Widget, newIDs []string, dirty []int) {
 	m.refreshLiveStarts()
+	m.refreshActionsBusy(snap)
 	items := m.groupTurns(m.shellItems(dropServiceRefusals(session.Project(snap))), snap)
 	n := len(items)
 	byID := make(map[string]int, len(entries))
@@ -243,6 +321,7 @@ func (m *Mapper) syncTail(entries []components.Widget, listIDs []string, snap se
 		return nil, false
 	}
 	m.refreshLiveStarts()
+	m.refreshActionsBusy(snap)
 	last := snap.Messages[len(snap.Messages)-1]
 	items := dropServiceRefusals(session.Project(session.Snapshot{
 		Messages: []session.Message{last},
@@ -310,6 +389,7 @@ func (m *Mapper) patchItem(w components.Widget, it session.Item) (ok, dirty bool
 		dirty = u.Text != it.Text
 		u.Text = it.Text
 		u.Theme = m.theme
+		u.SetActions(m.messageActions(it, true))
 		return true, dirty
 	case session.ItemAssistant:
 		a, ok := w.(*block.AssistantBlock)
@@ -323,6 +403,7 @@ func (m *Mapper) patchItem(w components.Widget, it session.Item) (ok, dirty bool
 		a.MetaLabel = label
 		a.MetaTail = tail
 		a.Theme = m.theme
+		a.SetActions(m.messageActions(it, label != ""))
 		return true, dirty
 	case session.ItemThinking:
 		t, ok := w.(*block.ThinkingBlock)
@@ -533,7 +614,9 @@ func (m *Mapper) widgetFor(it session.Item) components.Widget {
 			},
 		}
 	case session.ItemUser:
-		return &block.UserBlock{Text: it.Text, Theme: m.theme}
+		u := &block.UserBlock{Text: it.Text, Theme: m.theme}
+		u.SetActions(m.messageActions(it, true))
+		return u
 	case session.ItemThinking:
 		return &block.ThinkingBlock{
 			Text:        it.Thinking,
@@ -570,13 +653,18 @@ func (m *Mapper) widgetFor(it session.Item) components.Widget {
 		return m.toolWidget(it, exp)
 	default:
 		label, tail := formatItemMeta(it)
-		return &block.AssistantBlock{
+		a := &block.AssistantBlock{
 			Text:      it.Text,
 			State:     it.State,
 			MetaLabel: label,
 			MetaTail:  tail,
 			Theme:     m.theme,
 		}
+		// The footer row and the end of a round are the same thing:
+		// session.Project stamps the turn meta onto the last assistant row
+		// of a round, and only when no tool call was left open.
+		a.SetActions(m.messageActions(it, label != ""))
+		return a
 	}
 }
 

@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Added: every message in the feed carries its own controls. A prompt and the
+  reply that closes a round show `rewind`, `fork` and `btw` at the right edge
+  of a row that was already there. Nothing grew taller. A reply in the middle
+  of a round shows `btw` alone. Asking about a moment needs no turn boundary.
+  The button under the pointer lights up and the cursor turns into a hand. A
+  pause on it explains what the click would do. While a turn runs the buttons
+  dim and the tooltip says to wait. The three operations are not wired to the
+  engine yet. A click answers with a notice naming the message it would act
+  on. A narrow terminal drops the strip rather than drawing half of it.
 - Fixed: a transcript row and the session entry behind it now share one id. A
   live turn used to name its rows one way and the session file another, so the
   same message answered to a different id once the session was reopened.

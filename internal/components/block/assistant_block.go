@@ -23,7 +23,11 @@ type AssistantBlock struct {
 	MetaTail  string
 	Theme     components.Theme
 	cache     assistantRenderCache
+	messageActionBar
 }
+
+// replyAnchor is how the reply's hints name the place a click would act on.
+const replyAnchor = "this reply"
 
 type assistantRenderKey struct {
 	text      string
@@ -50,11 +54,19 @@ func (assistantBlock *AssistantBlock) theme() components.Theme {
 	return assistantBlock.Theme
 }
 
-// Handle is a no-op; assistant output is read-only.
-func (*AssistantBlock) Handle(_ *components.EventContext, _ xui.Event) {}
+// Handle runs the action strip; the assistant text itself is read-only.
+func (assistantBlock *AssistantBlock) Handle(ctx *components.EventContext, ev xui.Event) {
+	assistantBlock.handleActionMouse(ctx, ev)
+}
 
-// PointerShape marks the output as selectable transcript text.
-func (*AssistantBlock) PointerShape(_, _ int) string { return components.ShapeText }
+// PointerShape offers the hand over the action strip and marks the rest of
+// the output as selectable transcript text.
+func (assistantBlock *AssistantBlock) PointerShape(x, y int) string {
+	if shape, ok := assistantBlock.actionShape(x, y); ok {
+		return shape
+	}
+	return components.ShapeText
+}
 
 // CopyText returns the assistant message body.
 func (assistantBlock *AssistantBlock) CopyText() string { return assistantBlock.Text }
@@ -76,10 +88,39 @@ func (assistantBlock *AssistantBlock) Draw(ctx components.DrawContext) component
 		width:     w,
 		method:    ctx.Method,
 	}
-	if assistantBlock.cache.valid && assistantBlock.cache.key == key {
-		return assistantBlock.cache.surface
+	if !assistantBlock.cache.valid || assistantBlock.cache.key != key {
+		assistantBlock.renderLines(ctx, key, th, w)
 	}
+	// The strip is laid out and painted on every pass, cache hit included.
+	// The cached surface outlives the frame that filled it, and the hover
+	// tint belongs to one frame only; repainting the strip's whole span is
+	// what keeps yesterday's tint from staying lit under a pointer that has
+	// long since moved away.
+	assistantBlock.layoutActions(w, ctx.Method)
+	assistantBlock.paint(&assistantBlock.cache.surface, ctx, assistantBlock, th, xui.Style{})
+	return assistantBlock.cache.surface
+}
 
+// layoutActions puts the strip on the last row of the reply, which is the
+// end-of-turn footer when there is one and the closing line of the text
+// otherwise, and starts it clear of whatever that row already says.
+func (assistantBlock *AssistantBlock) layoutActions(w int, method xui.WidthMethod) {
+	lines := assistantBlock.cache.lines
+	row := assistantBlock.cache.surface.Size.Height - 1
+	contentEnd := messageIndent
+	if row >= 0 && row < len(lines) {
+		contentEnd += components.MeasureSpans(lines[row], method)
+	}
+	assistantBlock.layout(row, w, contentEnd, replyAnchor, method)
+}
+
+// renderLines rebuilds the reply's lines and repaints the cached surface.
+func (assistantBlock *AssistantBlock) renderLines(
+	ctx components.DrawContext,
+	key assistantRenderKey,
+	th components.Theme,
+	w int,
+) {
 	markdownLines := assistantBlock.cache.markdown.Render(
 		assistantBlock.Text,
 		th,
@@ -111,7 +152,6 @@ func (assistantBlock *AssistantBlock) Draw(ctx components.DrawContext) component
 	assistantBlock.cache.updateSurface(key, lines, assistantBlock)
 	assistantBlock.cache.key = key
 	assistantBlock.cache.valid = true
-	return assistantBlock.cache.surface
 }
 
 func (c *assistantRenderCache) updateSurface(
