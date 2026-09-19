@@ -87,21 +87,24 @@ type Engine struct {
 	contextCeiling int
 	modelCfg       llm.ModelConfig
 	activeModel    *ModelSelection
-	resolveModel   func(string) (llm.ModelConfig, bool)
-	modelNames     func() []string
-	gate           permission.Gate
-	ask            permission.AskFunc
-	continueAsk    ContinueFunc
-	jobs           *job.Manager
-	jobOwnerID     string // immutable assignment lifetime, independent of session replacement
-	jobRunner      JobRunnerFactory
-	hooks          *hooks.Manager
-	mcp            *mcp.Pool
-	memory         *memory.Store
-	watches        *watch.Manager
-	shellTasks     *shelltask.Manager
-	targets        *tasks.Targets
-	tasksAccess    tasks.Access
+	// turnRunning counts the turns in flight. Every context edit that moves
+	// the session cursor asks it first (see engine_rewind.go).
+	turnRunning  int
+	resolveModel func(string) (llm.ModelConfig, bool)
+	modelNames   func() []string
+	gate         permission.Gate
+	ask          permission.AskFunc
+	continueAsk  ContinueFunc
+	jobs         *job.Manager
+	jobOwnerID   string // immutable assignment lifetime, independent of session replacement
+	jobRunner    JobRunnerFactory
+	hooks        *hooks.Manager
+	mcp          *mcp.Pool
+	memory       *memory.Store
+	watches      *watch.Manager
+	shellTasks   *shelltask.Manager
+	targets      *tasks.Targets
+	tasksAccess  tasks.Access
 	// diagnostics is the read-only view of this process's own configuration.
 	// It is non-nil only when the user started cozyphi with --developer-mode,
 	// and its presence is the whole capability: nothing here can turn it on.
@@ -1064,6 +1067,10 @@ type InjectedPrompt struct {
 // ends still escalates and, at the stop strike, gets one final offer round.
 func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) iter.Seq2[session.Event, error] {
 	return func(yield func(session.Event, error) bool) {
+		// A cursor move while this runs would cut the turn in half, so the
+		// turn says out loud that it is here.
+		engine.beginTurn()
+		defer engine.endTurn()
 		// The turn runs against one session store even if /resume swaps the
 		// engine's underneath a stopped loop.
 		sess := engine.sessionRef()

@@ -216,6 +216,42 @@ func (s *Session) DropContextEntries(ids []string) error {
 	return nil
 }
 
+// Rewind moves the session cursor to the turn boundary anchored at entryID
+// (append-only; see Manager.Rewind).
+func (s *Session) Rewind(entryID string) (session.RewindResult, error) {
+	if s == nil || s.manager == nil {
+		return session.RewindResult{}, errors.New("agent: session unavailable")
+	}
+	result, err := s.manager.Rewind(entryID)
+	if err != nil {
+		return session.RewindResult{}, err
+	}
+	s.invalidateContextCache()
+	return result, nil
+}
+
+// UndoRewind sends the cursor back to where the last move started from
+// (append-only; see Manager.UndoRewind).
+func (s *Session) UndoRewind() (session.RewindResult, error) {
+	if s == nil || s.manager == nil {
+		return session.RewindResult{}, errors.New("agent: session unavailable")
+	}
+	result, err := s.manager.UndoRewind()
+	if err != nil {
+		return session.RewindResult{}, err
+	}
+	s.invalidateContextCache()
+	return result, nil
+}
+
+// TurnBoundaries lists the places the current context can be cut at.
+func (s *Session) TurnBoundaries() []session.TurnBoundary {
+	if s == nil || s.manager == nil {
+		return nil
+	}
+	return s.manager.TurnBoundaries()
+}
+
 // Plan returns the latest durable model-managed plan snapshot.
 func (s *Session) Plan() session.Plan {
 	if s == nil || s.manager == nil {
