@@ -126,7 +126,16 @@ func titlePrompt(entry SessionMessageEntry) string {
 		return ""
 	}
 	// Harness deliveries are not the user's goal. Older logs lack delivery IDs.
-	return displayText(stripReminders(entry.Message.Content), 48)
+	text := stripReminders(entry.Message.Content)
+	// A block that never closed is scaffolding all the way down. The feed
+	// shows it as the user's words and a rewind offers it as a boundary,
+	// because there the harm of guessing wrong is a row the user can ignore.
+	// A session name is carried around outside the conversation, so this one
+	// abstains instead.
+	if strings.HasPrefix(text, reminderOpen) {
+		return ""
+	}
+	return displayText(text, 48)
 }
 
 func displayText(text string, limit int) string {

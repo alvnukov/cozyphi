@@ -74,6 +74,20 @@ func TurnBoundaryAt(path []MessageEntry, entryID string) (TurnBoundary, error) {
 	return TurnBoundary{}, &NotTurnBoundaryError{EntryID: entryID}
 }
 
+// WithPrompt returns the boundary with its prompt text replaced and its
+// preview rebuilt from it. A caller that knows more about what the user
+// actually typed than the recorded message does uses it to keep the two in
+// step: the line the picker offers and the text the composer receives must
+// not be two different answers to the same question.
+func (b TurnBoundary) WithPrompt(prompt string) TurnBoundary {
+	if b.Kind != BoundaryPrompt {
+		return b
+	}
+	b.Prompt = prompt
+	b.Preview = "before " + displayText(prompt, 48)
+	return b
+}
+
 func turnBoundary(entry MessageEntry) (TurnBoundary, bool) {
 	message, ok := entry.(SessionMessageEntry)
 	if !ok {
@@ -124,6 +138,11 @@ func finishedAnswer(entry SessionMessageEntry) bool {
 		len(entry.Message.ToolCalls) == 0 &&
 		strings.TrimSpace(entry.Message.Content) != ""
 }
+
+// reminderOpen is the opening marker of the harness wrapper. The stripping
+// itself belongs to memory.StripReminders; what is needed here on top of it
+// is recognizing a block that never closed.
+const reminderOpen = "<system-reminder>"
 
 // stripReminders drops the harness reminder blocks a prompt was sent with and
 // leaves what the user typed. It is the transcript's own rule, borrowed whole:

@@ -345,3 +345,27 @@ func TestAnUnterminatedReminderReadsAsTheUsersText(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "<system-reminder>never closed, so this is prose", boundary.Prompt)
 }
+
+// From is checked at load with Target, because an undo moves onto it. An
+// unchecked one is the same dangling cursor, held back until /rewind back.
+func TestLoadRefusesACursorMoveWithAnUnknownOrigin(t *testing.T) {
+	dir := t.TempDir()
+	manager, err := session.NewSessionManager(dir,
+		session.WithSessionDir(dir), session.WithShouldFlush(true))
+	require.NoError(t, err)
+	turn := recordTurn(t, manager, "one", "answer one")
+	path := manager.File()
+	require.NoError(t, manager.Close())
+
+	line := `{"type":"leaf","id":"move-1","parentID":null,` +
+		`"timestamp":"2026-09-16T09:00:00Z","target":"` + turn.Prompt + `","from":"gone"}` + "\n"
+	file, err := os.OpenFile(filepath.Clean(path), os.O_APPEND|os.O_WRONLY, 0o600)
+	require.NoError(t, err)
+	_, err = file.WriteString(line)
+	require.NoError(t, err)
+	require.NoError(t, file.Close())
+
+	_, err = session.OpenSession(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gone")
+}
