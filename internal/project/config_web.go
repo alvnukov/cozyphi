@@ -68,7 +68,10 @@ type webFileConfig struct {
 // defaultWebConfig is what a config file with no `web:` section runs on:
 // network access off. The library's own default is on, but a capability that
 // reaches the open internet is not something an existing config should gain by
-// upgrading — writing the section is the opt-in.
+// upgrading — and while protected web is not ready an enabled tool only
+// refuses, so the opt-in is an explicit `enabled: true`, never a side effect
+// of writing any other web key. The default flips to on once the protected
+// web model binding lands.
 //
 // CacheDir stays empty here and is filled from the global layout in
 // finalizeConfig, which is the only place that knows where ~/.cozyphi is.
@@ -90,10 +93,8 @@ func applyWeb(w *WebConfig, raw *webFileConfig) (allow, warnings []string, err e
 		return nil, nil, nil
 	}
 	p := &w.Policy
-	// A `web:` section in the file is the opt-in, so writing one hands the
-	// enabled flag back to the library default (on) unless the file says
-	// otherwise.
-	p.Enabled = nil
+	// Enabled stays off unless the file says `enabled: true` — see
+	// defaultWebConfig for why no other key may switch the tool on.
 	if raw.Enabled != nil {
 		enabled := *raw.Enabled
 		p.Enabled = &enabled

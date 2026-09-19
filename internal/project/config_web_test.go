@@ -183,18 +183,20 @@ func TestParseWebQuarantineNormalizes(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestWritingTheSectionIsTheOptIn: web is off until the config mentions it,
-// and mentioning it at all is enough — a user who wrote allow-list entries
-// meant to use the web.
-func TestWritingTheSectionIsTheOptIn(t *testing.T) {
+// TestSectionWithoutEnabledStaysOff: writing any other web key — an
+// allow-list, a provider — configures the tool but does not switch it on.
+// While protected web is not ready an enabled tool only refuses, so opting
+// in must be a deliberate `enabled: true`, not a side effect; the default
+// flips to on once the protected web model binding lands.
+func TestSectionWithoutEnabledStaysOff(t *testing.T) {
 	p := discoverInTempHome(t)
 	writeTestConfigBody(t, p,
 		"models:\n  - name: m\n    api_key: k\nweb:\n  allow:\n    - ^example\\.com$\n")
 
 	require.NoError(t, p.LoadConfig())
 
-	assert.True(t, p.Config().Web.Enabled())
-	assert.False(t, p.Config().Permissions.WebDisabled)
+	assert.False(t, p.Config().Web.Enabled())
+	assert.True(t, p.Config().Permissions.WebDisabled)
 }
 
 // TestExplicitDisableWins keeps the off switch reachable for a config that

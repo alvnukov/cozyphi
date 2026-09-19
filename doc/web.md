@@ -29,9 +29,9 @@ binding. No permission mode, approval or legacy setting changes that:
 - search snippets are not delivered directly while unready;
 - `web.enabled: true` is the tool's opt-in, not a protected-readiness claim.
 
-`web.enabled: false` (or no `web:` section) behaves exactly as before: no
-tool is registered. The sections below describe the ready path as the layers
-are meant to work once the binding lands.
+`web.enabled: false`, an absent `enabled` key or no `web:` section at all
+behaves exactly as before: no tool is registered. The sections below describe
+the ready path as the layers are meant to work once the binding lands.
 
 ## The contract
 
@@ -169,8 +169,10 @@ query.
 
 ## Configuration
 
-Web is **off** until the config mentions it. Writing a `web:` section is the
-opt-in; `enabled: false` inside one is the off switch.
+Web is **off** until the config says `enabled: true`. Writing any other
+`web:` key configures the tool but does not switch it on: while protected web
+is not ready an enabled tool only refuses, so opting in must be deliberate.
+The default flips to on once the protected web model binding lands.
 
 ```yaml
 web:

@@ -14,8 +14,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   hatches are gone with it: `raw: true` is refused outright, the session
   model is never used as the quarantine reader, and `web.quarantine: off`
   still loads but no longer authorizes unchecked delivery — the loader warns
-  and points at `doc/web.md`. `web.enabled: false` (or no `web:` section)
-  behaves exactly as before: no tool is registered.
+  and points at `doc/web.md`. `web.enabled: false`, an absent `enabled` key
+  or no `web:` section behaves exactly as before: no tool is registered —
+  writing any other `web:` key no longer opts the tool in.
 - Added: every message in the feed carries its own controls. A prompt and the
   reply that closes a round show `rewind`, `fork` and `btw` at the right edge
   of a row that was already there. Nothing grew taller. A reply in the middle
