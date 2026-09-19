@@ -201,6 +201,28 @@ func (t *TranscriptPane) SetMessageActions(rewind, fork, aside func(entryID stri
 	}
 }
 
+// InvalidateMessageActions marks the strips for a rebuild on the next Sync.
+// They carry the guard they were built with, and the answer to "is a run in
+// flight" changes on its own schedule: the last event of a turn reaches the
+// feed while the pipeline is still busy, so without this the guard that event
+// baked in would outlive the turn.
+func (t *TranscriptPane) InvalidateMessageActions() {
+	if t != nil {
+		t.syncMode = projectionSyncFull
+	}
+}
+
+// MessageActionsGuard returns why the message strips refuse to act right now,
+// in the words their hint shows, and empty when they act. It reads what the
+// rows were last built with, so it answers for the feed as drawn rather than
+// for the state the shell is in this instant.
+func (t *TranscriptPane) MessageActionsGuard() string {
+	if t == nil || t.mapper == nil {
+		return ""
+	}
+	return t.mapper.actionsBusy
+}
+
 // SetRunActive wires the shell's run-in-flight answer for the action strips.
 func (t *TranscriptPane) SetRunActive(fn func() bool) {
 	if t != nil && t.mapper != nil {

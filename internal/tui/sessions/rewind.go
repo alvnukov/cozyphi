@@ -100,7 +100,7 @@ func (e *View) RewindTo(entryID string) {
 		e.toast.Show("Cannot rewind: "+err.Error(), toast.ToastWarning, 4*time.Second)
 		return
 	}
-	e.applyRewind(result)
+	e.applyRewind(result, false)
 	e.toast.Show(rewindNotice(result), toast.ToastSuccess, 5*time.Second)
 }
 
@@ -115,14 +115,21 @@ func (e *View) rewindBack() {
 		e.toast.Show("Cannot rewind: "+err.Error(), toast.ToastWarning, 4*time.Second)
 		return
 	}
-	e.applyRewind(result)
+	e.applyRewind(result, true)
 	e.toast.Show("Rewind undone: the context is back where it was", toast.ToastSuccess, 4*time.Second)
 }
 
 // applyRewind redraws the feed on the branch the cursor now stands on and
-// settles the composer around the prompt the cut handed back.
-func (e *View) applyRewind(result session.RewindResult) {
-	e.restoreRewindPrompt(result.Prompt)
+// settles the composer around the prompt the cut handed back. undone says the
+// move was an undo rather than a fresh cut: only an undo takes a prompt back,
+// and an empty prompt does not say which of the two happened, because a cut
+// at an answer hands nothing over either.
+func (e *View) applyRewind(result session.RewindResult, undone bool) {
+	if undone {
+		e.withdrawRewindPrompt()
+	} else {
+		e.restoreRewindPrompt(result.Prompt)
+	}
 	e.transcript.LoadReplay(e.ctrl.ReplaySnapshot())
 	e.transcript.SetHistoricalShellTasks(e.ctrl.ReplayShellTasks())
 	e.applyShellTasks(e.shellTasks)
@@ -130,25 +137,17 @@ func (e *View) applyRewind(result session.RewindResult) {
 	e.transcript.StickToBottom()
 }
 
-// restoreRewindPrompt puts the anchor prompt back in the composer, and takes
-// it away again when the move that follows makes the prompt part of the
-// context once more.
+// restoreRewindPrompt puts the anchor prompt back in the composer and records
+// what an undo would take back. The record always describes the last move,
+// because the undo only ever reverses that one.
 //
-// The undo restores the composer to what it held before the hand-back, not to
-// nothing: whatever the user had typed before the rewind is theirs, and so is
-// the prompt an earlier rewind handed back. It restores only while the
-// composer still holds exactly what the hand-back produced, so a draft the
-// user has edited since is left alone.
+// A cut at an answer hands nothing over. It leaves the composer alone, so the
+// prompt an earlier cut handed over stays there: it is still out of the
+// context and still the user's to send. It does clear the record, because
+// what the next undo reverses is this cut, which took nothing.
 func (e *View) restoreRewindPrompt(prompt string) {
 	if prompt == "" {
-		draft := e.rewindDraft
 		e.rewindDraft = rewindDraft{}
-		if draft.after == "" || e.composer.Chat.Value != draft.after {
-			return
-		}
-		e.composer.Chat.ClearSelection()
-		e.composer.Chat.Value = draft.before
-		e.composer.Chat.Cursor = len(draft.before)
 		return
 	}
 	e.composer.Chat.ClearSelection()
@@ -163,6 +162,36 @@ func (e *View) restoreRewindPrompt(prompt string) {
 	e.composer.Chat.Cursor = len(after)
 	e.rewindDraft = rewindDraft{before: before, after: after}
 	e.composer.FocusChat()
+}
+
+// forgetRewindDraft drops the record of the last hand-back. The view outlives
+// the session it is showing, and what an undo may take back belongs to the
+// session it came from: carried across a switch, it would cut text out of the
+// composer that the new session's undo never put there. It is dropped as the
+// switch is asked for rather than after it lands, because the failure it
+// guards against loses the user's words, while forgetting one time too often
+// only leaves a line in the composer for them to delete.
+func (e *View) forgetRewindDraft() {
+	if e != nil {
+		e.rewindDraft = rewindDraft{}
+	}
+}
+
+// withdrawRewindPrompt takes back what the last hand-back put in the
+// composer, because the undo has just put that prompt into the context again.
+// It restores what the composer held before, not nothing: the user's own
+// draft is theirs, and so is a prompt an earlier cut handed over. It restores
+// only while the composer still holds exactly what the hand-back produced, so
+// a draft edited since is left alone.
+func (e *View) withdrawRewindPrompt() {
+	draft := e.rewindDraft
+	e.rewindDraft = rewindDraft{}
+	if draft.after == "" || e.composer.Chat.Value != draft.after {
+		return
+	}
+	e.composer.Chat.ClearSelection()
+	e.composer.Chat.Value = draft.before
+	e.composer.Chat.Cursor = len(draft.before)
 }
 
 // rewindNotice names where the context now ends and how to get back.

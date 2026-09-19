@@ -9,11 +9,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/app"
 	"github.com/alvnukov/cozyphi/internal/session"
-	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
 
 // replyingSSEServer answers every request with one assistant line and keeps
@@ -51,13 +53,13 @@ func replyingSSEServer(t *testing.T) (*httptest.Server, func() []string) {
 // yields the complete event before it appends the answer to the session, and
 // a queued prompt keeps the pipeline busy after that. RunActive covers both,
 // so waiting on it is waiting until the log has settled.
-func runTurn(t *testing.T, e *View, ctrl *controller.Controller, text string, want int) {
+func runTurn(t *testing.T, e *View, text string, want int) {
 	t.Helper()
 	submitPrompt(e, text)
 	waitFor(t, 10*time.Second, func() bool {
 		e.DrainNow()
 		snap := e.transcript.Snapshot()
-		return len(snap.Messages) >= want && !session.IsStreaming(snap) && !ctrl.RunActive()
+		return len(snap.Messages) >= want && !session.IsStreaming(snap) && !e.ctrl.RunActive()
 	})
 }
 
@@ -81,8 +83,8 @@ func TestRewindCutsTheFeedAndTheModelsNextRequest(t *testing.T) {
 	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
 	t.Cleanup(ctrl.Close)
 
-	runTurn(t, e, ctrl, "first", 2)
-	runTurn(t, e, ctrl, "second", 4)
+	runTurn(t, e, "first", 2)
+	runTurn(t, e, "second", 4)
 	snap := e.transcript.Snapshot()
 	require.Equal(t, []string{"first", "reply 1", "second", "reply 2"}, messageTexts(snap))
 	anchor := snap.Messages[2].ID
@@ -99,7 +101,7 @@ func TestRewindCutsTheFeedAndTheModelsNextRequest(t *testing.T) {
 	require.NotEmpty(t, history)
 	assert.Contains(t, history[len(history)-1].Message, "/rewind back")
 
-	runTurn(t, e, ctrl, "second, reworded", 4)
+	runTurn(t, e, "second, reworded", 4)
 	assert.Equal(t, []string{"first", "reply 1", "second, reworded", "reply 3"},
 		messageTexts(e.transcript.Snapshot()))
 
@@ -121,8 +123,8 @@ func TestRewindBackRestoresTheEarlierView(t *testing.T) {
 	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
 	t.Cleanup(ctrl.Close)
 
-	runTurn(t, e, ctrl, "first", 2)
-	runTurn(t, e, ctrl, "second", 4)
+	runTurn(t, e, "first", 2)
+	runTurn(t, e, "second", 4)
 	anchor := e.transcript.Snapshot().Messages[2].ID
 
 	e.RewindTo(anchor)
@@ -145,8 +147,8 @@ func TestRewindBackLeavesAnEditedDraftAlone(t *testing.T) {
 	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
 	t.Cleanup(ctrl.Close)
 
-	runTurn(t, e, ctrl, "first", 2)
-	runTurn(t, e, ctrl, "second", 4)
+	runTurn(t, e, "first", 2)
+	runTurn(t, e, "second", 4)
 	e.RewindTo(e.transcript.Snapshot().Messages[2].ID)
 
 	e.composer.Chat.Value = "second, but differently"
@@ -164,8 +166,8 @@ func TestRewindBackKeepsTheDraftTypedBeforeIt(t *testing.T) {
 	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
 	t.Cleanup(ctrl.Close)
 
-	runTurn(t, e, ctrl, "first", 2)
-	runTurn(t, e, ctrl, "second", 4)
+	runTurn(t, e, "first", 2)
+	runTurn(t, e, "second", 4)
 
 	e.composer.Chat.Value = "a note to myself"
 	e.RewindTo(e.transcript.Snapshot().Messages[2].ID)
@@ -187,8 +189,8 @@ func TestOneUndoTakesBackOneHandedOverPrompt(t *testing.T) {
 	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
 	t.Cleanup(ctrl.Close)
 
-	runTurn(t, e, ctrl, "first", 2)
-	runTurn(t, e, ctrl, "second", 4)
+	runTurn(t, e, "first", 2)
+	runTurn(t, e, "second", 4)
 
 	snap := e.transcript.Snapshot()
 	e.RewindTo(snap.Messages[2].ID)
@@ -211,7 +213,7 @@ func TestRewindAtAnUnknownEntryIsRefusedAndChangesNothing(t *testing.T) {
 	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
 	t.Cleanup(ctrl.Close)
 
-	runTurn(t, e, ctrl, "first", 2)
+	runTurn(t, e, "first", 2)
 	before := messageTexts(e.transcript.Snapshot())
 
 	e.RewindTo("no-such-entry")
@@ -232,8 +234,8 @@ func TestRewindCompleterListsTheBoundaries(t *testing.T) {
 	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
 	t.Cleanup(ctrl.Close)
 
-	runTurn(t, e, ctrl, "first", 2)
-	runTurn(t, e, ctrl, "second", 4)
+	runTurn(t, e, "first", 2)
+	runTurn(t, e, "second", 4)
 
 	items, ok := e.commands.CompleteSlashArg("rewind", nil, "")
 	require.True(t, ok)
@@ -266,4 +268,102 @@ func TestRewindBackWithoutARewindSaysSo(t *testing.T) {
 	history := e.toast.History()
 	require.NotEmpty(t, history)
 	assert.Contains(t, history[len(history)-1].Message, "nothing to undo")
+}
+
+// The strips guard themselves while a turn runs, and the guard has to come
+// off when the turn ends. The turn's last event reaches the feed while the
+// pipeline is still busy, so whatever that event baked in outlives the turn
+// unless the end of the run rebuilds the rows. Nothing else does.
+func TestTheStripActsAgainOnceTheTurnIsOver(t *testing.T) {
+	server, _ := replyingSSEServer(t)
+	defer server.Close()
+
+	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
+	t.Cleanup(ctrl.Close)
+	e.App = app.NewApp(nil, components.DefaultTheme())
+
+	runTurn(t, e, "first", 2)
+
+	waitFor(t, 10*time.Second, func() bool {
+		e.DrainNow()
+		return e.transcript.MessageActionsGuard() == ""
+	})
+	assert.Empty(t, e.transcript.MessageActionsGuard(),
+		"the run is over, so the buttons may act")
+
+	// And the click really acts: the whole path from the drawn button to the
+	// engine, on a row the session has actually recorded.
+	root := e.Draw(components.DrawContext{
+		Max:    components.Size{Width: 140, Height: 40},
+		Method: xui.WidthUnicode,
+	})
+	x, y, ok := controlTextPosition(root, nil, "rewind", components.Point{})
+	require.True(t, ok, "the prompt draws a rewind button")
+	hit, lx, ly := root.HitTestAt(x+1, y)
+	require.NotNil(t, hit)
+	hit.Handle(&components.EventContext{},
+		xui.MouseEvent{X: lx, Y: ly, Button: xui.MouseLeft, Action: xui.MousePress})
+	hit.Handle(&components.EventContext{},
+		xui.MouseEvent{X: lx, Y: ly, Button: xui.MouseLeft, Action: xui.MouseRelease})
+
+	history := e.toast.History()
+	require.NotEmpty(t, history)
+	assert.Contains(t, history[len(history)-1].Message, "Rewound to",
+		"the click rewound rather than being refused")
+	assert.Empty(t, messageTexts(e.transcript.Snapshot()),
+		"the cut was before the only prompt, so the context is empty")
+}
+
+// A cut at an answer hands no prompt over, and it must not be mistaken for an
+// undo. Rewinding to a prompt and then further back to an answer used to wipe
+// the text the first cut handed over, at a moment when the feed no longer
+// held it either.
+func TestASecondCutAtAnAnswerKeepsTheFirstCutsPrompt(t *testing.T) {
+	server, _ := replyingSSEServer(t)
+	defer server.Close()
+
+	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
+	t.Cleanup(ctrl.Close)
+
+	runTurn(t, e, "first", 2)
+	runTurn(t, e, "second", 4)
+	runTurn(t, e, "third", 6)
+
+	snap := e.transcript.Snapshot()
+	e.RewindTo(snap.Messages[4].ID) // before the third prompt
+	require.Equal(t, "third", e.composer.Chat.Value)
+
+	e.RewindTo(snap.Messages[1].ID) // after the first answer
+	assert.Equal(t, "third", e.composer.Chat.Value,
+		"a cut that hands nothing over takes nothing away either")
+	assert.Equal(t, []string{"first", "reply 1"}, messageTexts(e.transcript.Snapshot()))
+
+	// The undo still takes back what the first cut handed over, once it is
+	// the move being undone.
+	require.True(t, e.commands.DispatchSlash("/rewind back", e.commandContext()))
+	assert.Equal(t, "third", e.composer.Chat.Value,
+		"this undo reverses the answer cut, which handed nothing over")
+}
+
+// The draft belongs to the session it was typed in. Carried across a switch,
+// the undo would cut text out of the composer that this session never put
+// there.
+func TestASessionSwitchForgetsWhatTheUndoWouldTakeBack(t *testing.T) {
+	server, _ := replyingSSEServer(t)
+	defer server.Close()
+
+	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
+	t.Cleanup(ctrl.Close)
+
+	runTurn(t, e, "first", 2)
+	runTurn(t, e, "second", 4)
+	e.RewindTo(e.transcript.Snapshot().Messages[2].ID)
+	require.Equal(t, "second", e.composer.Chat.Value)
+
+	e.ClearSession()
+	e.composer.Chat.Value = "second"
+
+	require.True(t, e.commands.DispatchSlash("/rewind back", e.commandContext()))
+	assert.Equal(t, "second", e.composer.Chat.Value,
+		"the new session's undo has nothing of its own to take back")
 }

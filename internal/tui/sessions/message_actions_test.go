@@ -77,11 +77,14 @@ func TestClickingRewindReachesTheHostWithTheEntryID(t *testing.T) {
 	hit.Handle(ctx, xui.MouseEvent{X: lx, Y: ly, Button: xui.MouseLeft, Action: xui.MouseRelease})
 	require.True(t, ctx.Consume, "the release that acted was not consumed")
 
-	// The rows here were drawn straight into the pane, so the session knows
-	// nothing of them and the rewind is refused. The refusal is the proof
-	// that the click reached the shell carrying this row's entry id and no
-	// other; what a rewind does when the entry is real is pinned in
-	// rewind_test.go.
+	// This test is about the path a click takes, and it pins it as tightly as
+	// it ever did: the strip is drawn, the hit test lands on it, the press
+	// arms and the release acts, carrying this row's entry id and no other.
+	// It can go no further, because the rows here were drawn straight into
+	// the pane and the session has never heard of them, so the rewind is
+	// refused by name. The click on a row the session did record, and the cut
+	// it performs, are pinned in rewind_test.go by
+	// TestTheStripActsAgainOnceTheTurnIsOver, which drives a real turn.
 	history := e.toast.History()
 	require.NotEmpty(t, history)
 	assert.Contains(t, history[0].Message, prompt)

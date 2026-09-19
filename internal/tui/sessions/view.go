@@ -930,6 +930,14 @@ func (e *View) drainBus() {
 			if e.transcript.ApplyChildOutcome(msg.Outcome) {
 				agentEvent = true
 			}
+		case controller.RunEndedMsg:
+			e.Update(m)
+			// The pipeline is idle only now, and the turn's last session
+			// event was drawn while it still was not. Nothing else rebuilds
+			// the message strips, so the end of the turn is what lets them
+			// act again.
+			e.transcript.InvalidateMessageActions()
+			agentEvent = true
 		default:
 			e.Update(m)
 		}
@@ -1617,6 +1625,7 @@ func (e *View) ShowHelp() {
 
 // ResumeSession selects a retained session, or loads prior history into this view.
 func (e *View) ResumeSession(id string) {
+	e.forgetRewindDraft()
 	if selected, err := e.selectRetainedSession(id); selected || err != nil {
 		if err != nil {
 			e.toast.Show(err.Error(), toast.ToastError, 4*time.Second)
@@ -1632,6 +1641,7 @@ func (e *View) ClearSession() {
 		e.toast.Show("Cannot clear while a reply or command is running", toast.ToastWarning, 3*time.Second)
 		return
 	}
+	e.forgetRewindDraft()
 	e.sessions.Clear()
 }
 
