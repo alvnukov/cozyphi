@@ -51,7 +51,7 @@ func TestLoopInjectsQueuedPromptAtToolBoundary(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	queue := []InjectedPrompt{{Text: "queued question", UserID: "u2"}}
+	queue := []InjectedPrompt{{Text: "queued question", UserID: "u2", RowOwed: true}}
 	var promoted []session.UserPromoted
 	for ev := range engine.Loop(t.Context(), "first", LoopOpts{
 		Inject: func() []InjectedPrompt {
@@ -77,9 +77,10 @@ func TestLoopInjectsQueuedPromptAtToolBoundary(t *testing.T) {
 
 // TestLoopPromotesDequeuedOpeningPrompt pins the other delivery point: a
 // turn whose opening prompt dequeued from the controller's queue carries
-// UserID/UserDisplayText, and the loop yields UserPromoted right after the
-// prompt lands in the session. A turn without them (immediate submit — the
-// submitter already drew the row) yields nothing.
+// UserRowOwed with its UserID/UserDisplayText, and the loop yields
+// UserPromoted right after the prompt lands in the session. An immediate
+// submit carries the same UserID, because that is the id of its session
+// entry, but its row is already drawn, so nothing is promoted.
 func TestLoopPromotesDequeuedOpeningPrompt(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -102,6 +103,7 @@ func TestLoopPromotesDequeuedOpeningPrompt(t *testing.T) {
 	var promoted []session.UserPromoted
 	for ev := range newEngine(t).Loop(t.Context(), "follow up", LoopOpts{
 		UserID:          "u9",
+		UserRowOwed:     true,
 		UserDisplayText: "follow up",
 	}) {
 		if p, ok := ev.(session.UserPromoted); ok {
@@ -112,7 +114,7 @@ func TestLoopPromotesDequeuedOpeningPrompt(t *testing.T) {
 		"a dequeued opening prompt must land its transcript row at delivery")
 
 	promoted = nil
-	for ev := range newEngine(t).Loop(t.Context(), "direct", LoopOpts{}) {
+	for ev := range newEngine(t).Loop(t.Context(), "direct", LoopOpts{UserID: "u10"}) {
 		if p, ok := ev.(session.UserPromoted); ok {
 			promoted = append(promoted, p)
 		}

@@ -54,7 +54,7 @@ func TestFollowUpBindingFailureHandsBackTheQueuedPrompt(t *testing.T) {
 	ctrl := newInjectController(t, NewBus(nil), textSSEServerURL(t))
 	defer ctrl.Close()
 	ctrl.assignment = newAssignment("reserved-follow-up")
-	queued := queuedPrompt{text: "follow-up", id: "u9"}
+	queued := queuedPrompt{text: "follow-up", id: "u9", rowOwed: true}
 	var runner job.Runner = followUpRunner{controller: ctrl, sessionID: ctrl.engine.SessionID(), prompt: queued}
 
 	_, err := runner.Run(t.Context(), job.RunEnv{
@@ -67,9 +67,9 @@ func TestFollowUpBindingFailureHandsBackTheQueuedPrompt(t *testing.T) {
 	require.Equal(t, "follow-up", ctrl.promptQueue[0].text)
 }
 
-// TestFollowUpBindingFailureDropsAPromptThatAlreadyHasItsRow: an entry with
-// no id is owed no transcript row — an assembled brief, a watch wake, a
-// prompt the composer already drew. Requeuing one would run it a second time.
+// TestFollowUpBindingFailureDropsAPromptThatAlreadyHasItsRow: an entry that
+// owes no row already has one, or never wanted one: an assembled brief, a
+// watch wake, a prompt the composer drew. Requeuing it would run it twice.
 func TestFollowUpBindingFailureDropsAPromptThatAlreadyHasItsRow(t *testing.T) {
 	ctrl := newInjectController(t, NewBus(nil), textSSEServerURL(t))
 	defer ctrl.Close()

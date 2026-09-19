@@ -188,6 +188,10 @@ type Message struct {
 	Usage Usage `json:"-"`
 	// DeliveryID is host-only receipt metadata persisted by the session wrapper.
 	DeliveryID string `json:"-"`
+	// EntryID is host-only: the session entry id the caller already published
+	// this message under, so the transcript row and the log entry share one id.
+	// Empty lets the session manager mint the id itself.
+	EntryID string `json:"-"`
 }
 
 // UnmarshalJSON decodes a message, accepting "reasoning" as an alias for

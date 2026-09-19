@@ -33,7 +33,8 @@ func TestTerminalChildFollowUpRetainsSessionAndLinksNewAssignment(t *testing.T) 
 	// reported queued: the composer draws no row, the engine promotes one when
 	// the new assignment delivers the prompt, and a failed admission hands it
 	// back to the strip instead of losing it.
-	require.True(t, child.Controller.StartPrompt("follow-up assignment", nil))
+	queued, _ := child.Controller.StartPrompt("follow-up assignment", nil)
+	require.True(t, queued)
 	waitForCond(t, 5*time.Second, func() bool {
 		state := child.Controller.Assignment()
 		return state.JobID != first.ID && state.Terminal

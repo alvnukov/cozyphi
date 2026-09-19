@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Fixed: a transcript row and the session entry behind it now share one id. A
+  live turn used to name its rows one way and the session file another, so the
+  same message answered to a different id once the session was reopened.
+  Whoever draws the row mints the id, and the message carries it into the log.
+  The `post_turn` hook's `message_id` is that id too: it is an opaque token,
+  no longer shaped as `assistant-<nanos>`.
 - Added: the lint gate now holds complexity, duplication and the import graph.
   Six linters — `cyclop`, `gocognit`, `funlen`, `nestif`, `dupl` and
   `interfacebloat` — are enabled, and every complexity ceiling is pinned at

@@ -5,11 +5,14 @@ import (
 	"encoding/hex"
 )
 
-// NewUserMessageID returns a unique transcript-row id for a submitted user
-// message. The submitter stamps its UserAppend row with it; for a prompt
-// queued behind a running turn the controller assigns one at enqueue, and
-// the engine's UserPromoted carries it when the prompt is delivered.
-func NewUserMessageID() string {
+// NewEntryID returns a unique id for one session entry. Whoever draws the
+// transcript row mints it first (the submitter for a typed prompt, the
+// controller for a prompt queued behind a running turn, the streaming round
+// for an assistant turn), and the same id travels on the message so the
+// manager records the entry under it. One id regime keeps a live row and the
+// entry a resumed session replays identical, which is what the rewind, fork
+// and aside anchors address.
+func NewEntryID() string {
 	bytes := make([]byte, 8)
 	if _, err := rand.Read(bytes); err != nil {
 		panic(err)
