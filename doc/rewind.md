@@ -53,6 +53,11 @@ or clear it, and ask again.
 A prompt sent with skills attached carries a harness paragraph into the log.
 What comes back to the composer is what you wrote, without it.
 
+One case is not covered. A plan step that preloads skill bodies prepends a
+block of its own. That block ends in a skill body, and where the body stops
+cannot be read back out of the recorded message. A rewind to such a prompt
+hands the whole block back. Your text is at the end of it.
+
 ## What a rewind does to the branch
 
 The session file is a tree. The cursor says which leaf of it is the
@@ -63,6 +68,11 @@ The branch you left keeps its entries in the file.
 `/rewind back` moves the cursor to wherever the last move started from. It does
 so whether or not a turn has been recorded since. The undo is itself a move, so
 two of them in a row land where the pair started.
+
+Watch the composer across that pair. The first undo leaves the earlier
+rewind's prompt sitting there. The second undo puts that same prompt back into
+the context. What is in the composer is then a copy of what the model has
+already been shown. Clear it before sending, unless you meant to ask twice.
 
 Switching between branches in the interface is not available. After a rewind the
 branch you left is in the log, not on the screen.
