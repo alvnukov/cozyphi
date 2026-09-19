@@ -315,6 +315,15 @@ func OpenSession(path string) (_ *Manager, err error) {
 			byIDs[e.ID] = e
 			entries = append(entries, e)
 			title, titleSource = e.Title, e.Source
+		case LeafEntry:
+			if header == nil {
+				return nil, fmt.Errorf("session: first entry must be session header at %s:%d", path, lineNo)
+			}
+			byIDs[e.ID] = e
+			entries = append(entries, e)
+			// The move carries the cursor, so the last one in the file wins
+			// and everything appended to the branch it left is skipped over.
+			setLeaf(&leafID, e.Target)
 		case PlanEntry:
 			if header == nil {
 				return nil, fmt.Errorf("session: first entry must be session header at %s:%d", path, lineNo)
@@ -440,6 +449,12 @@ func decodeEntryLine(raw []byte, lineNo int) (MessageEntry, error) {
 		}
 		title.Title = normalized
 		return title, nil
+	case EntryLeaf:
+		var move LeafEntry
+		if err := json.Unmarshal(raw, &move); err != nil {
+			return nil, fmt.Errorf("session: line %d cursor move: %w", lineNo, err)
+		}
+		return move, nil
 	case EntryPlan:
 		var p PlanEntry
 		if err := json.Unmarshal(raw, &p); err != nil {

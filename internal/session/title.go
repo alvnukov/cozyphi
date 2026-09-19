@@ -125,16 +125,8 @@ func titlePrompt(entry SessionMessageEntry) string {
 	if entry.Message.Role != llm.RoleUser || entry.DeliveryID != "" {
 		return ""
 	}
-	text := strings.TrimSpace(entry.Message.Content)
 	// Harness deliveries are not the user's goal. Older logs lack delivery IDs.
-	for strings.HasPrefix(text, "<system-reminder>") {
-		_, after, found := strings.Cut(text, "</system-reminder>")
-		if !found {
-			return ""
-		}
-		text = strings.TrimSpace(after)
-	}
-	return displayText(text, 48)
+	return displayText(stripReminders(entry.Message.Content), 48)
 }
 
 func displayText(text string, limit int) string {
