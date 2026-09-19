@@ -345,9 +345,12 @@ func TestASecondCutAtAnAnswerKeepsTheFirstCutsPrompt(t *testing.T) {
 		"this undo reverses the answer cut, which handed nothing over")
 }
 
-// The draft belongs to the session it was typed in. Carried across a switch,
-// the undo would cut text out of the composer that this session never put
-// there.
+// The record of what an undo may take back belongs to the session it was made
+// in. It has to be dropped on a switch, and the damage shows only where the
+// session switched into can legally undo something of its own: a session
+// resumed from disk with a move already in its file. The undo there is about
+// that file's own move, and it must not reach into the composer for words the
+// previous session put in.
 func TestASessionSwitchForgetsWhatTheUndoWouldTakeBack(t *testing.T) {
 	server, _ := replyingSSEServer(t)
 	defer server.Close()
@@ -355,15 +358,29 @@ func TestASessionSwitchForgetsWhatTheUndoWouldTakeBack(t *testing.T) {
 	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
 	t.Cleanup(ctrl.Close)
 
+	// The session to come back to: it ends with a move of its own recorded in
+	// its file, so an undo in it is legal once it is resumed.
 	runTurn(t, e, "first", 2)
 	runTurn(t, e, "second", 4)
 	e.RewindTo(e.transcript.Snapshot().Messages[2].ID)
-	require.Equal(t, "second", e.composer.Chat.Value)
+	require.True(t, e.commands.DispatchSlash("/rewind back", e.commandContext()))
+	require.Empty(t, e.composer.Chat.Value)
+	resumable := ctrl.SessionID()
+	require.NotEmpty(t, resumable)
 
+	// A second session, where the rewind hands a prompt to the composer.
 	e.ClearSession()
-	e.composer.Chat.Value = "second"
+	runTurn(t, e, "third", 2)
+	runTurn(t, e, "fourth", 4)
+	e.RewindTo(e.transcript.Snapshot().Messages[2].ID)
+	require.Equal(t, "fourth", e.composer.Chat.Value)
+
+	// Back to the first session, carrying that text in the composer.
+	e.ResumeSession(resumable)
+	require.Equal(t, resumable, ctrl.SessionID(), "the resume landed")
+	require.Equal(t, "fourth", e.composer.Chat.Value, "a resume does not clear the composer")
 
 	require.True(t, e.commands.DispatchSlash("/rewind back", e.commandContext()))
-	assert.Equal(t, "second", e.composer.Chat.Value,
-		"the new session's undo has nothing of its own to take back")
+	assert.Equal(t, "fourth", e.composer.Chat.Value,
+		"this session's undo has nothing of its own to take back from the composer")
 }
