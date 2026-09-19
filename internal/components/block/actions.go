@@ -113,7 +113,11 @@ type armedButton struct {
 	armed bool
 }
 
-// paintedSpan is the run of cells the strip wrote on the frame before.
+// paintedSpan is the run of cells the strip wrote on the frame before. Every
+// paint records one, and only a widget that hands out the same surface twice
+// ever reads it back through erasePainted. The prompt records a span nobody
+// asks about, which is cheaper than teaching paint whose surface it is
+// drawing on, and keeps the two blocks running the same code.
 type paintedSpan struct {
 	row, x0, x1 int
 	painted     bool
@@ -219,6 +223,14 @@ func (bar *messageActionBar) handleActionMouse(ctx *components.EventContext, ev 
 		ctx.Consume = true
 	case e.Action == xui.MouseRelease && over && armed.armed && armed.kind == b.kind:
 		bar.armed = armedButton{}
+		// The refusal is read again here, not only when the press armed the
+		// button. A turn can start between the two halves of a click, from a
+		// queued prompt or a follow-up, and the release must not act on a
+		// strip that has meanwhile gone quiet.
+		if bar.strip.disabled != "" {
+			ctx.Consume = true
+			return
+		}
 		bar.run(b.kind)
 		ctx.ConsumeAndRedraw()
 	}

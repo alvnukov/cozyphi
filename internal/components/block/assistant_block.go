@@ -114,11 +114,27 @@ func (assistantBlock *AssistantBlock) layoutActions(w int, method xui.WidthMetho
 	}
 	// A footer that spells out a long model name, its context size and the
 	// round's duration can fill a narrow pane's row to the edge. The buttons
-	// then step one line up instead of disappearing: the row above is the
-	// reply's own last line of text, and a line of prose rarely ends flush
-	// right.
-	above := last - 1
+	// then step up instead of disappearing, onto the reply's own last line of
+	// text, which rarely ends flush right. The step skips blank rows: the
+	// markdown renderer separates a stable block from the tail with one, and
+	// buttons alone on an empty row read as debris.
+	above, ok := assistantBlock.lastWrittenRow(last-1, method)
+	if !ok {
+		return
+	}
 	assistantBlock.layout(above, w, assistantBlock.contentEnd(above, method), replyAnchor, method)
+}
+
+// lastWrittenRow walks up from row to the nearest line that has something on
+// it, and reports false when every line above is blank.
+func (assistantBlock *AssistantBlock) lastWrittenRow(row int, method xui.WidthMethod) (int, bool) {
+	lines := assistantBlock.cache.lines
+	for y := min(row, len(lines)-1); y >= 0; y-- {
+		if components.MeasureSpans(lines[y], method) > 0 {
+			return y, true
+		}
+	}
+	return 0, false
 }
 
 // contentEnd is the column where the row's own content stops.

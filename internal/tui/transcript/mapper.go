@@ -168,10 +168,21 @@ func (m *Mapper) messageActions(it session.Item, boundary bool) block.MessageAct
 	if m.onRewind == nil && m.onFork == nil && m.onAside == nil {
 		return block.MessageActions{}
 	}
-	// A failed turn shows its error as a message, but the session log never
-	// received it and neither did the branch the anchor would cut. Every
-	// StateError row in the feed is one the shell synthesized after the
-	// engine gave up, so none of them anchor anything.
+	// A row that failed offers nothing, and the rule is deliberately wider
+	// than the rows that have no entry behind them.
+	//
+	// The shell writes its own failure rows, with ids it invents on the spot
+	// (assistant-error-, follow-up-error-, and the rest), and the log never
+	// receives them. The anchor alone does not refuse those: they reach the
+	// feed as assistant messages, so the snapshot holds a message under
+	// exactly that id and the lookup succeeds. The state is what tells them
+	// apart.
+	//
+	// It catches one more row with it: a round the stream tore in half keeps
+	// its real id and the text that arrived, and the log does keep it. Losing
+	// the buttons there is the intended half of the trade, because a torn
+	// round is not a place to cut the context at, and the side question about
+	// a half-arrived answer is worth less than one rule instead of two.
 	if it.State == session.StateError {
 		return block.MessageActions{}
 	}

@@ -528,3 +528,111 @@ func sameCells(a, b []xui.Cell) bool {
 	}
 	return true
 }
+
+// A turn can start between the press and the release. The release then acts
+// on a strip that has gone quiet, so it must not act at all.
+func TestTurnStartingMidClickCancelsTheRelease(t *testing.T) {
+	var rec recorder
+	u := &block.UserBlock{Text: "hello", Theme: components.DefaultTheme()}
+	u.SetActions(rec.actions())
+	s := u.Draw(wideCtx())
+	x, y := buttonCell(t, s, "rewind")
+
+	u.Handle(&components.EventContext{}, xui.MouseEvent{
+		X: x, Y: y, Button: xui.MouseLeft, Action: xui.MousePress,
+	})
+	// The mapper refuses the strip mid-click, and the frame that follows
+	// carries the refusal.
+	refused := rec.actions()
+	refused.Disabled = "the turn is still running"
+	u.SetActions(refused)
+	u.Draw(hoverAt(u, x, y))
+
+	ctx := &components.EventContext{}
+	u.Handle(ctx, xui.MouseEvent{X: x, Y: y, Button: xui.MouseLeft, Action: xui.MouseRelease})
+	if rec.rewind != 0 {
+		t.Fatalf("the release acted after the turn started: rewind %d", rec.rewind)
+	}
+	if !ctx.Consume {
+		t.Fatal("the refused release fell through to text selection")
+	}
+}
+
+// Wherever the step up lands, the strip never ends up alone on a blank row:
+// buttons with nothing beside them read as debris rather than as controls.
+//
+// This is a guard, not a reproduced defect. The markdown renderer trims the
+// blank lines off the end of a reply, and the separator it puts between a
+// stable block and the streaming tail always has the tail after it, so today
+// no input puts a blank line directly above the footer. The guard holds the
+// promise if that ever changes.
+func TestStripNeverSitsAloneOnABlankRow(t *testing.T) {
+	var rec recorder
+	a := &block.AssistantBlock{
+		Text:      "the answer\n\n",
+		MetaLabel: "anthropic/claude-opus-4-5-20260101[1.2m]",
+		MetaTail:  "2m 13s",
+		Theme:     components.DefaultTheme(),
+	}
+	a.SetActions(rec.actions())
+
+	s := drawAt(a, 60)
+	x, y := asideCell(t, s, wordStrip)
+	if got := stripRows(s, wordStrip); got != 1 {
+		t.Fatalf("the strip is on %d rows:\n%s", got, components.SurfaceText(s))
+	}
+	// Whatever row it landed on must carry text of its own, not blanks.
+	row := strings.Split(components.SurfaceText(s), "\n")[y]
+	if strings.TrimSpace(strings.Split(row, wordStrip)[0]) == "" {
+		t.Fatalf("the strip sits alone on a blank row %d:\n%s", y, components.SurfaceText(s))
+	}
+	clickAt(a, x, y)
+	if rec.aside != 1 {
+		t.Fatalf("the stepped-over strip did not act: aside %d", rec.aside)
+	}
+}
+
+// The reply's surface is reused across a shrink and a regrowth, and the only
+// cells selection copy skips afterwards are the ones the strip is on now.
+//
+// The truncation inside the cache is belt and braces: the strip clears its
+// own chrome before every render, so a mark cannot outlive the row it was
+// made on, and IsChrome clips by the surface size anyway. This pins the
+// property both of them exist for.
+func TestChromeShrinksWithTheReply(t *testing.T) {
+	var rec recorder
+	a := &block.AssistantBlock{
+		Text:  "first line\n\nsecond line\n\nthird line",
+		Theme: components.DefaultTheme(),
+	}
+	a.SetActions(block.MessageActions{OnAside: func() { rec.aside++ }})
+	tall := a.Draw(wideCtx())
+	tallX, tallY := buttonCell(t, tall, "btw")
+	if !tall.IsChrome(tallX, tallY) {
+		t.Fatal("the strip on the tall reply is not chrome")
+	}
+
+	a.Text = "first line"
+	short := a.Draw(wideCtx())
+	if short.Size.Height != 1 {
+		t.Fatalf("the shrunk reply is %d rows", short.Size.Height)
+	}
+
+	a.Text = "first line\n\nsecond line\n\nthird line"
+	again := a.Draw(wideCtx())
+	if got := stripRows(again, "btw"); got != 1 {
+		t.Fatalf("the strip is on %d rows after the reply grew back:\n%s", got, components.SurfaceText(again))
+	}
+	for y := range again.Size.Height {
+		for x := range again.Size.Width {
+			if !again.IsChrome(x, y) {
+				continue
+			}
+			if _, _, found := strings.Cut(
+				strings.Split(components.SurfaceText(again), "\n")[y], "btw",
+			); !found {
+				t.Fatalf("row %d carries a chrome mark with no strip on it", y)
+			}
+		}
+	}
+}
