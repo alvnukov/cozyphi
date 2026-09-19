@@ -1,13 +1,15 @@
 ---
 id: web-research-03-model-binding
 title: 03 — Configure an explicit pinned web model without fallback
-status: blocked
+status: in_progress
 priority: high
 model_level: low
 task_type: feature
 parent_id: web-tools
 tags:
     - protected-web-research
+branch: feature/web-research-03-model-binding
+worktree_path: .worktrees/web-research-03-model-binding
 acceptance_criteria:
     - The user selects a concrete provider/endpoint/account/model/effective configuration using existing configuration identities.
     - Save/reload preserves the selection; missing or invalid references are not-ready rather than session-model fallback.
@@ -17,7 +19,7 @@ verification_plan:
     - Change account, endpoint, model and effective options; assert readiness invalidation and no default substitution.
     - Run only affected configuration/settings tests and scoped gates; record captured identity with credentials removed.
 created_at: "2026-09-19T19:10:37.769516Z"
-updated_at: "2026-09-19T19:10:37.769516Z"
+updated_at: "2026-09-19T23:33:16.570439Z"
 ---
 
 ## Body
@@ -35,6 +37,10 @@ updated_at: "2026-09-19T19:10:37.769516Z"
 **Proof required:** Settings save/reload demonstration and captured resolved identities for two distinct configurations; missing reference and changed endpoint/account must refuse reuse. Assert no main-model substitution and no secret fields in displayed errors.
 
 **Stop condition:** If existing config identity cannot represent the effective recipient without protocol changes, document the specific missing contract rather than guess fields.
+
+**Reopened (2026-09-20).** Блокер 02 снят (PR #43 в main).
+
+**Started (2026-09-20).** Беру в работу: явный web-модельный биндинг без фолбэка, маршрут как у 02.
 
 ## Acceptance Criteria
 
