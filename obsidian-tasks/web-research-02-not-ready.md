@@ -1,7 +1,7 @@
 ---
 id: web-research-02-not-ready
 title: 02 — Refuse unready protected web without legacy bypasses
-status: todo
+status: in_progress
 priority: high
 model_level: low
 task_type: feature
@@ -9,6 +9,8 @@ parent_id: web-tools
 tags:
     - protected-web-research
     - ready-for-agent
+branch: feature/web-research-02-not-ready
+worktree_path: .worktrees/web-research-02-not-ready
 acceptance_criteria:
     - Missing protected readiness returns an actionable refusal with zero acquisition/model calls.
     - Legacy raw, disabled quarantine, missing reader and general allow-all cannot release unchecked web content.
@@ -18,7 +20,7 @@ verification_plan:
     - Capture model-facing outcomes and fake provider/network counters; assert safe refusal and no calls.
     - Run changed-package tests and scoped formatting/build; attach exact commands and regression evidence per delivery rules.
 created_at: "2026-09-19T19:10:37.683088Z"
-updated_at: "2026-09-19T19:10:37.683088Z"
+updated_at: "2026-09-19T22:01:29.455917Z"
 ---
 
 ## Body
@@ -36,6 +38,8 @@ updated_at: "2026-09-19T19:10:37.683088Z"
 **Proof required:** Public tool/session request captures for missing configuration, raw request, quarantine-off and allow-all; zero provider/network invocations and zero unchecked source bytes in model output. Include a normal disabled-web control.
 
 **Stop condition:** If another entry point cannot be gated within this narrow change, report it as a blocker instead of claiming migration complete.
+
+**Started (2026-09-20).** Taking it after PR #42 merge (main c9833699). Branch feature/web-research-02-not-ready, worktree .worktrees/web-research-02-not-ready. Fail-closed migration boundary per spec D2/D3/D7/D16: not-ready refusal with setup guidance; legacy raw/quarantine-off/missing-reader/session-model paths refuse; zero provider/network calls on refusal paths.
 
 ## Acceptance Criteria
 
