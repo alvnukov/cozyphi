@@ -4,13 +4,7 @@ import (
 	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
-)
-
-// reminderOpen and reminderClose wrap the harness scaffolding a prompt may
-// carry into the log. What the user typed follows the last closing tag.
-const (
-	reminderOpen  = "<system-reminder>"
-	reminderClose = "</system-reminder>"
+	"github.com/alvnukov/cozyphi/internal/memory"
 )
 
 // TurnBoundaryKind says what a cut at the anchor does to the context.
@@ -132,16 +126,10 @@ func finishedAnswer(entry SessionMessageEntry) bool {
 }
 
 // stripReminders drops the harness reminder blocks a prompt was sent with and
-// leaves what the user typed. An unterminated block means the whole text is
-// scaffolding, so nothing of the user's is left.
+// leaves what the user typed. It is the transcript's own rule, borrowed whole:
+// a row the feed shows as the user's words is a row a rewind must be able to
+// cut at, and two spellings of "what the user typed" would disagree about
+// which rows those are.
 func stripReminders(content string) string {
-	text := strings.TrimSpace(content)
-	for strings.HasPrefix(text, reminderOpen) {
-		_, after, found := strings.Cut(text, reminderClose)
-		if !found {
-			return ""
-		}
-		text = strings.TrimSpace(after)
-	}
-	return text
+	return strings.TrimSpace(memory.StripReminders(content))
 }

@@ -319,6 +319,17 @@ func OpenSession(path string) (_ *Manager, err error) {
 			if header == nil {
 				return nil, fmt.Errorf("session: first entry must be session header at %s:%d", path, lineNo)
 			}
+			// A move always points at an entry written earlier in this same
+			// file. One that does not is a broken log, and taking it would
+			// leave the cursor dangling, where the context builder falls back
+			// to the last entry in the file and lands somewhere right only by
+			// luck. Say so instead.
+			if e.Target != "" {
+				if _, known := byIDs[e.Target]; !known {
+					return nil, fmt.Errorf(
+						"session: cursor move at %s:%d points at unknown entry %s", path, lineNo, e.Target)
+				}
+			}
 			byIDs[e.ID] = e
 			entries = append(entries, e)
 			// The move carries the cursor, so the last one in the file wins

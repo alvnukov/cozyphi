@@ -301,3 +301,47 @@ func TestAFailedFlushLeavesTheCursorAlone(t *testing.T) {
 	assert.Equal(t, second.Answer, manager.LeafID())
 	assert.Contains(t, contextIDs(manager), second.Prompt)
 }
+
+// A move pointing at an entry the file does not hold is a broken log. Taking
+// it would leave the cursor dangling, and the context builder would fall back
+// to the last line of the file and land somewhere right only by luck.
+func TestLoadRefusesACursorMoveWithAnUnknownTarget(t *testing.T) {
+	dir := t.TempDir()
+	manager, err := session.NewSessionManager(dir,
+		session.WithSessionDir(dir), session.WithShouldFlush(true))
+	require.NoError(t, err)
+	recordTurn(t, manager, "one", "answer one")
+	path := manager.File()
+	require.NoError(t, manager.Close())
+
+	line := `{"type":"leaf","id":"move-1","parentID":null,` +
+		`"timestamp":"2026-09-16T09:00:00Z","target":"no-such-entry","from":""}` + "\n"
+	file, err := os.OpenFile(filepath.Clean(path), os.O_APPEND|os.O_WRONLY, 0o600)
+	require.NoError(t, err)
+	_, err = file.WriteString(line)
+	require.NoError(t, err)
+	require.NoError(t, file.Close())
+
+	_, err = session.OpenSession(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no-such-entry")
+}
+
+// An unterminated reminder block is the transcript's rule, not a special case
+// of ours: the feed shows the text as the user's, so a rewind offers it as a
+// boundary. Two spellings of "what the user typed" would disagree about which
+// rows carry buttons at all.
+func TestAnUnterminatedReminderReadsAsTheUsersText(t *testing.T) {
+	manager := session.NewManager(t.TempDir())
+	prompt, err := manager.Append(llm.Message{
+		Role:    llm.RoleUser,
+		Content: "<system-reminder>never closed, so this is prose",
+	})
+	require.NoError(t, err)
+	_, err = manager.AppendAssistant(llm.Message{Role: llm.RoleAssistant, Content: "ok"}, "m", "")
+	require.NoError(t, err)
+
+	boundary, err := session.TurnBoundaryAt(manager.BuildContext(), prompt)
+	require.NoError(t, err)
+	assert.Equal(t, "<system-reminder>never closed, so this is prose", boundary.Prompt)
+}
