@@ -116,14 +116,24 @@ func (s *Submitter) handleUserInput(text string, media []llm.Media) {
 	// the engine appends it (session.UserPromoted) at the moment it is
 	// actually delivered to the model.
 	queued := false
+	rowID := ""
 	if s.ctrl != nil {
-		queued = s.ctrl.StartPrompt(text, pendingSkills, media...)
+		queued, rowID = s.ctrl.StartPrompt(text, pendingSkills, media...)
+	}
+	// A controller that is closing, or missing entirely in a headless shell,
+	// hands back nothing. The row is still drawn, and a row without a name is
+	// one no rewind or fork can ever address, so it gets an id of its own.
+	if rowID == "" {
+		rowID = session.NewEntryID()
 	}
 
 	if !queued {
 		s.activity.Apply(controller.ActivitySubmitting)
+		// The row carries the id the controller handed back, which is also the
+		// id the session entry gets: the row a rewind or a fork anchors on
+		// survives the restart that replays it.
 		s.transcript.ApplySession(session.UserAppend{
-			ID:   session.NewUserMessageID(),
+			ID:   rowID,
 			Text: session.UserPromptText(text, pendingSkills),
 		})
 		s.transcript.Sync()

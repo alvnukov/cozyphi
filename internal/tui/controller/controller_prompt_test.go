@@ -136,7 +136,7 @@ func TestController_CutShortTurnRequeuesOpeningPrompt(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	ctrl.runLoop(ctx, 1, nil, runRequest{pending: queuedPrompt{text: "keep me", id: "u1"}})
+	ctrl.runLoop(ctx, 1, nil, runRequest{pending: queuedPrompt{text: "keep me", id: "u1", rowOwed: true}})
 
 	require.Len(t, ctrl.promptQueue, 1)
 	assert.Equal(t, "keep me", ctrl.promptQueue[0].text)
@@ -153,22 +153,22 @@ func TestController_FailedTurnDoesNotRequeue(t *testing.T) {
 		modelCfg:      llm.ModelConfig{Name: "test-model"},
 	}
 
-	ctrl.runLoop(t.Context(), 1, nil, runRequest{pending: queuedPrompt{text: "boom", id: "u1"}})
+	ctrl.runLoop(t.Context(), 1, nil, runRequest{pending: queuedPrompt{text: "boom", id: "u1", rowOwed: true}})
 
 	assert.Empty(t, ctrl.promptQueue, "the failure is reported once, not retried forever")
 }
 
 // TestController_RequeueLockedKeepsOnlyPromptsOwedARow: only a prompt still
 // owed a transcript row goes back. A watch wake, a plan resume and a submit
-// whose row the submitter already published carry no id, and requeuing those
+// whose row the submitter already published owe no row, and requeuing those
 // would run them a second time.
 func TestController_RequeueLockedKeepsOnlyPromptsOwedARow(t *testing.T) {
-	ctrl := &Controller{bus: NewBus(nil), promptQueue: []queuedPrompt{{text: "waiting", id: "u3"}}}
+	ctrl := &Controller{bus: NewBus(nil), promptQueue: []queuedPrompt{{text: "waiting", id: "u3", rowOwed: true}}}
 
 	ctrl.requeueLocked(
 		queuedPrompt{text: "wake"},
-		queuedPrompt{text: "first", id: "u1"},
-		queuedPrompt{text: "second", id: "u2"},
+		queuedPrompt{text: "first", id: "u1", rowOwed: true},
+		queuedPrompt{text: "second", id: "u2", rowOwed: true},
 	)
 
 	require.Len(t, ctrl.promptQueue, 3)
@@ -177,6 +177,6 @@ func TestController_RequeueLockedKeepsOnlyPromptsOwedARow(t *testing.T) {
 	}, "requeued prompts go back in front, in order, ahead of what is still waiting")
 
 	ctrl.closing = true
-	ctrl.requeueLocked(queuedPrompt{text: "too late", id: "u4"})
+	ctrl.requeueLocked(queuedPrompt{text: "too late", id: "u4", rowOwed: true})
 	assert.Len(t, ctrl.promptQueue, 3, "a closing session takes nothing back")
 }

@@ -67,11 +67,19 @@ func newAssignment(jobID string) *assignment {
 	return &assignment{AssignmentSnapshot: AssignmentSnapshot{JobID: jobID, Turn: TurnIdle}, done: make(chan struct{})}
 }
 
+// assignmentPrompt wraps the brief a sub-agent is spawned on. Nobody typed
+// it, so it carries no row yet, but it still gets an id: the brief row the
+// child's screen opens on and the session entry the engine records must be
+// the same one, or a reopened child would address a different anchor.
+func assignmentPrompt(text string) queuedPrompt {
+	return queuedPrompt{text: text, id: session.NewEntryID()}
+}
+
 // RunAssignment runs through the Controller's ordinary input queue. Its caller
 // owns job admission; cancellation stops the assignment, whereas Cancel only
 // interrupts its current turn. Returning proves the old loop actually exited.
 func (c *Controller) RunAssignment(ctx context.Context, jobID, prompt string) (string, error) {
-	return c.runAssignment(ctx, jobID, queuedPrompt{text: prompt}, assignmentHooks{})
+	return c.runAssignment(ctx, jobID, assignmentPrompt(prompt), assignmentHooks{})
 }
 
 func (c *Controller) runAssignment(
@@ -163,15 +171,16 @@ func (c *Controller) runAssignment(
 // keeps a child that is watched live and a child that is reopened later
 // reading alike. The caller holds streamMu.
 //
-// A row id means the transcript row is still owed and the engine will promote
-// it at delivery: a human follow-up into a retained child arrives that way,
-// and appending here would draw it twice.
+// An owed row means the engine will promote it at delivery: a human follow-up
+// into a retained child arrives that way, and appending here would draw it
+// twice. The brief keeps the prompt's own id, so the row the child opens on
+// and the entry its session records are one and the same.
 func (c *Controller) publishAssignmentBriefLocked(prompt queuedPrompt) {
-	if prompt.id != "" || strings.TrimSpace(prompt.text) == "" {
+	if prompt.rowOwed || strings.TrimSpace(prompt.text) == "" {
 		return
 	}
 	c.publish(SessionEventMsg{Event: session.UserAppend{
-		ID:   session.NewUserMessageID(),
+		ID:   prompt.id,
 		Text: prompt.text,
 	}})
 }

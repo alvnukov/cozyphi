@@ -234,10 +234,23 @@ func (sm *Manager) appendMessage(msg llm.Message, model, effort string, deduplic
 		}
 	}
 
+	// The caller that already drew the transcript row owns the id: taking it
+	// here is what makes the live row and the replayed entry one and the same.
+	// A taken id is refused out loud. Minting a replacement would put the log
+	// back into the state this whole mechanism exists to end, with a row and
+	// its entry under different names and nothing saying so.
+	id := msg.EntryID
+	if id == "" {
+		id = sm.generateID()
+	} else if _, taken := sm.byIDs[id]; taken {
+		return "", fmt.Errorf("session: entry ID %q is already in the log", id)
+	}
+	msg.EntryID = ""
+
 	entry := SessionMessageEntry{
 		SessionBaseEntry: SessionBaseEntry{
 			Type:      EntryMessage,
-			ID:        sm.generateID(),
+			ID:        id,
 			ParentID:  sm.leafID,
 			Timestamp: time.Now(),
 		},

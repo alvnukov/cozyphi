@@ -1020,12 +1020,16 @@ type LoopOpts struct {
 	// Media is inline image content attached to the user's prompt.
 	Media []llm.Media
 
-	// UserID and UserDisplayText describe the transcript row of a queued
-	// prompt this turn delivers: set only when the opening prompt dequeued
-	// from the controller's queue (an immediate submit already has its row).
-	// After the prompt is appended to the session, the loop yields
-	// session.UserPromoted so the row joins the transcript at delivery time.
+	// UserID is the id of the opening prompt's transcript row, and the id the
+	// session entry is recorded under, so a live row and a replayed one match.
+	// UserRowOwed and UserDisplayText describe a prompt that dequeued from the
+	// controller's queue and still has no row: after the prompt is appended to
+	// the session the loop yields session.UserPromoted, and the row joins the
+	// transcript at delivery time. An immediate submit drew its row already.
+	// An owed row is always owed under a UserID, because the row the loop
+	// draws and the entry it just appended have to answer to one name.
 	UserID          string
+	UserRowOwed     bool
 	UserDisplayText string
 
 	// Inject, when set, is polled at every tool-round boundary. Each returned
@@ -1045,9 +1049,12 @@ type InjectedPrompt struct {
 	Skills []string
 	Media  []llm.Media
 	// UserID is the transcript row id the queued prompt was assigned at
-	// enqueue; empty for background text (watch reminders) that must never
-	// grow a transcript row.
+	// enqueue, and the id its session entry is recorded under; empty for
+	// background text (watch reminders) that must never grow a transcript row.
 	UserID string
+	// RowOwed marks a prompt whose row nobody has drawn yet, so delivery is
+	// what publishes it. Background text leaves it false and stays invisible.
+	RowOwed bool
 }
 
 // Loop appends the user prompt and runs inference + tool rounds until the
@@ -1096,13 +1103,18 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		}
 		content = engine.composeUserPrompt(recall, opts.PendingSkills, prompt, content)
 		if content != "" || len(opts.Media) > 0 || opts.Inbox == nil {
-			if err := sess.Append(llm.Message{Role: llm.RoleUser, Content: content, Media: opts.Media}); err != nil {
+			if err := sess.Append(llm.Message{
+				Role:    llm.RoleUser,
+				Content: content,
+				Media:   opts.Media,
+				EntryID: opts.UserID,
+			}); err != nil {
 				yield(nil, err)
 				return
 			}
 			// A dequeued prompt has no transcript row yet: it joins the feed
-			// now, appended at the end — the moment the model actually got it.
-			if opts.UserID != "" {
+			// now, appended at the end, the moment the model actually got it.
+			if opts.UserRowOwed {
 				if !yield(session.UserPromoted{ID: opts.UserID, Text: opts.UserDisplayText}, nil) {
 					return
 				}
@@ -1296,12 +1308,17 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				for _, item := range opts.Inject() {
 					content := engine.composeUserPrompt(recall, item.Skills, item.Text, item.Text)
 					if err := sess.Append(
-						llm.Message{Role: llm.RoleUser, Content: content, Media: item.Media},
+						llm.Message{
+							Role:    llm.RoleUser,
+							Content: content,
+							Media:   item.Media,
+							EntryID: item.UserID,
+						},
 					); err != nil {
 						yield(nil, err)
 						return
 					}
-					if item.UserID != "" {
+					if item.RowOwed {
 						text := session.UserPromptText(item.Text, item.Skills)
 						if !yield(session.UserPromoted{ID: item.UserID, Text: text}, nil) {
 							return

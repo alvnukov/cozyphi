@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
@@ -20,7 +19,10 @@ func streamTurn(
 	messages []llm.Message,
 	rt roundRuntime,
 ) (llm.Message, session.Event, bool, error) {
-	id := fmt.Sprintf("assistant-%d", time.Now().UnixNano())
+	// The round's id is the session entry id from the first token on: the
+	// stream tail-patches the row under it and the append below records the
+	// entry under the same one, so nothing has to be reconciled afterwards.
+	id := session.NewEntryID()
 	started := time.Now()
 	model := rt.modelName
 	effort := string(rt.modelEffort)
@@ -163,6 +165,7 @@ func streamTurn(
 		started,
 		thinkingSpan(),
 	)
+	final.EntryID = id
 	return final, complete, true, nil
 }
 

@@ -263,6 +263,11 @@ stdout examples:
 Fires after each completed assistant stream in the interactive TUI run loop
 (Controller.recordUsage). stdin matches session lifecycle fields: `session_id`, `cwd`, `message_id`, and `usage`. `async: true` is recommended so slow loggers do not stall the agent loop. `fail_closed` is not valid. Results are audit-only — stdout is not injected into the model or transcript.
 
+`message_id` is the id of the assistant entry in the session file, the same id
+the transcript row carries, so a hook can line its log up against the session
+afterwards. It is an opaque token; earlier versions shaped it as
+`assistant-<nanos>`, and nothing should parse it.
+
 Example stdin:
 
 ```json
@@ -270,7 +275,7 @@ Example stdin:
   "session_id": "…",
   "cwd": "/path/to/project",
   "hook_event": "post_turn",
-  "message_id": "assistant-…",
+  "message_id": "b3f1a0274c9d6e15",
   "usage": { "prompt_tokens": 1200, "cached_tokens": 900, "completion_tokens": 40, "total_tokens": 1240 }
 }
 ```

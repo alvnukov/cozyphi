@@ -78,7 +78,8 @@ func TestChildFollowUpKeepsOneUserRow(t *testing.T) {
 	child, first := spawnRunningChild(t, parent, "queue cleanup", "refactor the queue")
 	require.Len(t, userRows(child.Bus), 1)
 
-	require.True(t, child.Controller.StartPrompt("follow-up assignment", nil))
+	queued, _ := child.Controller.StartPrompt("follow-up assignment", nil)
+	require.True(t, queued)
 	waitForCond(t, 5*time.Second, func() bool {
 		state := child.Controller.Assignment()
 		return state.JobID != first && state.Terminal

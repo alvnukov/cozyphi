@@ -72,7 +72,7 @@ func (r interactiveRunner) Run(ctx context.Context, env job.RunEnv) (string, err
 	env.Log(
 		fmt.Sprintf("sub-agent role=%s session=%s parent=%s", env.Job.Role, child.engine.SessionID(), env.Job.ParentID),
 	)
-	return child.runAssignment(ctx, env.Job.ID, queuedPrompt{text: prompt}, assignmentHooks{
+	return child.runAssignment(ctx, env.Job.ID, assignmentPrompt(prompt), assignmentHooks{
 		Intervened: env.MarkIntervention,
 		Progress:   env.OnProgress,
 	})
