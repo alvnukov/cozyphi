@@ -42,7 +42,7 @@ func buttonCell(t *testing.T, s components.Surface, label string) (int, int) {
 	t.Helper()
 	for y, row := range strings.Split(components.SurfaceText(s), "\n") {
 		if before, _, found := strings.Cut(row, label); found {
-			return xui.StringWidth(before, xui.WidthUnicode) + 1, y
+			return xui.StringWidth(before, xui.WidthUnicode), y
 		}
 	}
 	t.Fatalf("button %q is not on the surface:\n%s", label, components.SurfaceText(s))
@@ -80,20 +80,80 @@ func TestPromptStripKeepsTheBlockHeight(t *testing.T) {
 	}
 }
 
-// A narrow prompt drops the strip rather than drawing half of it.
-func TestNarrowPromptHasNoStrip(t *testing.T) {
+// drawAt renders the widget at one width.
+func drawAt(w components.Widget, width int) components.Surface {
+	return w.Draw(components.DrawContext{
+		Max:    components.Size{Width: width, Height: 20},
+		Method: xui.WidthUnicode,
+	})
+}
+
+// A row too tight for the words keeps the buttons as bare glyphs, and they
+// still act and still explain themselves. Only a pane too narrow for the
+// glyphs loses them.
+func TestTightRowShortensTheStripBeforeDroppingIt(t *testing.T) {
 	var rec recorder
 	u := &block.UserBlock{Text: "hello", Theme: components.DefaultTheme()}
 	u.SetActions(rec.actions())
-	s := u.Draw(components.DrawContext{
-		Max:    components.Size{Width: 18, Height: 10},
-		Method: xui.WidthUnicode,
-	})
-	if strings.Contains(components.SurfaceText(s), "rewind") {
-		t.Fatalf("narrow prompt drew a strip:\n%s", components.SurfaceText(s))
+
+	tight := drawAt(u, 20)
+	text := components.SurfaceText(tight)
+	if strings.Contains(text, "rewind") || strings.Contains(text, "btw") {
+		t.Fatalf("the tight row kept the spelled-out strip:\n%s", text)
 	}
-	if u.PointerShape(15, 0) != components.ShapeText {
+	x, y := buttonCell(t, tight, "?")
+	if got := u.PointerShape(x, y); got != components.ShapePointer {
+		t.Fatalf("shape over the shortened button = %q", got)
+	}
+	if hint, ok := u.HoverTooltip(x, y); !ok || !strings.Contains(hint, "the answer stays out") {
+		t.Fatalf("shortened button hint = %q, %v", hint, ok)
+	}
+	ctx := &components.EventContext{}
+	u.Handle(ctx, xui.MouseEvent{X: x, Y: y, Button: xui.MouseLeft, Action: xui.MousePress})
+	if rec.aside != 1 {
+		t.Fatalf("the shortened button did not act: aside %d", rec.aside)
+	}
+
+	bare := drawAt(u, 9)
+	if strings.Contains(components.SurfaceText(bare), "?") {
+		t.Fatalf("a pane with no room drew a strip:\n%s", components.SurfaceText(bare))
+	}
+	if u.PointerShape(7, 0) != components.ShapeText {
 		t.Fatal("a prompt without a strip still offers the hand")
+	}
+}
+
+// The end-of-turn footer can fill its row: a long model name with its context
+// size and the round's duration leaves nothing on a narrow pane. The buttons
+// move up a row rather than disappear, which is what the closing reply is
+// promised.
+func TestLongFooterKeepsTheReplyButtons(t *testing.T) {
+	var rec recorder
+	a := &block.AssistantBlock{
+		Text:      "the answer",
+		MetaLabel: "anthropic/claude-opus-4-5-20260101[1.2m]",
+		MetaTail:  "2m 13s",
+		Theme:     components.DefaultTheme(),
+	}
+	a.SetActions(rec.actions())
+
+	s := drawAt(a, 60)
+	if got := stripRows(s); got != 1 {
+		t.Fatalf("the closing reply lost its buttons on a long footer:\n%s", components.SurfaceText(s))
+	}
+	x, y := buttonCell(t, s, "btw")
+	if y != s.Size.Height-2 {
+		t.Fatalf("the strip is on row %d, want the line above the footer", y)
+	}
+	ctx := &components.EventContext{}
+	a.Handle(ctx, xui.MouseEvent{X: x, Y: y, Button: xui.MouseLeft, Action: xui.MousePress})
+	if rec.aside != 1 {
+		t.Fatalf("the moved button did not act: aside %d", rec.aside)
+	}
+	// The same reply on a wide pane keeps the strip on the footer itself.
+	wide := drawAt(a, 100)
+	if _, y := buttonCell(t, wide, "btw"); y != wide.Size.Height-1 {
+		t.Fatalf("a wide pane put the strip on row %d, want the footer row", y)
 	}
 }
 
@@ -252,4 +312,103 @@ func TestUnwiredMessageDrawsNoStrip(t *testing.T) {
 	if a.PointerShape(70, s.Size.Height-1) != components.ShapeText {
 		t.Fatal("an unwired reply offers the hand")
 	}
+}
+
+// stripRows reports how many rows of the surface carry a strip, counted by
+// the button that every strip has.
+func stripRows(s components.Surface) int {
+	n := 0
+	for row := range strings.SplitSeq(components.SurfaceText(s), "\n") {
+		if strings.Contains(row, asideMark) {
+			n++
+		}
+	}
+	return n
+}
+
+// asideMark is the label of the button the side question always shows.
+const asideMark = "btw"
+
+// A reply grows while it streams, and the strip travels down with it. The
+// cached surface keeps the rows that did not change, so the strip must leave
+// no copy of itself on the row it came from.
+func TestReplyStripMovesWithAGrowingBody(t *testing.T) {
+	var rec recorder
+	a := &block.AssistantBlock{Text: "first line", Theme: components.DefaultTheme()}
+	a.SetActions(block.MessageActions{OnAside: func() { rec.aside++ }})
+
+	a.Draw(wideCtx())
+	a.Text = "first line\n\nsecond line\n\nthird line"
+	s := a.Draw(wideCtx())
+	if got := stripRows(s); got != 1 {
+		t.Fatalf("the strip is on %d rows after the body grew:\n%s", got, components.SurfaceText(s))
+	}
+	a.Text = "first line"
+	s = a.Draw(wideCtx())
+	if got := stripRows(s); got != 1 {
+		t.Fatalf("the strip is on %d rows after the body shrank:\n%s", got, components.SurfaceText(s))
+	}
+}
+
+// Closing a round adds the footer row, and the strip moves onto it. The old
+// copy must go, and so must the chrome marks it left behind.
+func TestReplyStripMovesOntoTheFooterRow(t *testing.T) {
+	var rec recorder
+	a := &block.AssistantBlock{Text: "the answer", Theme: components.DefaultTheme()}
+	a.SetActions(rec.actions())
+	s := a.Draw(wideCtx())
+	oldX, oldY := buttonCell(t, s, "btw")
+
+	a.MetaLabel = "model"
+	a.MetaTail = "4s"
+	s = a.Draw(wideCtx())
+	if got := stripRows(s); got != 1 {
+		t.Fatalf("the strip is on %d rows after the round closed:\n%s", got, components.SurfaceText(s))
+	}
+	if _, y := buttonCell(t, s, "btw"); y != s.Size.Height-1 {
+		t.Fatalf("the strip stayed on row %d, want the footer row %d", y, s.Size.Height-1)
+	}
+	if s.IsChrome(oldX, oldY) {
+		t.Fatal("the row the strip left is still marked chrome, so copy skips its right edge")
+	}
+}
+
+// Two draws that see the same thing produce the same cells. The renderer
+// diffs frames, and a cell rewritten with a different value is a byte on an
+// idle frame.
+func TestRepeatedDrawsProduceTheSameCells(t *testing.T) {
+	var rec recorder
+	th := components.DefaultTheme()
+
+	a := &block.AssistantBlock{Text: "an answer", MetaLabel: "model", Theme: th}
+	a.SetActions(rec.actions())
+	first := append([]xui.Cell(nil), a.Draw(wideCtx()).Buffer...)
+	if !sameCells(first, a.Draw(wideCtx()).Buffer) {
+		t.Fatal("an idle reply frame rewrites cells")
+	}
+	x, y := buttonCell(t, a.Draw(wideCtx()), "fork")
+	hovered := append([]xui.Cell(nil), a.Draw(hoverAt(a, x, y)).Buffer...)
+	if !sameCells(hovered, a.Draw(hoverAt(a, x, y)).Buffer) {
+		t.Fatal("a hovered reply frame rewrites cells")
+	}
+
+	u := &block.UserBlock{Text: "a prompt", Theme: th}
+	u.SetActions(rec.actions())
+	before := append([]xui.Cell(nil), u.Draw(wideCtx()).Buffer...)
+	if !sameCells(before, u.Draw(wideCtx()).Buffer) {
+		t.Fatal("an idle prompt frame rewrites cells")
+	}
+}
+
+// sameCells compares two painted buffers cell by cell.
+func sameCells(a, b []xui.Cell) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

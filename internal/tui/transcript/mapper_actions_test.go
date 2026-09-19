@@ -37,7 +37,7 @@ func clickStrip(t *testing.T, w components.Widget, want string) bool {
 		if !found {
 			continue
 		}
-		x := xui.StringWidth(before, xui.WidthUnicode) + 1
+		x := xui.StringWidth(before, xui.WidthUnicode)
 		w.Handle(&components.EventContext{}, xui.MouseEvent{
 			X: x, Y: y, Button: xui.MouseLeft, Action: xui.MousePress,
 		})
@@ -201,7 +201,128 @@ func hintOnStrip(t *testing.T, w components.Widget, want string) (string, bool) 
 		if !found {
 			continue
 		}
-		return tipper.HoverTooltip(xui.StringWidth(before, xui.WidthUnicode)+1, y)
+		return tipper.HoverTooltip(xui.StringWidth(before, xui.WidthUnicode), y)
 	}
 	return "", false
+}
+
+// A round the token limit cut short closes with a warning row named after
+// the message it came from. That message is in the log, so the row anchors
+// on it rather than on the id the projection invented for the warning.
+func TestTruncatedRowAnchorsOnItsMessage(t *testing.T) {
+	var rec anchors
+	m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
+	rec.wire(m)
+
+	entries, _, _ := m.Sync(nil, nil, session.Snapshot{Messages: []session.Message{{
+		ID: "a1", Role: session.RoleAssistant, State: session.StateComplete,
+		Model: "model", StopReason: session.StopMaxTokens,
+		Content: []session.ContentBlock{
+			{Type: session.BlockThinking, Text: "reasoning that ate the budget"},
+		},
+	}}})
+
+	reply := entries[len(entries)-1]
+	if _, ok := reply.(*block.AssistantBlock); !ok {
+		t.Fatalf("last entry = %T", reply)
+	}
+	if !clickStrip(t, reply, "rewind") {
+		t.Fatal("the truncation warning has no rewind button")
+	}
+	if len(rec.rewind) != 1 || rec.rewind[0] != "a1" {
+		t.Fatalf("rewind anchors = %v, want the message the round was cut from", rec.rewind)
+	}
+}
+
+// A row no message stands behind offers nothing, whoever invented it.
+func TestRowWithoutAMessageCarriesNoActions(t *testing.T) {
+	var rec anchors
+	m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
+	rec.wire(m)
+
+	entries, _, _ := m.Sync(nil, nil, session.Snapshot{Messages: []session.Message{{
+		ID: "follow-up-error-1730000000", Role: session.RoleAssistant,
+		State:   session.StateError,
+		Content: []session.ContentBlock{{Type: session.BlockText, Text: "follow-up failed"}},
+	}}})
+
+	for _, w := range entries {
+		for _, label := range []string{"rewind", "fork", "btw"} {
+			if clickStrip(t, w, label) {
+				t.Fatalf("a row with no session entry offers %q", label)
+			}
+		}
+	}
+}
+
+// The reply widget is patched in place while the round streams, so the same
+// block is drawn again and again with a growing body and then with a footer
+// row. The strip has to travel with it and leave nothing behind.
+func TestStripTravelsWithAPatchedReply(t *testing.T) {
+	var rec anchors
+	m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
+	rec.wire(m)
+
+	step := func(entries []components.Widget, ids []string, msg session.Message) ([]components.Widget, []string) {
+		t.Helper()
+		snap := session.Snapshot{
+			Messages: []session.Message{
+				{ID: "u1", Role: session.RoleUser, Text: "go"},
+				msg,
+			},
+			Tools: map[string]session.ToolRun{
+				"t1": {ToolUseID: "t1", Name: "read", Status: session.ToolDone},
+			},
+		}
+		entries, ids, _ = m.Sync(entries, ids, snap)
+		reply, ok := entries[1].(*block.AssistantBlock)
+		if !ok {
+			t.Fatalf("last entry = %T", entries[len(entries)-1])
+		}
+		s := reply.Draw(components.DrawContext{
+			Max:    components.Size{Width: 90, Height: 30},
+			Method: xui.WidthUnicode,
+		})
+		rows := 0
+		for row := range strings.SplitSeq(components.SurfaceText(s), "\n") {
+			if strings.Contains(row, "btw") {
+				rows++
+			}
+		}
+		if rows != 1 {
+			t.Fatalf("the strip is on %d rows of the patched reply:\n%s", rows, components.SurfaceText(s))
+		}
+		return entries, ids
+	}
+
+	// A round still holding a tool call carries no footer row, so the strip
+	// rides the reply's last line of text and moves as the text grows.
+	midTurn := func(text string) session.Message {
+		return session.Message{
+			ID: "a1", Role: session.RoleAssistant, State: session.StateComplete,
+			Model: "model", StopReason: session.StopToolUse,
+			Content: []session.ContentBlock{
+				{Type: session.BlockText, Text: text},
+				{Type: session.BlockToolUse, ID: "t1", Name: "read", Input: "a.go"},
+			},
+		}
+	}
+	entries, ids := step(nil, nil, midTurn("first"))
+	entries, ids = step(entries, ids, midTurn("first\n\nsecond\n\nthird"))
+	// Closing the round adds the footer, and the strip moves onto it.
+	entries, _ = step(entries, ids, session.Message{
+		ID: "a1", Role: session.RoleAssistant, State: session.StateComplete,
+		Model: "model", StopReason: session.StopEndTurn,
+		Content: []session.ContentBlock{
+			{Type: session.BlockText, Text: "first\n\nsecond\n\nthird"},
+		},
+	})
+
+	reply := entries[1]
+	if !clickStrip(t, reply, "rewind") {
+		t.Fatal("the closed round has no rewind button")
+	}
+	if len(rec.rewind) != 1 || rec.rewind[0] != "a1" {
+		t.Fatalf("rewind anchors = %v", rec.rewind)
+	}
 }

@@ -54,9 +54,10 @@ const (
 // actionGap is the run of blanks between two buttons, actionPad the column
 // the strip keeps clear of the right edge.
 const (
+	asideGlyph  = "?"
 	rewindLabel = rewindGlyph + " rewind"
 	forkLabel   = forkGlyph + " fork"
-	asideLabel  = "? btw"
+	asideLabel  = asideGlyph + " btw"
 	actionGap   = 2
 	actionPad   = 1
 )
@@ -98,6 +99,36 @@ func (s actionStrip) buttonAt(x, y int) (actionButton, bool) {
 type messageActionBar struct {
 	actions MessageActions
 	strip   actionStrip
+	painted paintedSpan
+}
+
+// paintedSpan is the run of cells the strip wrote on the frame before.
+type paintedSpan struct {
+	row, x0, x1 int
+	painted     bool
+}
+
+// erasePainted blanks the cells the strip wrote last frame and takes their
+// chrome mark off. A widget whose surface survives between frames calls it
+// before the next render, while the surface still holds the old frame. The
+// reply's cache repaints only the rows whose content changed, and the strip
+// is part of no row's content: without this, a strip that moves down as the
+// body grows leaves a copy of itself on the row it came from, and the chrome
+// mark it left keeps selection copy skipping that row's right edge forever.
+// A widget that builds a fresh surface on every Draw needs none of it.
+//
+// The blank is the empty cell, which is what the reply's own repaint writes
+// when it clears a row: the backdrop there is the terminal's own.
+func (bar *messageActionBar) erasePainted(s *components.Surface) {
+	p := bar.painted
+	bar.painted = paintedSpan{}
+	if !p.painted || s == nil || s.Buffer == nil || p.row < 0 || p.row >= s.Size.Height {
+		return
+	}
+	for x := max(p.x0, 0); x < min(p.x1, s.Size.Width); x++ {
+		s.Buffer[p.row*s.Size.Width+x] = xui.EmptyCell()
+	}
+	components.ClearChrome(s, p.x0, p.row, p.x1)
 }
 
 // SetActions wires what the row's strip offers. The mapper is the only
@@ -183,15 +214,30 @@ func (bar *messageActionBar) handleActionMouse(ctx *components.EventContext, ev 
 
 // layout places the offered buttons flush right on row, keeping actionGap
 // between them, actionPad clear of the right edge and a blank column after
-// the row's own content, which ends at contentEnd. A row too narrow for the
-// whole strip gets none of it: half a strip reads as damage, and the slash
-// commands cover the narrow terminal.
+// the row's own content, which ends at contentEnd.
+//
+// The spelled-out strip is the one to read, and the glyphs on their own are what
+// a narrow pane leaves room for. An end-of-turn footer spelling out a long
+// model name, its context size and the round's duration eats most of the row
+// by itself, and that row is exactly where the closing reply's buttons
+// belong, so a tight row shortens the strip instead of dropping it. Buttons
+// vanish only when even the glyphs do not fit, and then the hint has nowhere
+// to appear either.
 func (bar *messageActionBar) layout(row, width, contentEnd int, anchor string, method xui.WidthMethod) {
 	bar.strip = actionStrip{row: row, anchor: anchor, disabled: bar.actions.Disabled}
 	if !bar.actions.offers() || row < 0 {
 		return
 	}
-	buttons := bar.offeredButtons(method)
+	for _, compact := range []bool{false, true} {
+		if bar.place(bar.offeredButtons(method, compact), width, contentEnd) {
+			return
+		}
+	}
+}
+
+// place fits the measured buttons into the room right of contentEnd and
+// reports whether they went in.
+func (bar *messageActionBar) place(buttons []actionButton, width, contentEnd int) bool {
 	total := 0
 	for i, b := range buttons {
 		if i > 0 {
@@ -201,37 +247,44 @@ func (bar *messageActionBar) layout(row, width, contentEnd int, anchor string, m
 	}
 	x := width - actionPad - total
 	if total == 0 || x <= contentEnd {
-		return
+		return false
 	}
 	for i := range buttons {
 		buttons[i].x = x
 		x += buttons[i].w + actionGap
 	}
 	bar.strip.buttons = buttons
+	return true
 }
 
-// offeredButtons measures the labels of the wired actions, in strip order.
-// The width comes from the draw method rather than from the byte count: the
-// glyphs are not one byte wide, and on some of them the terminals disagree.
-func (bar *messageActionBar) offeredButtons(method xui.WidthMethod) []actionButton {
+// offeredButtons measures the labels of the wired actions, in strip order,
+// spelled out or as bare glyphs. The width comes from the draw method rather
+// than from the byte count: the glyphs are not one byte wide, and on some of
+// them the terminals disagree.
+func (bar *messageActionBar) offeredButtons(method xui.WidthMethod, compact bool) []actionButton {
 	candidates := []struct {
 		kind  actionKind
 		label string
+		short string
 		fn    func()
 	}{
-		{actionRewind, rewindLabel, bar.actions.OnRewind},
-		{actionFork, forkLabel, bar.actions.OnFork},
-		{actionAside, asideLabel, bar.actions.OnAside},
+		{actionRewind, rewindLabel, rewindGlyph, bar.actions.OnRewind},
+		{actionFork, forkLabel, forkGlyph, bar.actions.OnFork},
+		{actionAside, asideLabel, asideGlyph, bar.actions.OnAside},
 	}
 	buttons := make([]actionButton, 0, len(candidates))
 	for _, c := range candidates {
 		if c.fn == nil {
 			continue
 		}
+		label := c.label
+		if compact {
+			label = c.short
+		}
 		buttons = append(buttons, actionButton{
 			kind:  c.kind,
-			w:     xui.StringWidth(c.label, method),
-			label: c.label,
+			w:     xui.StringWidth(label, method),
+			label: label,
 		})
 	}
 	return buttons
@@ -270,6 +323,7 @@ func (bar *messageActionBar) paint(
 	last := bar.strip.buttons[len(bar.strip.buttons)-1]
 	s.Print(first.x, bar.strip.row, text.String(), st, ctx.Method)
 	components.MarkChrome(s, first.x, bar.strip.row, last.x+last.w)
+	bar.painted = paintedSpan{row: bar.strip.row, x0: first.x, x1: last.x + last.w, painted: true}
 	if !components.Hovering(ctx, w) {
 		return
 	}

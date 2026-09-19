@@ -88,14 +88,16 @@ func (assistantBlock *AssistantBlock) Draw(ctx components.DrawContext) component
 		width:     w,
 		method:    ctx.Method,
 	}
+	// The strip is released before the render and drawn again after it, on
+	// every pass, cache hit included. The cached surface outlives the frame
+	// that filled it and keeps every row whose content did not change, while
+	// the strip belongs to no row: released first, it leaves neither a copy
+	// of itself on the row it moved off nor a hover tint from a frame the
+	// pointer has long since left.
+	assistantBlock.erasePainted(&assistantBlock.cache.surface)
 	if !assistantBlock.cache.valid || assistantBlock.cache.key != key {
 		assistantBlock.renderLines(ctx, key, th, w)
 	}
-	// The strip is laid out and painted on every pass, cache hit included.
-	// The cached surface outlives the frame that filled it, and the hover
-	// tint belongs to one frame only; repainting the strip's whole span is
-	// what keeps yesterday's tint from staying lit under a pointer that has
-	// long since moved away.
 	assistantBlock.layoutActions(w, ctx.Method)
 	assistantBlock.paint(&assistantBlock.cache.surface, ctx, assistantBlock, th, xui.Style{})
 	return assistantBlock.cache.surface
@@ -105,13 +107,27 @@ func (assistantBlock *AssistantBlock) Draw(ctx components.DrawContext) component
 // end-of-turn footer when there is one and the closing line of the text
 // otherwise, and starts it clear of whatever that row already says.
 func (assistantBlock *AssistantBlock) layoutActions(w int, method xui.WidthMethod) {
-	lines := assistantBlock.cache.lines
-	row := assistantBlock.cache.surface.Size.Height - 1
-	contentEnd := messageIndent
-	if row >= 0 && row < len(lines) {
-		contentEnd += components.MeasureSpans(lines[row], method)
+	last := assistantBlock.cache.surface.Size.Height - 1
+	assistantBlock.layout(last, w, assistantBlock.contentEnd(last, method), replyAnchor, method)
+	if len(assistantBlock.strip.buttons) > 0 || last < 1 {
+		return
 	}
-	assistantBlock.layout(row, w, contentEnd, replyAnchor, method)
+	// A footer that spells out a long model name, its context size and the
+	// round's duration can fill a narrow pane's row to the edge. The buttons
+	// then step one line up instead of disappearing: the row above is the
+	// reply's own last line of text, and a line of prose rarely ends flush
+	// right.
+	above := last - 1
+	assistantBlock.layout(above, w, assistantBlock.contentEnd(above, method), replyAnchor, method)
+}
+
+// contentEnd is the column where the row's own content stops.
+func (assistantBlock *AssistantBlock) contentEnd(row int, method xui.WidthMethod) int {
+	lines := assistantBlock.cache.lines
+	if row < 0 || row >= len(lines) {
+		return messageIndent
+	}
+	return messageIndent + components.MeasureSpans(lines[row], method)
 }
 
 // renderLines rebuilds the reply's lines and repaints the cached surface.
@@ -202,6 +218,26 @@ func (c *assistantRenderCache) resizeSurface(width, height int, widget component
 	for i := oldLen; i < required; i++ {
 		c.surface.Buffer[i] = xui.EmptyCell()
 	}
+	c.resizeChrome(required)
 	c.surface.Size = components.Size{Width: width, Height: height}
 	c.surface.Widget = widget
+}
+
+// resizeChrome keeps the chrome mark the same length as the buffer it
+// describes. The surface survives between frames and the reply grows while
+// it streams, so a mark sized for an earlier height would leave the new rows
+// undescribed, and the marks of rows that went away would land on whatever
+// row took their index.
+func (c *assistantRenderCache) resizeChrome(required int) {
+	if c.surface.Chrome == nil {
+		return
+	}
+	switch {
+	case len(c.surface.Chrome) > required:
+		c.surface.Chrome = c.surface.Chrome[:required]
+	case len(c.surface.Chrome) < required:
+		grown := make([]bool, required)
+		copy(grown, c.surface.Chrome)
+		c.surface.Chrome = grown
+	}
 }

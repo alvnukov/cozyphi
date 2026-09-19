@@ -15,7 +15,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   pause on it explains what the click would do. While a turn runs the buttons
   dim and the tooltip says to wait. The three operations are not wired to the
   engine yet. A click answers with a notice naming the message it would act
-  on. A narrow terminal drops the strip rather than drawing half of it.
+  on. A row too tight for the words keeps the buttons as bare glyphs, and a
+  reply whose footer fills the row moves them one line up, so a narrow pane
+  costs the labels rather than the buttons.
 - Fixed: a transcript row and the session entry behind it now share one id. A
   live turn used to name its rows one way and the session file another, so the
   same message answered to a different id once the session was reopened.

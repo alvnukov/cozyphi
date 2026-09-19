@@ -66,21 +66,14 @@ type Mapper struct {
 	// actionsBusy is the hint the strips show while a turn is running, empty
 	// when they act. Refreshed from the snapshot on every sync pass.
 	actionsBusy string
+	// messageIDs is the snapshot's messages by id, re-read on every sync
+	// pass. It is what a row's action anchor is resolved against.
+	messageIDs map[string]bool
 }
 
 // actionsBusyHint is why the strips refuse while inference, a tool or a
 // compaction is still in flight: the same guard /compact and /clear keep.
 const actionsBusyHint = "the turn is still running; wait for it to finish"
-
-// errorRowPrefix opens the id of the row a failed turn leaves in the feed.
-// The controller mints it out of thin air and the session log never receives
-// it, so a row named this way has no entry to rewind or fork to.
-const errorRowPrefix = "assistant-error-"
-
-// textSegmentMark separates an assistant message's id from the index of the
-// text segment session.Project cut out of it. The row is a segment; the
-// anchor the actions need is the message behind it.
-const textSegmentMark = "-text-"
 
 // keepFullTurns is how many trailing turns always render in full: the
 // running turn and the finished one just before it, which the reader is most
@@ -146,14 +139,25 @@ func (m *Mapper) SetMessageActions(rewind, fork, aside func(entryID string)) {
 	}
 }
 
-// entryAnchor is the session entry a transcript row stands for. An assistant
-// message is projected as one row per text segment, named after the message
-// it was cut from, and the anchor of every one of those rows is that message.
-func entryAnchor(rowID string) string {
-	if i := strings.LastIndex(rowID, textSegmentMark); i > 0 {
-		return rowID[:i]
+// entryAnchor is the session entry a transcript row stands for, and false
+// when the row has none to offer. session.Project builds a row id out of the
+// message it came from by appending a suffix, one per text segment and one
+// for the warning that closes a round cut off by the token limit, so the
+// anchor is the longest prefix of the row id that names a message. Asking the
+// snapshot beats listing the suffixes: a suffix added later keeps working,
+// and a row invented outside the projection matches nothing.
+func (m *Mapper) entryAnchor(rowID string) (string, bool) {
+	for id := rowID; id != ""; {
+		if m.messageIDs[id] {
+			return id, true
+		}
+		cut := strings.LastIndexByte(id, '-')
+		if cut <= 0 {
+			return "", false
+		}
+		id = id[:cut]
 	}
-	return rowID
+	return "", false
 }
 
 // messageActions builds the strip one message row offers. boundary says the
@@ -164,10 +168,17 @@ func (m *Mapper) messageActions(it session.Item, boundary bool) block.MessageAct
 	if m.onRewind == nil && m.onFork == nil && m.onAside == nil {
 		return block.MessageActions{}
 	}
-	if strings.HasPrefix(it.ID, errorRowPrefix) {
+	// A failed turn shows its error as a message, but the session log never
+	// received it and neither did the branch the anchor would cut. Every
+	// StateError row in the feed is one the shell synthesized after the
+	// engine gave up, so none of them anchor anything.
+	if it.State == session.StateError {
 		return block.MessageActions{}
 	}
-	id := entryAnchor(it.ID)
+	id, ok := m.entryAnchor(it.ID)
+	if !ok {
+		return block.MessageActions{}
+	}
 	actions := block.MessageActions{Disabled: m.actionsBusy}
 	if m.onAside != nil {
 		actions.OnAside = func() { m.onAside(id) }
@@ -184,8 +195,17 @@ func (m *Mapper) messageActions(it session.Item, boundary bool) block.MessageAct
 	return actions
 }
 
-// refreshActionsBusy re-reads the guard the strips show for one sync pass.
-func (m *Mapper) refreshActionsBusy(snap session.Snapshot) {
+// refreshActionContext re-reads what the strips need from the snapshot for
+// one sync pass: the guard they show while a turn runs, and the messages a
+// row's anchor may name.
+func (m *Mapper) refreshActionContext(snap session.Snapshot) {
+	if m.messageIDs == nil {
+		m.messageIDs = make(map[string]bool, len(snap.Messages))
+	}
+	clear(m.messageIDs)
+	for _, msg := range snap.Messages {
+		m.messageIDs[msg.ID] = true
+	}
 	m.actionsBusy = ""
 	if session.IsStreaming(snap) {
 		m.actionsBusy = actionsBusyHint
@@ -265,7 +285,7 @@ func (m *Mapper) Sync(
 	snap session.Snapshot,
 ) (newEntries []components.Widget, newIDs []string, dirty []int) {
 	m.refreshLiveStarts()
-	m.refreshActionsBusy(snap)
+	m.refreshActionContext(snap)
 	items := m.groupTurns(m.shellItems(dropServiceRefusals(session.Project(snap))), snap)
 	n := len(items)
 	byID := make(map[string]int, len(entries))
@@ -321,7 +341,7 @@ func (m *Mapper) syncTail(entries []components.Widget, listIDs []string, snap se
 		return nil, false
 	}
 	m.refreshLiveStarts()
-	m.refreshActionsBusy(snap)
+	m.refreshActionContext(snap)
 	last := snap.Messages[len(snap.Messages)-1]
 	items := dropServiceRefusals(session.Project(session.Snapshot{
 		Messages: []session.Message{last},
