@@ -1,6 +1,6 @@
 ---
 id: web-tools
-title: Веб-тулы (search/fetch/find/read) из mcp-ai-helper через cozy-tools в козю
+title: Protected asynchronous web research and quarantine
 status: in_progress
 priority: high
 model_level: high
@@ -11,17 +11,20 @@ tags:
     - security
     - cozy-tools
 acceptance_criteria:
-    - cozy-tools получает семейство web (webfetch, websearch, WebPolicy как данные в config-шве) с тестами, перенесёнными из mcp-ai-helper и дополненными; README/RELEASE обновлены (web больше не host-only).
-    - mcp-ai-helper импортирует web из cozy-tools и удаляет свои internal/webfetch, internal/websearch; поведение MCP-тулы web не меняется.
-    - cozyphi получает нативную тулу `web` с действиями search/fetch/find/read (internal/tools/webtool), permission.ActionWeb со своим ключом политики, дефолт ask с деталью URL/запрос; секция web в ~/.cozyphi/config.yaml → WebPolicy, кеш ~/.cozyphi/web, ключ Google только из env.
-    - Тексты read/find и сниппеты search приходят модели в явной рамке «untrusted web content», описание тулы говорит то же; fetch отдаёт только метаданные; лимиты read 4000/20000 и find как в helper.
-    - Дети получают web по потолку роли; sub-agent ceiling документирован; doc/web.md, project-layout, AGENTS.md (инвариант про web как untrusted egress), CHANGELOG.
+    - Preserve the shipped cozy-tools web extraction, published dependency and helper integration as the legacy baseline, not proof of the redesigned feature.
+    - 'Deliver the confirmed protected asynchronous web research contract in specs/protected-web-research.md: explicit user-selected capable model, parallel quarantined safety/extraction, final candidate screening, checked evidence and immutable reusable sources.'
+    - Support public static pages, PDF, isolated JavaScript rendering and visual/OCR research; declare unavailable safe modes instead of silently weakening isolation.
+    - Prevent whole-harness bypass and preserve material restrictions across turns, resume, forks, compaction and derivatives; restricted protected mode may disable unmediated tools.
+    - Provide user-wide canonical hostname blocking for source-attributed decoy calls, dependency revocation, human-only incident investigation and user-controlled recheck/unblock without unchecked raw delivery.
+    - Provide bounded background jobs with origin-bound delivery, explicit resume, protected scoped caches and shared account admission favoring interactive work.
+    - 'Meet the agreed finite-corpus acceptance: zero successful release/action/egress bypasses and at most 5% benign-task false stops; report quality, coverage, latency and usage without universal safety claims.'
 verification_plan:
-    - cozy-tools go test ./... (это библиотека, там гейт репо-wide по их правилам); в helper и козе — только затронутые пакеты.
-    - Тесты SSRF (private IP на URL и на dial, localhost, схемы, редиректы), лимитов, кеша, рамки untrusted, гейта (ask по умолчанию, deny в политике).
-    - Ручная проверка в сессии: web search → fetch → find → read на публичной странице.
+    - Use the approved public web/session and lifecycle seams and real process/filesystem/egress boundaries from specs/protected-web-research.md; fake model/network fixtures establish deterministic harness behavior.
+    - Exercise safe multi-format acquisition, parallel-release races, decoys, final screening, source reuse, revocation, grants, recipient control and bypass prevention on each supported platform.
+    - Run separately authorized finite attack and benign-task evaluations with actual release/action/egress outcomes, false-stop accounting, quality, latency and usage measurements.
+    - Keep implementation gates scoped to changed files/packages; specification publication alone does not close this epic.
 created_at: "2026-09-07T11:00:00Z"
-updated_at: "2026-09-07T01:25:00Z"
+updated_at: "2026-09-19T16:12:49.249089Z"
 ---
 
 ## Body
@@ -52,3 +55,22 @@ updated_at: "2026-09-07T01:25:00Z"
 **Progress (2026-09-07, 04:20).** Половина козы слита в main (abafea5, ветка feature/web-tools удалена): internal/tools/webtool (search/fetch/find/read, рамка через JSON-экранирование, egress-маска секретов и лимит URL 2 KiB), permission.ActionWeb + checkWeb (raw всегда ask, allow-list permissions.web.allow по host) + TaintGate поверх всего гейта включая allow-all, карантинный читатель как один Stream-раунд без сессии/спавна с декоями bash/write/edit/web из живого реестра, флаг injection_suspected:<tool> через SetFlags, уведомление WebNotice, секция web в конфиге (opt-in: без блока web: тула выключена), doc/web.md, AGENTS.md, CHANGELOG. Гейты: build cmd ok; go test -race по webtool, permission, agent, project, session, job, tui/controller, tui/overlays, cmd — все ok; lint по затронутым пакетам 0 issues (в ветке). Осталось до закрытия: ручная проверка в сессии (search → fetch → find → read на публичной странице, срабатывание декоя) и тег cozy-tools вместо replace на локальный путь перед релизом.
 
 **Progress (2026-09-07, 15:05).** Тег cozy-tools v0.2.0 опубликован, replace на локальный путь убран из go.mod (тикет cozy-tools-require-tag, PR fix/cozy-tools-require). До закрытия остаётся только ручная проверка в сессии.
+
+**Note (2026-09-19).** Requirements superseded by the user-confirmed 43-decision interview and standalone specification [Protected asynchronous web research](../specs/protected-web-research.md), recorded by protected-web-research-spec. Earlier progress notes saying that only a manual smoke test remains describe the legacy implementation and are no longer the completion contract. The new scope includes a pinned configured web model, parallel safety/extraction with decoys, separate final screening, checked multi-format sources, background lifecycle, mandatory whole-harness protection and durable provenance, hostname incidents and user-only resolution. Existing raw/quarantine-off paths and direct search snippets do not satisfy it. This is specification work only: no implementation plan, runtime changes or live trials have been authorized or performed; the epic remains in progress and shared security/routing dependencies require reconciliation before implementation.
+
+## Acceptance Criteria
+
+- Preserve the shipped cozy-tools web extraction, published dependency and helper integration as the legacy baseline, not proof of the redesigned feature.
+- Deliver the confirmed protected asynchronous web research contract in specs/protected-web-research.md: explicit user-selected capable model, parallel quarantined safety/extraction, final candidate screening, checked evidence and immutable reusable sources.
+- Support public static pages, PDF, isolated JavaScript rendering and visual/OCR research; declare unavailable safe modes instead of silently weakening isolation.
+- Prevent whole-harness bypass and preserve material restrictions across turns, resume, forks, compaction and derivatives; restricted protected mode may disable unmediated tools.
+- Provide user-wide canonical hostname blocking for source-attributed decoy calls, dependency revocation, human-only incident investigation and user-controlled recheck/unblock without unchecked raw delivery.
+- Provide bounded background jobs with origin-bound delivery, explicit resume, protected scoped caches and shared account admission favoring interactive work.
+- Meet the agreed finite-corpus acceptance: zero successful release/action/egress bypasses and at most 5% benign-task false stops; report quality, coverage, latency and usage without universal safety claims.
+
+## Verification Plan
+
+1. Use the approved public web/session and lifecycle seams and real process/filesystem/egress boundaries from specs/protected-web-research.md; fake model/network fixtures establish deterministic harness behavior.
+2. Exercise safe multi-format acquisition, parallel-release races, decoys, final screening, source reuse, revocation, grants, recipient control and bypass prevention on each supported platform.
+3. Run separately authorized finite attack and benign-task evaluations with actual release/action/egress outcomes, false-stop accounting, quality, latency and usage measurements.
+4. Keep implementation gates scoped to changed files/packages; specification publication alone does not close this epic.
