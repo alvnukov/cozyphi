@@ -67,6 +67,10 @@ type fakeHost struct {
 	voiceModels  []VoiceModelInfo
 	voiceInstall []string
 	installErr   error
+
+	rewindID string
+	forkID   string
+	asideID  string
 }
 
 func (f *fakeHost) Toast(msg string, kind toast.ToastKind, _ time.Duration) {
@@ -150,6 +154,10 @@ func (f *fakeHost) VoiceDevices() ([]string, error) {
 	return f.voiceDevices, f.voiceErr
 }
 func (f *fakeHost) VoiceRetry() { f.voiceRetries++ }
+
+func (f *fakeHost) RewindTo(id string)   { f.rewindID = id }
+func (f *fakeHost) ForkFrom(id string)   { f.forkID = id }
+func (f *fakeHost) AsideAbout(id string) { f.asideID = id }
 
 func (f *fakeHost) VoiceModels() []VoiceModelInfo { return f.voiceModels }
 func (f *fakeHost) VoiceInstall(name string) error {

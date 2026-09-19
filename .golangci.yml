@@ -93,9 +93,10 @@ linters:
       # internal/agent.(*Engine).Loop.
       min-complexity: 155
     interfacebloat:
-      # internal/tui/commands.Host — the 40-method surface the command registry
-      # hands to every command.
-      max: 40
+      # internal/tui/commands.Host, the surface the command registry hands to
+      # every command: 35 methods of its own plus the two capabilities it
+      # embeds, VoiceHost and MessageActionHost.
+      max: 37
     nestif:
       # One past internal/tui/sidebar.(*Sidebar).Handle, which sits at 40;
       # nestif reports at the threshold rather than above it.

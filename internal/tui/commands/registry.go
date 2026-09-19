@@ -18,6 +18,9 @@ import (
 // *editor.Editor implements it; tests implement a fake. Commands never hold
 // *Editor, keeping the package free of the root widget.
 type Host interface {
+	VoiceHost
+	MessageActionHost
+
 	Toast(msg string, kind toast.ToastKind, d time.Duration)
 	PushSubmenu(title string, cmds []palette.PaletteCommand)
 
@@ -86,7 +89,12 @@ type Host interface {
 	// vanishes from mcp_list/mcp_inspect/mcp_call and the prompt catalog
 	// immediately.
 	ToggleMCPServer(name string, enabled bool) error
+}
 
+// VoiceHost is everything /voice asks of the shell. The microphone is one
+// subject with five questions, and naming it keeps the Host surface a list of
+// capabilities rather than a list of methods.
+type VoiceHost interface {
 	// VoiceStatus is the one-line answer to /voice status: what the
 	// microphone is doing and what it is configured with.
 	VoiceStatus() string
@@ -103,6 +111,17 @@ type Host interface {
 	// means the default one. Validation failures come back as errors; the
 	// download itself reports through toasts and the footer.
 	VoiceInstall(name string) error
+}
+
+// MessageActionHost is what the action strip on a transcript message reaches
+// for. Every entryID names a session entry, the anchor of the operation:
+// rewind cuts the context back to it, fork copies the branch up to it into a
+// new tab, and the side question answers about the context as it stood there
+// without joining it.
+type MessageActionHost interface {
+	RewindTo(entryID string)
+	ForkFrom(entryID string)
+	AsideAbout(entryID string)
 }
 
 // VoiceModelInfo is one catalog row as /voice models prints it. Size is

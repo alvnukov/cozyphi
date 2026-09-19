@@ -23,7 +23,11 @@ type AssistantBlock struct {
 	MetaTail  string
 	Theme     components.Theme
 	cache     assistantRenderCache
+	messageActionBar
 }
+
+// replyAnchor is how the reply's hints name the place a click would act on.
+const replyAnchor = "this reply"
 
 type assistantRenderKey struct {
 	text      string
@@ -50,11 +54,19 @@ func (assistantBlock *AssistantBlock) theme() components.Theme {
 	return assistantBlock.Theme
 }
 
-// Handle is a no-op; assistant output is read-only.
-func (*AssistantBlock) Handle(_ *components.EventContext, _ xui.Event) {}
+// Handle runs the action strip; the assistant text itself is read-only.
+func (assistantBlock *AssistantBlock) Handle(ctx *components.EventContext, ev xui.Event) {
+	assistantBlock.handleActionMouse(ctx, ev)
+}
 
-// PointerShape marks the output as selectable transcript text.
-func (*AssistantBlock) PointerShape(_, _ int) string { return components.ShapeText }
+// PointerShape offers the hand over the action strip and marks the rest of
+// the output as selectable transcript text.
+func (assistantBlock *AssistantBlock) PointerShape(x, y int) string {
+	if shape, ok := assistantBlock.actionShape(x, y); ok {
+		return shape
+	}
+	return components.ShapeText
+}
 
 // CopyText returns the assistant message body.
 func (assistantBlock *AssistantBlock) CopyText() string { return assistantBlock.Text }
@@ -76,10 +88,71 @@ func (assistantBlock *AssistantBlock) Draw(ctx components.DrawContext) component
 		width:     w,
 		method:    ctx.Method,
 	}
-	if assistantBlock.cache.valid && assistantBlock.cache.key == key {
-		return assistantBlock.cache.surface
+	// The strip is released before the render and drawn again after it, on
+	// every pass, cache hit included. The cached surface outlives the frame
+	// that filled it and keeps every row whose content did not change, while
+	// the strip belongs to no row: released first, it leaves neither a copy
+	// of itself on the row it moved off nor a hover tint from a frame the
+	// pointer has long since left.
+	assistantBlock.erasePainted(&assistantBlock.cache.surface)
+	if !assistantBlock.cache.valid || assistantBlock.cache.key != key {
+		assistantBlock.renderLines(ctx, key, th, w)
 	}
+	assistantBlock.layoutActions(w, ctx.Method)
+	assistantBlock.paint(&assistantBlock.cache.surface, ctx, assistantBlock, th, xui.Style{})
+	return assistantBlock.cache.surface
+}
 
+// layoutActions puts the strip on the last row of the reply, which is the
+// end-of-turn footer when there is one and the closing line of the text
+// otherwise, and starts it clear of whatever that row already says.
+func (assistantBlock *AssistantBlock) layoutActions(w int, method xui.WidthMethod) {
+	last := assistantBlock.cache.surface.Size.Height - 1
+	assistantBlock.layout(last, w, assistantBlock.contentEnd(last, method), replyAnchor, method)
+	if len(assistantBlock.strip.buttons) > 0 || last < 1 {
+		return
+	}
+	// A footer that spells out a long model name, its context size and the
+	// round's duration can fill a narrow pane's row to the edge. The buttons
+	// then step up instead of disappearing, onto the reply's own last line of
+	// text, which rarely ends flush right. The step skips blank rows: the
+	// markdown renderer separates a stable block from the tail with one, and
+	// buttons alone on an empty row read as debris.
+	above, ok := assistantBlock.lastWrittenRow(last-1, method)
+	if !ok {
+		return
+	}
+	assistantBlock.layout(above, w, assistantBlock.contentEnd(above, method), replyAnchor, method)
+}
+
+// lastWrittenRow walks up from row to the nearest line that has something on
+// it, and reports false when every line above is blank.
+func (assistantBlock *AssistantBlock) lastWrittenRow(row int, method xui.WidthMethod) (int, bool) {
+	lines := assistantBlock.cache.lines
+	for y := min(row, len(lines)-1); y >= 0; y-- {
+		if components.MeasureSpans(lines[y], method) > 0 {
+			return y, true
+		}
+	}
+	return 0, false
+}
+
+// contentEnd is the column where the row's own content stops.
+func (assistantBlock *AssistantBlock) contentEnd(row int, method xui.WidthMethod) int {
+	lines := assistantBlock.cache.lines
+	if row < 0 || row >= len(lines) {
+		return messageIndent
+	}
+	return messageIndent + components.MeasureSpans(lines[row], method)
+}
+
+// renderLines rebuilds the reply's lines and repaints the cached surface.
+func (assistantBlock *AssistantBlock) renderLines(
+	ctx components.DrawContext,
+	key assistantRenderKey,
+	th components.Theme,
+	w int,
+) {
 	markdownLines := assistantBlock.cache.markdown.Render(
 		assistantBlock.Text,
 		th,
@@ -111,7 +184,6 @@ func (assistantBlock *AssistantBlock) Draw(ctx components.DrawContext) component
 	assistantBlock.cache.updateSurface(key, lines, assistantBlock)
 	assistantBlock.cache.key = key
 	assistantBlock.cache.valid = true
-	return assistantBlock.cache.surface
 }
 
 func (c *assistantRenderCache) updateSurface(
@@ -162,6 +234,26 @@ func (c *assistantRenderCache) resizeSurface(width, height int, widget component
 	for i := oldLen; i < required; i++ {
 		c.surface.Buffer[i] = xui.EmptyCell()
 	}
+	c.resizeChrome(required)
 	c.surface.Size = components.Size{Width: width, Height: height}
 	c.surface.Widget = widget
+}
+
+// resizeChrome keeps the chrome mark the same length as the buffer it
+// describes. The surface survives between frames and the reply grows while
+// it streams, so a mark sized for an earlier height would leave the new rows
+// undescribed, and the marks of rows that went away would land on whatever
+// row took their index.
+func (c *assistantRenderCache) resizeChrome(required int) {
+	if c.surface.Chrome == nil {
+		return
+	}
+	switch {
+	case len(c.surface.Chrome) > required:
+		c.surface.Chrome = c.surface.Chrome[:required]
+	case len(c.surface.Chrome) < required:
+		grown := make([]bool, required)
+		copy(grown, c.surface.Chrome)
+		c.surface.Chrome = grown
+	}
 }

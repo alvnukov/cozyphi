@@ -192,6 +192,15 @@ func watchOwnsRow(ref WatchRef, entryID string, b *block.ToolBlock) bool {
 	return strings.HasPrefix(entryID, "watch-"+ref.ID+"-")
 }
 
+// SetMessageActions wires the context operations every message row offers:
+// rewind, fork and the side question. Each callback receives the id of the
+// session entry the clicked row stands for.
+func (t *TranscriptPane) SetMessageActions(rewind, fork, aside func(entryID string)) {
+	if t != nil && t.mapper != nil {
+		t.mapper.SetMessageActions(rewind, fork, aside)
+	}
+}
+
 // SetUsageCallback fires when an assistant message reports token usage.
 func (t *TranscriptPane) SetUsageCallback(fn func(session.TokenUsage)) {
 	if t != nil {

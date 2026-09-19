@@ -136,11 +136,34 @@ func MarkChrome(s *Surface, x0, y, x1 int) {
 	if x0 >= x1 {
 		return
 	}
-	if s.Chrome == nil {
-		s.Chrome = make([]bool, len(s.Buffer))
+	// The mark is parallel to Buffer, and a surface that keeps its identity
+	// across frames grows: a reply gains rows as it streams. Sizing the mark
+	// once, at the height the first frame had, would write past its end the
+	// moment the block got taller, so the length is reconciled here on every
+	// call rather than only when the slice is missing.
+	if len(s.Chrome) < len(s.Buffer) {
+		grown := make([]bool, len(s.Buffer))
+		copy(grown, s.Chrome)
+		s.Chrome = grown
 	}
 	for x := x0; x < x1; x++ {
 		s.Chrome[y*s.Size.Width+x] = true
+	}
+}
+
+// ClearChrome takes the chrome mark off cells [x0, x1) of row y. A widget
+// that moves its frame between frames uses it to release the cells it no
+// longer paints; without that, selection copy would keep skipping them.
+func ClearChrome(s *Surface, x0, y, x1 int) {
+	if s == nil || s.Chrome == nil || y < 0 || y >= s.Size.Height {
+		return
+	}
+	x0 = max(x0, 0)
+	x1 = min(x1, s.Size.Width)
+	for x := x0; x < x1; x++ {
+		if i := y*s.Size.Width + x; i < len(s.Chrome) {
+			s.Chrome[i] = false
+		}
 	}
 }
 

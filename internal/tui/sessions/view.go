@@ -410,6 +410,9 @@ func NewView(
 			e.toast.Show(msg, kind, d)
 		},
 	)
+	// The strip on every message row reaches the shell the same way a slash
+	// command does, through the Host methods.
+	e.transcript.SetMessageActions(e.RewindTo, e.ForkFrom, e.AsideAbout)
 	// Composer copy/cut chords share the clipboard and confirm with a toast,
 	// so selection copy in the input feels the same as transcript copy.
 	e.composer.SetChatCopyFunc(func(text string) bool {
@@ -2038,6 +2041,33 @@ func (e *View) RunCompact() {
 	if e.ctrl != nil {
 		e.ctrl.Compact()
 	}
+}
+
+// RewindTo, ForkFrom and AsideAbout are the three context operations a
+// transcript message offers. The engine cannot do any of them yet, so the
+// view answers the click by saying so: the strip, its hints and its wiring
+// are testable now, and each operation replaces its own toast when it lands.
+func (e *View) RewindTo(entryID string) {
+	e.announceMessageAction("Rewind", entryID)
+}
+
+// ForkFrom opens a copy of the branch up to the entry in a new tab.
+func (e *View) ForkFrom(entryID string) {
+	e.announceMessageAction("Fork", entryID)
+}
+
+// AsideAbout asks about the context as it stood at the entry.
+func (e *View) AsideAbout(entryID string) {
+	e.announceMessageAction("Asking on the side", entryID)
+}
+
+// announceMessageAction is the placeholder answer the three share. It names
+// the anchor, so a click that landed on the wrong row is visible at once.
+func (e *View) announceMessageAction(what, entryID string) {
+	if e == nil || entryID == "" {
+		return
+	}
+	e.toast.Show(what+" is not wired up yet: "+entryID, toast.ToastWarning, 3*time.Second)
 }
 
 // SubmitPrompt publishes a user prompt onto the bus.

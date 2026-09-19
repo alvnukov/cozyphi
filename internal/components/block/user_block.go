@@ -10,7 +10,11 @@ import (
 type UserBlock struct {
 	Text  string
 	Theme components.Theme
+	messageActionBar
 }
+
+// promptAnchor is how the prompt's hints name the place a click would act on.
+const promptAnchor = "this prompt"
 
 func (userBlock *UserBlock) theme() components.Theme {
 	if userBlock.Theme.Success.Fg.Kind == 0 && userBlock.Theme.Foreground.Fg.Kind == 0 {
@@ -19,11 +23,19 @@ func (userBlock *UserBlock) theme() components.Theme {
 	return userBlock.Theme
 }
 
-// Handle is a no-op; the user prompt is not interactive.
-func (*UserBlock) Handle(_ *components.EventContext, _ xui.Event) {}
+// Handle runs the action strip; the prompt body itself is not interactive.
+func (userBlock *UserBlock) Handle(ctx *components.EventContext, ev xui.Event) {
+	userBlock.handleActionMouse(ctx, ev)
+}
 
-// PointerShape marks the prompt as selectable transcript text.
-func (*UserBlock) PointerShape(_, _ int) string { return components.ShapeText }
+// PointerShape offers the hand over the action strip and marks the rest of
+// the prompt as selectable transcript text.
+func (userBlock *UserBlock) PointerShape(x, y int) string {
+	if shape, ok := userBlock.actionShape(x, y); ok {
+		return shape
+	}
+	return components.ShapeText
+}
 
 // CopyText returns the prompt body (without the left rule).
 func (userBlock *UserBlock) CopyText() string { return userBlock.Text }
@@ -52,5 +64,10 @@ func (userBlock *UserBlock) Draw(ctx components.DrawContext) components.Surface 
 	for i, line := range lines {
 		components.PaintSpans(&s, 3, i+1, line, ctx.Method)
 	}
+	// The strip rides the blank padding row above the text, which is panel
+	// all the way across and belongs to no line of the prompt, so the block
+	// keeps the height it had before it had buttons.
+	userBlock.layout(0, w, 3, promptAnchor, ctx.Method)
+	userBlock.paint(&s, ctx, userBlock, th, th.BackgroundPanel)
 	return s
 }
