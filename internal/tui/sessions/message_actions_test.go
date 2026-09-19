@@ -77,10 +77,15 @@ func TestClickingRewindReachesTheHostWithTheEntryID(t *testing.T) {
 	hit.Handle(ctx, xui.MouseEvent{X: lx, Y: ly, Button: xui.MouseLeft, Action: xui.MouseRelease})
 	require.True(t, ctx.Consume, "the release that acted was not consumed")
 
+	// The rows here were drawn straight into the pane, so the session knows
+	// nothing of them and the rewind is refused. The refusal is the proof
+	// that the click reached the shell carrying this row's entry id and no
+	// other; what a rewind does when the entry is real is pinned in
+	// rewind_test.go.
 	history := e.toast.History()
 	require.NotEmpty(t, history)
 	assert.Contains(t, history[0].Message, prompt)
-	assert.Contains(t, history[0].Message, "Rewind")
+	assert.Contains(t, history[0].Message, "Cannot rewind")
 }
 
 // A press one column left of the strip belongs to the transcript, not to the

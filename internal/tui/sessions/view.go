@@ -132,6 +132,11 @@ type View struct {
 	hookCmds   *commands.HookCommands
 	submitter  *submit.Submitter
 
+	// rewindPrompt is the composer text a rewind handed back, remembered so
+	// that undoing the rewind can take it away again without touching a
+	// draft the user has edited since.
+	rewindPrompt string
+
 	// notifier pings the OS when the model stops or waits for input; nil
 	// (the default) disables notifications entirely.
 	notifier attentionNotifier
@@ -593,6 +598,7 @@ func NewView(
 		e.composer.SetMode(e.ctrl.Mode())
 	}
 	e.configureEditing()
+	e.configureRewind()
 	e.composer.Chat.OnModelPick = func(at components.Point) {
 		e.OpenModelPicker()
 		e.composer.AnchorPalette(components.Point{X: e.composerOrigin.X + at.X, Y: e.composerOrigin.Y + at.Y})
@@ -2043,14 +2049,11 @@ func (e *View) RunCompact() {
 	}
 }
 
-// RewindTo, ForkFrom and AsideAbout are the three context operations a
-// transcript message offers. The engine cannot do any of them yet, so the
-// view answers the click by saying so: the strip, its hints and its wiring
-// are testable now, and each operation replaces its own toast when it lands.
-func (e *View) RewindTo(entryID string) {
-	e.announceMessageAction("Rewind", entryID)
-}
-
+// ForkFrom and AsideAbout are the two context operations the engine cannot
+// do yet, so the view answers the click by saying so: the strip, its hints
+// and its wiring are testable now, and each operation replaces its own toast
+// when it lands. The third, RewindTo, lives in rewind.go and works.
+//
 // ForkFrom opens a copy of the branch up to the entry in a new tab.
 func (e *View) ForkFrom(entryID string) {
 	e.announceMessageAction("Fork", entryID)

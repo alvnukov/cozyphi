@@ -2068,6 +2068,43 @@ func (c *Controller) DropContextEntries(ids []string) error {
 	return c.engine.DropContextEntries(ids)
 }
 
+// Rewind moves the session cursor to the turn boundary anchored at entryID
+// (append-only). Refused while a reply or queued prompt runs, like trims.
+func (c *Controller) Rewind(entryID string) (session.RewindResult, error) {
+	if c == nil || c.engine == nil {
+		return session.RewindResult{}, errors.New("controller: no engine")
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if c.closing || c.streamRunning {
+		return session.RewindResult{}, errors.New("cannot rewind while a reply or queued prompt is running")
+	}
+	return c.engine.Rewind(entryID)
+}
+
+// UndoRewind sends the session cursor back to where the last move started
+// from (/rewind back). Refused while a reply or queued prompt runs.
+func (c *Controller) UndoRewind() (session.RewindResult, error) {
+	if c == nil || c.engine == nil {
+		return session.RewindResult{}, errors.New("controller: no engine")
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if c.closing || c.streamRunning {
+		return session.RewindResult{}, errors.New("cannot rewind while a reply or queued prompt is running")
+	}
+	return c.engine.UndoRewind()
+}
+
+// TurnBoundaries lists the places the context can be cut at, oldest first.
+// Asking moves nothing, so it needs no busy guard.
+func (c *Controller) TurnBoundaries() []session.TurnBoundary {
+	if c == nil || c.engine == nil {
+		return nil
+	}
+	return c.engine.TurnBoundaries()
+}
+
 // SessionID returns the short-form-friendly session id.
 func (c *Controller) SessionID() string {
 	if c.engine == nil {
