@@ -16,6 +16,15 @@ import (
 // naming a boundary to cut at.
 const rewindBackArg = "back"
 
+// rewindDraft is what the composer held around a hand-back: before is the
+// text that was there, after is what the hand-back made of it. Keeping both
+// is what lets the undo give back exactly the prompt it took and nothing of
+// the user's own.
+type rewindDraft struct {
+	before string
+	after  string
+}
+
 // configureRewind registers /rewind. It lives here rather than among the
 // builtins because its completer has to ask this session where its turns
 // begin and end, and the builtins know no session.
@@ -123,28 +132,36 @@ func (e *View) applyRewind(result session.RewindResult) {
 
 // restoreRewindPrompt puts the anchor prompt back in the composer, and takes
 // it away again when the move that follows makes the prompt part of the
-// context once more. A draft the user has since touched is left alone: the
-// text is only withdrawn while it is still exactly what was handed over.
+// context once more.
+//
+// The undo restores the composer to what it held before the hand-back, not to
+// nothing: whatever the user had typed before the rewind is theirs, and so is
+// the prompt an earlier rewind handed back. It restores only while the
+// composer still holds exactly what the hand-back produced, so a draft the
+// user has edited since is left alone.
 func (e *View) restoreRewindPrompt(prompt string) {
 	if prompt == "" {
-		if e.rewindPrompt != "" && e.composer.Chat.Value == e.rewindPrompt {
-			e.composer.Chat.Value = ""
-			e.composer.Chat.Cursor = 0
-			e.composer.Chat.ClearSelection()
+		draft := e.rewindDraft
+		e.rewindDraft = rewindDraft{}
+		if draft.after == "" || e.composer.Chat.Value != draft.after {
+			return
 		}
-		e.rewindPrompt = ""
+		e.composer.Chat.ClearSelection()
+		e.composer.Chat.Value = draft.before
+		e.composer.Chat.Cursor = len(draft.before)
 		return
 	}
 	e.composer.Chat.ClearSelection()
+	before := e.composer.Chat.Value
 	// A draft typed before the rewind survives; the prompt joins it on a new
 	// line rather than overwriting it, the way a recalled queued prompt does.
-	if strings.TrimSpace(e.composer.Chat.Value) != "" {
-		e.composer.Chat.Value += "\n" + prompt
-	} else {
-		e.composer.Chat.Value = prompt
+	after := prompt
+	if strings.TrimSpace(before) != "" {
+		after = before + "\n" + prompt
 	}
-	e.composer.Chat.Cursor = len(e.composer.Chat.Value)
-	e.rewindPrompt = e.composer.Chat.Value
+	e.composer.Chat.Value = after
+	e.composer.Chat.Cursor = len(after)
+	e.rewindDraft = rewindDraft{before: before, after: after}
 	e.composer.FocusChat()
 }
 

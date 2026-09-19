@@ -2069,29 +2069,32 @@ func (c *Controller) DropContextEntries(ids []string) error {
 }
 
 // Rewind moves the session cursor to the turn boundary anchored at entryID
-// (append-only). Refused while a reply or queued prompt runs, like trims.
+// (append-only). It waits for the whole pipeline to be idle, not just the
+// stream: a prompt still sitting in the queue is about to be appended under
+// the current cursor, and moving the cursor out from under it would write
+// that turn onto a branch nobody asked for.
 func (c *Controller) Rewind(entryID string) (session.RewindResult, error) {
 	if c == nil || c.engine == nil {
 		return session.RewindResult{}, errors.New("controller: no engine")
 	}
 	c.streamMu.Lock()
 	defer c.streamMu.Unlock()
-	if c.closing || c.streamRunning {
-		return session.RewindResult{}, errors.New("cannot rewind while a reply or queued prompt is running")
+	if err := c.requireRunIdleLocked("rewind"); err != nil {
+		return session.RewindResult{}, err
 	}
 	return c.engine.Rewind(entryID)
 }
 
 // UndoRewind sends the session cursor back to where the last move started
-// from (/rewind back). Refused while a reply or queued prompt runs.
+// from (/rewind back), under the same idle requirement as Rewind.
 func (c *Controller) UndoRewind() (session.RewindResult, error) {
 	if c == nil || c.engine == nil {
 		return session.RewindResult{}, errors.New("controller: no engine")
 	}
 	c.streamMu.Lock()
 	defer c.streamMu.Unlock()
-	if c.closing || c.streamRunning {
-		return session.RewindResult{}, errors.New("cannot rewind while a reply or queued prompt is running")
+	if err := c.requireRunIdleLocked("rewind"); err != nil {
+		return session.RewindResult{}, err
 	}
 	return c.engine.UndoRewind()
 }

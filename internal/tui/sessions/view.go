@@ -132,10 +132,10 @@ type View struct {
 	hookCmds   *commands.HookCommands
 	submitter  *submit.Submitter
 
-	// rewindPrompt is the composer text a rewind handed back, remembered so
-	// that undoing the rewind can take it away again without touching a
-	// draft the user has edited since.
-	rewindPrompt string
+	// rewindDraft remembers what the composer held around the last rewind, so
+	// that undoing it takes back the prompt it handed over and leaves the
+	// user's own draft where it was.
+	rewindDraft rewindDraft
 
 	// notifier pings the OS when the model stops or waits for input; nil
 	// (the default) disables notifications entirely.
@@ -418,6 +418,9 @@ func NewView(
 	// The strip on every message row reaches the shell the same way a slash
 	// command does, through the Host methods.
 	e.transcript.SetMessageActions(e.RewindTo, e.ForkFrom, e.AsideAbout)
+	// The strips dim on the same truth the composer gates submits on, so a
+	// lit button is one the shell will actually act on.
+	e.transcript.SetRunActive(func() bool { return e.ctrl != nil && e.ctrl.RunActive() })
 	// Composer copy/cut chords share the clipboard and confirm with a toast,
 	// so selection copy in the input feels the same as transcript copy.
 	e.composer.SetChatCopyFunc(func(text string) bool {

@@ -201,6 +201,13 @@ func (t *TranscriptPane) SetMessageActions(rewind, fork, aside func(entryID stri
 	}
 }
 
+// SetRunActive wires the shell's run-in-flight answer for the action strips.
+func (t *TranscriptPane) SetRunActive(fn func() bool) {
+	if t != nil && t.mapper != nil {
+		t.mapper.SetRunActive(fn)
+	}
+}
+
 // SetUsageCallback fires when an assistant message reports token usage.
 func (t *TranscriptPane) SetUsageCallback(fn func(session.TokenUsage)) {
 	if t != nil {

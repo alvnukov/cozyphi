@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
 
 // replyingSSEServer answers every request with one assistant line and keeps
@@ -45,14 +46,18 @@ func replyingSSEServer(t *testing.T) (*httptest.Server, func() []string) {
 	return server, bodies
 }
 
-// runTurn submits a prompt and waits for the answer to settle.
-func runTurn(t *testing.T, e *View, text string, want int) {
+// runTurn submits a prompt and waits for the turn to be finished, not merely
+// quiet. The last chunk reaching the feed is not the end of it: the loop
+// yields the complete event before it appends the answer to the session, and
+// a queued prompt keeps the pipeline busy after that. RunActive covers both,
+// so waiting on it is waiting until the log has settled.
+func runTurn(t *testing.T, e *View, ctrl *controller.Controller, text string, want int) {
 	t.Helper()
 	submitPrompt(e, text)
 	waitFor(t, 10*time.Second, func() bool {
 		e.DrainNow()
 		snap := e.transcript.Snapshot()
-		return len(snap.Messages) >= want && !session.IsStreaming(snap)
+		return len(snap.Messages) >= want && !session.IsStreaming(snap) && !ctrl.RunActive()
 	})
 }
 
@@ -76,8 +81,8 @@ func TestRewindCutsTheFeedAndTheModelsNextRequest(t *testing.T) {
 	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
 	t.Cleanup(ctrl.Close)
 
-	runTurn(t, e, "first", 2)
-	runTurn(t, e, "second", 4)
+	runTurn(t, e, ctrl, "first", 2)
+	runTurn(t, e, ctrl, "second", 4)
 	snap := e.transcript.Snapshot()
 	require.Equal(t, []string{"first", "reply 1", "second", "reply 2"}, messageTexts(snap))
 	anchor := snap.Messages[2].ID
@@ -94,13 +99,15 @@ func TestRewindCutsTheFeedAndTheModelsNextRequest(t *testing.T) {
 	require.NotEmpty(t, history)
 	assert.Contains(t, history[len(history)-1].Message, "/rewind back")
 
-	runTurn(t, e, "second, reworded", 4)
+	runTurn(t, e, ctrl, "second, reworded", 4)
 	assert.Equal(t, []string{"first", "reply 1", "second, reworded", "reply 3"},
 		messageTexts(e.transcript.Snapshot()))
 
 	got := bodies()
 	require.Len(t, got, 3)
 	assert.Contains(t, got[2], "second, reworded")
+	assert.Contains(t, got[2], "first", "the turn before the cut is still the model's history")
+	assert.Contains(t, got[2], "reply 1", "and so is the answer that finished it")
 	assert.NotContains(t, got[2], "reply 2",
 		"the answer on the branch the cursor left is not shown to the model again")
 }
@@ -114,8 +121,8 @@ func TestRewindBackRestoresTheEarlierView(t *testing.T) {
 	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
 	t.Cleanup(ctrl.Close)
 
-	runTurn(t, e, "first", 2)
-	runTurn(t, e, "second", 4)
+	runTurn(t, e, ctrl, "first", 2)
+	runTurn(t, e, ctrl, "second", 4)
 	anchor := e.transcript.Snapshot().Messages[2].ID
 
 	e.RewindTo(anchor)
@@ -129,7 +136,7 @@ func TestRewindBackRestoresTheEarlierView(t *testing.T) {
 		"the prompt is back in the context, so it is taken out of the composer")
 }
 
-// A draft the user typed after the rewind is theirs: undoing the rewind must
+// A draft the user edited after the rewind is theirs: undoing the rewind must
 // not wipe it, even though the prompt it was appended to is going back.
 func TestRewindBackLeavesAnEditedDraftAlone(t *testing.T) {
 	server, _ := replyingSSEServer(t)
@@ -138,8 +145,8 @@ func TestRewindBackLeavesAnEditedDraftAlone(t *testing.T) {
 	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
 	t.Cleanup(ctrl.Close)
 
-	runTurn(t, e, "first", 2)
-	runTurn(t, e, "second", 4)
+	runTurn(t, e, ctrl, "first", 2)
+	runTurn(t, e, ctrl, "second", 4)
 	e.RewindTo(e.transcript.Snapshot().Messages[2].ID)
 
 	e.composer.Chat.Value = "second, but differently"
@@ -147,16 +154,64 @@ func TestRewindBackLeavesAnEditedDraftAlone(t *testing.T) {
 	assert.Equal(t, "second, but differently", e.composer.Chat.Value)
 }
 
-// A cut asked for in the middle of a turn is refused out loud, and the feed
-// is left exactly as it was.
-func TestRewindInsideATurnIsRefusedAndChangesNothing(t *testing.T) {
+// A draft the user had typed BEFORE the rewind is theirs too. The undo takes
+// back the prompt it handed over and puts the composer back as it found it,
+// rather than emptying it.
+func TestRewindBackKeepsTheDraftTypedBeforeIt(t *testing.T) {
 	server, _ := replyingSSEServer(t)
 	defer server.Close()
 
 	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
 	t.Cleanup(ctrl.Close)
 
-	runTurn(t, e, "first", 2)
+	runTurn(t, e, ctrl, "first", 2)
+	runTurn(t, e, ctrl, "second", 4)
+
+	e.composer.Chat.Value = "a note to myself"
+	e.RewindTo(e.transcript.Snapshot().Messages[2].ID)
+	require.Equal(t, "a note to myself\nsecond", e.composer.Chat.Value,
+		"the prompt joins the draft instead of replacing it")
+
+	require.True(t, e.commands.DispatchSlash("/rewind back", e.commandContext()))
+	assert.Equal(t, "a note to myself", e.composer.Chat.Value,
+		"only the prompt the rewind handed over is taken back")
+}
+
+// Two rewinds in a row stack two prompts in the composer, and one undo takes
+// back one of them. Undoing one move must not empty what the other handed
+// over: that prompt is still out of the context and still the user's to send.
+func TestOneUndoTakesBackOneHandedOverPrompt(t *testing.T) {
+	server, _ := replyingSSEServer(t)
+	defer server.Close()
+
+	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
+	t.Cleanup(ctrl.Close)
+
+	runTurn(t, e, ctrl, "first", 2)
+	runTurn(t, e, ctrl, "second", 4)
+
+	snap := e.transcript.Snapshot()
+	e.RewindTo(snap.Messages[2].ID)
+	require.Equal(t, "second", e.composer.Chat.Value)
+	e.RewindTo(snap.Messages[0].ID)
+	require.Equal(t, "second\nfirst", e.composer.Chat.Value)
+
+	require.True(t, e.commands.DispatchSlash("/rewind back", e.commandContext()))
+	assert.Equal(t, "second", e.composer.Chat.Value,
+		"the undo took back the second hand-back and left the first alone")
+}
+
+// A cut asked for at an id this session never recorded is refused out loud,
+// and the feed is left exactly as it was. Whether a cut is refused while a
+// turn runs is the controller's own question, pinned where the answer lives.
+func TestRewindAtAnUnknownEntryIsRefusedAndChangesNothing(t *testing.T) {
+	server, _ := replyingSSEServer(t)
+	defer server.Close()
+
+	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
+	t.Cleanup(ctrl.Close)
+
+	runTurn(t, e, ctrl, "first", 2)
 	before := messageTexts(e.transcript.Snapshot())
 
 	e.RewindTo("no-such-entry")
@@ -177,8 +232,8 @@ func TestRewindCompleterListsTheBoundaries(t *testing.T) {
 	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
 	t.Cleanup(ctrl.Close)
 
-	runTurn(t, e, "first", 2)
-	runTurn(t, e, "second", 4)
+	runTurn(t, e, ctrl, "first", 2)
+	runTurn(t, e, ctrl, "second", 4)
 
 	items, ok := e.commands.CompleteSlashArg("rewind", nil, "")
 	require.True(t, ok)

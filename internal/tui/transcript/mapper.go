@@ -64,8 +64,14 @@ type Mapper struct {
 	// over that entry's id and hands the widgets plain functions.
 	onRewind, onFork, onAside func(entryID string)
 	// actionsBusy is the hint the strips show while a turn is running, empty
-	// when they act. Refreshed from the snapshot on every sync pass.
+	// when they act. Refreshed on every sync pass.
 	actionsBusy string
+	// runActive is the shell's own answer to "is a run in flight", asked
+	// alongside the snapshot. The snapshot goes quiet the moment the last
+	// chunk lands, while the turn is still writing itself to the log and a
+	// queued prompt is still waiting its turn. Without this the buttons would
+	// light up in that gap and every click would be refused.
+	runActive func() bool
 	// messageIDs is the snapshot's messages by id, re-read on every sync
 	// pass. It is what a row's action anchor is resolved against.
 	messageIDs map[string]bool
@@ -218,8 +224,16 @@ func (m *Mapper) refreshActionContext(snap session.Snapshot) {
 		m.messageIDs[msg.ID] = true
 	}
 	m.actionsBusy = ""
-	if session.IsStreaming(snap) {
+	if session.IsStreaming(snap) || (m.runActive != nil && m.runActive()) {
 		m.actionsBusy = actionsBusyHint
+	}
+}
+
+// SetRunActive wires the shell's run-in-flight answer, which the strips ask
+// together with the snapshot.
+func (m *Mapper) SetRunActive(fn func() bool) {
+	if m != nil {
+		m.runActive = fn
 	}
 }
 

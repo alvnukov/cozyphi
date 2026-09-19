@@ -69,3 +69,33 @@ func TestControllerRefusesToRewindWhileARunIsInFlight(t *testing.T) {
 	_, err = ctrl.Rewind(anchor)
 	require.NoError(t, err)
 }
+
+// Esc cancels the stream but leaves accepted prompts in the queue, and each
+// of them is about to be appended under the current cursor. Moving the cursor
+// then would write that turn onto a branch nobody asked for, so the queue
+// counts as busy even with nothing streaming.
+func TestControllerRefusesToRewindWithAPromptStillQueued(t *testing.T) {
+	srv, _ := textSSEServer(t)
+	ctrl := newInjectController(t, NewBus(nil), srv.URL)
+	t.Cleanup(ctrl.Close)
+	anchor := seedRewindSession(t, ctrl)
+
+	ctrl.streamMu.Lock()
+	ctrl.streamRunning = false
+	ctrl.promptQueue = []queuedPrompt{{text: "waiting its turn", id: "q1"}}
+	ctrl.streamMu.Unlock()
+
+	_, err := ctrl.Rewind(anchor)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "queued prompt")
+	_, err = ctrl.UndoRewind()
+	require.Error(t, err)
+
+	ctrl.streamMu.Lock()
+	ctrl.promptQueue = nil
+	ctrl.streamMu.Unlock()
+
+	assert.Len(t, ctrl.ReplaySnapshot().Messages, 4, "a refused rewind moved nothing")
+	_, err = ctrl.Rewind(anchor)
+	require.NoError(t, err)
+}
