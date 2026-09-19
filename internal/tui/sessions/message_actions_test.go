@@ -68,9 +68,14 @@ func TestClickingRewindReachesTheHostWithTheEntryID(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, components.ShapePointer, shaper.PointerShape(lx, ly))
 
+	press := &components.EventContext{}
+	hit.Handle(press, xui.MouseEvent{X: lx, Y: ly, Button: xui.MouseLeft, Action: xui.MousePress})
+	require.True(t, press.Consume, "the press must not fall through to text selection")
+	require.Empty(t, e.toast.History(), "the press alone must not act")
+
 	ctx := &components.EventContext{}
-	hit.Handle(ctx, xui.MouseEvent{X: lx, Y: ly, Button: xui.MouseLeft, Action: xui.MousePress})
-	require.True(t, ctx.Consume, "the press must not fall through to text selection")
+	hit.Handle(ctx, xui.MouseEvent{X: lx, Y: ly, Button: xui.MouseLeft, Action: xui.MouseRelease})
+	require.True(t, ctx.Consume, "the release that acted was not consumed")
 
 	history := e.toast.History()
 	require.NotEmpty(t, history)

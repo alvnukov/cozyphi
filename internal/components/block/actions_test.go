@@ -25,6 +25,25 @@ func hoverAt(w components.Widget, x, y int) components.DrawContext {
 	return ctx
 }
 
+// The strip as its two label sets draw it. The tests address a button by
+// finding the strip and stepping to the label inside it, so a stray letter
+// elsewhere on the row cannot be mistaken for a one-letter button.
+const (
+	wordStrip     = "rewind  fork  btw"
+	initialsStrip = "r  f  b"
+)
+
+// clickAt works a button the way a mouse does: press, then release on the
+// same cell.
+func clickAt(w components.Widget, x, y int) {
+	w.Handle(&components.EventContext{}, xui.MouseEvent{
+		X: x, Y: y, Button: xui.MouseLeft, Action: xui.MousePress,
+	})
+	w.Handle(&components.EventContext{}, xui.MouseEvent{
+		X: x, Y: y, Button: xui.MouseLeft, Action: xui.MouseRelease,
+	})
+}
+
 // recorder counts the clicks each button delivered.
 type recorder struct{ rewind, fork, aside int }
 
@@ -47,6 +66,13 @@ func buttonCell(t *testing.T, s components.Surface, label string) (int, int) {
 	}
 	t.Fatalf("button %q is not on the surface:\n%s", label, components.SurfaceText(s))
 	return 0, 0
+}
+
+// asideCell is a cell of the side-question button, the last one of the strip.
+func asideCell(t *testing.T, s components.Surface, strip string) (int, int) {
+	t.Helper()
+	x, y := buttonCell(t, s, strip)
+	return x + xui.StringWidth(strip, xui.WidthUnicode) - 1, y
 }
 
 // The prompt gets the whole strip on the blank padding row it already had,
@@ -88,9 +114,10 @@ func drawAt(w components.Widget, width int) components.Surface {
 	})
 }
 
-// A row too tight for the words keeps the buttons as bare glyphs, and they
-// still act and still explain themselves. Only a pane too narrow for the
-// glyphs loses them.
+// A row too tight for the words keeps the buttons as initials, and they
+// still act and still explain themselves in full: on a one-letter button the
+// hint is the only thing that says what a click would do. Only a pane too
+// narrow for the initials loses them.
 func TestTightRowShortensTheStripBeforeDroppingIt(t *testing.T) {
 	var rec recorder
 	u := &block.UserBlock{Text: "hello", Theme: components.DefaultTheme()}
@@ -101,32 +128,31 @@ func TestTightRowShortensTheStripBeforeDroppingIt(t *testing.T) {
 	if strings.Contains(text, "rewind") || strings.Contains(text, "btw") {
 		t.Fatalf("the tight row kept the spelled-out strip:\n%s", text)
 	}
-	x, y := buttonCell(t, tight, "?")
+	x, y := asideCell(t, tight, initialsStrip)
 	if got := u.PointerShape(x, y); got != components.ShapePointer {
 		t.Fatalf("shape over the shortened button = %q", got)
 	}
 	if hint, ok := u.HoverTooltip(x, y); !ok || !strings.Contains(hint, "the answer stays out") {
 		t.Fatalf("shortened button hint = %q, %v", hint, ok)
 	}
-	ctx := &components.EventContext{}
-	u.Handle(ctx, xui.MouseEvent{X: x, Y: y, Button: xui.MouseLeft, Action: xui.MousePress})
+	clickAt(u, x, y)
 	if rec.aside != 1 {
 		t.Fatalf("the shortened button did not act: aside %d", rec.aside)
 	}
 
-	bare := drawAt(u, 9)
-	if strings.Contains(components.SurfaceText(bare), "?") {
+	bare := drawAt(u, 11)
+	if stripRows(bare, initialsStrip) != 0 {
 		t.Fatalf("a pane with no room drew a strip:\n%s", components.SurfaceText(bare))
 	}
-	if u.PointerShape(7, 0) != components.ShapeText {
+	if u.PointerShape(9, 0) != components.ShapeText {
 		t.Fatal("a prompt without a strip still offers the hand")
 	}
 }
 
 // The end-of-turn footer can fill its row: a long model name with its context
 // size and the round's duration leaves nothing on a narrow pane. The buttons
-// move up a row rather than disappear, which is what the closing reply is
-// promised.
+// shorten, and when even that does not fit they move up a row, rather than
+// disappearing from the one reply the strip is promised on.
 func TestLongFooterKeepsTheReplyButtons(t *testing.T) {
 	var rec recorder
 	a := &block.AssistantBlock{
@@ -137,23 +163,34 @@ func TestLongFooterKeepsTheReplyButtons(t *testing.T) {
 	}
 	a.SetActions(rec.actions())
 
+	// Wide enough for the words, and they stay on the footer row itself.
+	wide := drawAt(a, 100)
+	if _, y := asideCell(t, wide, wordStrip); y != wide.Size.Height-1 {
+		t.Fatalf("a wide pane put the strip on row %d, want the footer row", y)
+	}
+
+	// Tighter: the initials still fit beside the footer.
+	initials := drawAt(a, 70)
+	if got := stripRows(initials, initialsStrip); got != 1 {
+		t.Fatalf("the strip is on %d rows at 70 columns:\n%s", got, components.SurfaceText(initials))
+	}
+	if _, y := asideCell(t, initials, initialsStrip); y != initials.Size.Height-1 {
+		t.Fatalf("the shortened strip left the footer row for row %d", y)
+	}
+
+	// Tighter still: nothing fits beside the footer, so the strip steps up
+	// onto the reply's last line of text and gets its words back.
 	s := drawAt(a, 60)
-	if got := stripRows(s); got != 1 {
+	if got := stripRows(s, wordStrip); got != 1 {
 		t.Fatalf("the closing reply lost its buttons on a long footer:\n%s", components.SurfaceText(s))
 	}
-	x, y := buttonCell(t, s, "btw")
+	x, y := asideCell(t, s, wordStrip)
 	if y != s.Size.Height-2 {
 		t.Fatalf("the strip is on row %d, want the line above the footer", y)
 	}
-	ctx := &components.EventContext{}
-	a.Handle(ctx, xui.MouseEvent{X: x, Y: y, Button: xui.MouseLeft, Action: xui.MousePress})
+	clickAt(a, x, y)
 	if rec.aside != 1 {
 		t.Fatalf("the moved button did not act: aside %d", rec.aside)
-	}
-	// The same reply on a wide pane keeps the strip on the footer itself.
-	wide := drawAt(a, 100)
-	if _, y := buttonCell(t, wide, "btw"); y != wide.Size.Height-1 {
-		t.Fatalf("a wide pane put the strip on row %d, want the footer row", y)
 	}
 }
 
@@ -199,28 +236,108 @@ func cellBg(s components.Surface, x, y int) xui.Color {
 	return s.Buffer[y*s.Size.Width+x].Style.Bg
 }
 
-// A press lands on the button under it and nowhere else, and it is consumed,
-// so the row never starts a text selection under a control.
-func TestPromptStripRunsTheButtonUnderTheClick(t *testing.T) {
+// The press arms the button and the release acts on it, the way a button
+// works everywhere. Both are swallowed, so the row never starts a text
+// selection under a control.
+func TestPromptStripActsOnTheRelease(t *testing.T) {
 	var rec recorder
 	u := &block.UserBlock{Text: "hello", Theme: components.DefaultTheme()}
 	u.SetActions(rec.actions())
 	s := u.Draw(wideCtx())
-	ax, ay := buttonCell(t, s, "btw")
+	ax, ay := asideCell(t, s, wordStrip)
 
-	ctx := &components.EventContext{}
-	u.Handle(ctx, xui.MouseEvent{X: ax, Y: ay, Button: xui.MouseLeft, Action: xui.MousePress})
+	press := &components.EventContext{}
+	u.Handle(press, xui.MouseEvent{X: ax, Y: ay, Button: xui.MouseLeft, Action: xui.MousePress})
+	if rec.aside != 0 {
+		t.Fatal("the press acted before the release")
+	}
+	if !press.Consume {
+		t.Fatal("the press fell through to text selection")
+	}
+	release := &components.EventContext{}
+	u.Handle(release, xui.MouseEvent{X: ax, Y: ay, Button: xui.MouseLeft, Action: xui.MouseRelease})
 	if rec.aside != 1 || rec.rewind != 0 || rec.fork != 0 {
 		t.Fatalf("clicks = rewind %d, fork %d, aside %d", rec.rewind, rec.fork, rec.aside)
 	}
-	if !ctx.Consume {
-		t.Fatal("the strip let the press through to text selection")
+	if !release.Consume {
+		t.Fatal("the release that acted was not consumed")
 	}
 
 	miss := &components.EventContext{}
 	u.Handle(miss, xui.MouseEvent{X: 4, Y: ay, Button: xui.MouseLeft, Action: xui.MousePress})
 	if rec.aside != 1 || miss.Consume {
 		t.Fatalf("a press beside the strip acted: aside %d, consume %v", rec.aside, miss.Consume)
+	}
+}
+
+// A release the strip never armed belongs to whoever did arm it: a drag that
+// began on the transcript text and happened to end over a button finishes as
+// a selection, and the button stays quiet.
+func TestReleaseWithoutItsPressDoesNothing(t *testing.T) {
+	var rec recorder
+	u := &block.UserBlock{Text: "hello", Theme: components.DefaultTheme()}
+	u.SetActions(rec.actions())
+	s := u.Draw(wideCtx())
+	ax, ay := asideCell(t, s, wordStrip)
+
+	// The press landed on the text, so the strip has nothing armed.
+	u.Handle(&components.EventContext{}, xui.MouseEvent{
+		X: 4, Y: ay, Button: xui.MouseLeft, Action: xui.MousePress,
+	})
+	ctx := &components.EventContext{}
+	u.Handle(ctx, xui.MouseEvent{X: ax, Y: ay, Button: xui.MouseLeft, Action: xui.MouseRelease})
+	if rec.aside != 0 {
+		t.Fatalf("a release with no press of its own acted: aside %d", rec.aside)
+	}
+	if ctx.Consume {
+		t.Fatal("the strip swallowed a release it had not armed, cutting off the selection")
+	}
+}
+
+// A press on one button and a release on the next is not a click on either.
+func TestPressAndReleaseOnDifferentButtonsDoNothing(t *testing.T) {
+	var rec recorder
+	u := &block.UserBlock{Text: "hello", Theme: components.DefaultTheme()}
+	u.SetActions(rec.actions())
+	s := u.Draw(wideCtx())
+	rx, ry := buttonCell(t, s, "rewind")
+	fx, fy := buttonCell(t, s, "fork")
+
+	u.Handle(&components.EventContext{}, xui.MouseEvent{
+		X: rx, Y: ry, Button: xui.MouseLeft, Action: xui.MousePress,
+	})
+	ctx := &components.EventContext{}
+	u.Handle(ctx, xui.MouseEvent{X: fx, Y: fy, Button: xui.MouseLeft, Action: xui.MouseRelease})
+	if rec.rewind != 0 || rec.fork != 0 {
+		t.Fatalf("a press and a release on different buttons acted: rewind %d, fork %d", rec.rewind, rec.fork)
+	}
+	// The arming is gone, so coming back to the first button needs a new press.
+	back := &components.EventContext{}
+	u.Handle(back, xui.MouseEvent{X: rx, Y: ry, Button: xui.MouseLeft, Action: xui.MouseRelease})
+	if rec.rewind != 0 {
+		t.Fatalf("a stale press acted on a later release: rewind %d", rec.rewind)
+	}
+}
+
+// A press that wanders off the button before the release is cancelled. The
+// pointer leaving the button repaints the frame, and that frame is what tells
+// the strip to forget the press.
+func TestPressCancelledByLeavingTheButton(t *testing.T) {
+	var rec recorder
+	u := &block.UserBlock{Text: "hello", Theme: components.DefaultTheme()}
+	u.SetActions(rec.actions())
+	s := u.Draw(wideCtx())
+	rx, ry := buttonCell(t, s, "rewind")
+
+	u.Handle(&components.EventContext{}, xui.MouseEvent{
+		X: rx, Y: ry, Button: xui.MouseLeft, Action: xui.MousePress,
+	})
+	// The pointer left the strip: the next frame carries no hover for it.
+	u.Draw(wideCtx())
+	ctx := &components.EventContext{}
+	u.Handle(ctx, xui.MouseEvent{X: rx, Y: ry, Button: xui.MouseLeft, Action: xui.MouseRelease})
+	if rec.rewind != 0 {
+		t.Fatalf("a press the pointer had left still acted: rewind %d", rec.rewind)
 	}
 }
 
@@ -240,11 +357,14 @@ func TestDisabledStripRefusesAndSaysWhy(t *testing.T) {
 	}
 	ctx := &components.EventContext{}
 	u.Handle(ctx, xui.MouseEvent{X: x, Y: y, Button: xui.MouseLeft, Action: xui.MousePress})
-	if rec.rewind != 0 {
-		t.Fatal("a disabled button acted")
-	}
 	if !ctx.Consume {
 		t.Fatal("a disabled press fell through to text selection")
+	}
+	// The press arms nothing, so the release it would have acted on is not a
+	// click either.
+	clickAt(u, x, y)
+	if rec.rewind != 0 {
+		t.Fatal("a disabled button acted")
 	}
 }
 
@@ -314,20 +434,16 @@ func TestUnwiredMessageDrawsNoStrip(t *testing.T) {
 	}
 }
 
-// stripRows reports how many rows of the surface carry a strip, counted by
-// the button that every strip has.
-func stripRows(s components.Surface) int {
+// stripRows reports how many rows of the surface carry the given strip.
+func stripRows(s components.Surface, strip string) int {
 	n := 0
 	for row := range strings.SplitSeq(components.SurfaceText(s), "\n") {
-		if strings.Contains(row, asideMark) {
+		if strings.Contains(row, strip) {
 			n++
 		}
 	}
 	return n
 }
-
-// asideMark is the label of the button the side question always shows.
-const asideMark = "btw"
 
 // A reply grows while it streams, and the strip travels down with it. The
 // cached surface keeps the rows that did not change, so the strip must leave
@@ -340,12 +456,12 @@ func TestReplyStripMovesWithAGrowingBody(t *testing.T) {
 	a.Draw(wideCtx())
 	a.Text = "first line\n\nsecond line\n\nthird line"
 	s := a.Draw(wideCtx())
-	if got := stripRows(s); got != 1 {
+	if got := stripRows(s, "btw"); got != 1 {
 		t.Fatalf("the strip is on %d rows after the body grew:\n%s", got, components.SurfaceText(s))
 	}
 	a.Text = "first line"
 	s = a.Draw(wideCtx())
-	if got := stripRows(s); got != 1 {
+	if got := stripRows(s, "btw"); got != 1 {
 		t.Fatalf("the strip is on %d rows after the body shrank:\n%s", got, components.SurfaceText(s))
 	}
 }
@@ -362,7 +478,7 @@ func TestReplyStripMovesOntoTheFooterRow(t *testing.T) {
 	a.MetaLabel = "model"
 	a.MetaTail = "4s"
 	s = a.Draw(wideCtx())
-	if got := stripRows(s); got != 1 {
+	if got := stripRows(s, wordStrip); got != 1 {
 		t.Fatalf("the strip is on %d rows after the round closed:\n%s", got, components.SurfaceText(s))
 	}
 	if _, y := buttonCell(t, s, "btw"); y != s.Size.Height-1 {

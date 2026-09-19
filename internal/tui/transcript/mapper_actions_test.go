@@ -38,8 +38,12 @@ func clickStrip(t *testing.T, w components.Widget, want string) bool {
 			continue
 		}
 		x := xui.StringWidth(before, xui.WidthUnicode)
+		// Press arms, release acts; the widget wants both.
 		w.Handle(&components.EventContext{}, xui.MouseEvent{
 			X: x, Y: y, Button: xui.MouseLeft, Action: xui.MousePress,
+		})
+		w.Handle(&components.EventContext{}, xui.MouseEvent{
+			X: x, Y: y, Button: xui.MouseLeft, Action: xui.MouseRelease,
 		})
 		return true
 	}

@@ -41,25 +41,28 @@ const (
 	actionAside
 )
 
-// The labels carry their own glyph, the way every other affordance in the
-// transcript does: U+21B6, the anticlockwise open circle arrow, for the
-// rewind, and U+2442, the OCR fork, for the fork. Both are spelled by code
-// point rather than typed in, because the symbol gate over this repository
-// reads source text as prose and turns the glyphs away.
+// The buttons are words, with no glyph in front of them. A marker would have
+// to be a symbol most terminal fonts draw as an empty box, and its width is
+// the thing the terminals disagree about, while the whole geometry of the
+// strip is measured in columns.
+//
+// Short labels are the same buttons on a row with no room for the words. The
+// hint stays whole there, and on a one-letter button it is the only thing
+// that says what a click would do.
 const (
-	rewindGlyph = string(rune(0x21b6))
-	forkGlyph   = string(rune(0x2442))
+	rewindLabel = "rewind"
+	forkLabel   = "fork"
+	asideLabel  = "btw"
+	rewindShort = "r"
+	forkShort   = "f"
+	asideShort  = "b"
 )
 
 // actionGap is the run of blanks between two buttons, actionPad the column
 // the strip keeps clear of the right edge.
 const (
-	asideGlyph  = "?"
-	rewindLabel = rewindGlyph + " rewind"
-	forkLabel   = forkGlyph + " fork"
-	asideLabel  = asideGlyph + " btw"
-	actionGap   = 2
-	actionPad   = 1
+	actionGap = 2
+	actionPad = 1
 )
 
 // actionButton is where one button landed on the row.
@@ -100,6 +103,14 @@ type messageActionBar struct {
 	actions MessageActions
 	strip   actionStrip
 	painted paintedSpan
+	armed   armedButton
+}
+
+// armedButton is the button a left press went down on, waiting for the
+// release that would act on it.
+type armedButton struct {
+	kind  actionKind
+	armed bool
 }
 
 // paintedSpan is the run of cells the strip wrote on the frame before.
@@ -181,48 +192,82 @@ func (bar *messageActionBar) actionShape(x, y int) (string, bool) {
 	return "", false
 }
 
-// handleActionMouse runs the button under a left press. A press on a
-// disabled button is swallowed too, so the row does not start a text
-// selection under a control the user meant to click.
+// handleActionMouse works a button the way a button is worked anywhere: the
+// press arms it, and the release acts, but only inside the button the press
+// armed. A release that arrives without one, or over a neighbor, does
+// nothing and is not swallowed, so a selection that began on the text and
+// happened to end over the strip still finishes as a selection.
+//
+// The press itself is swallowed, the disabled ones included: a press left to
+// the transcript would start a text selection under a control the user meant
+// to click.
 func (bar *messageActionBar) handleActionMouse(ctx *components.EventContext, ev xui.Event) {
 	e, ok := ev.(xui.MouseEvent)
-	if !ok || e.Action != xui.MousePress || e.Button != xui.MouseLeft {
+	if !ok || e.Button != xui.MouseLeft {
 		return
 	}
-	b, ok := bar.strip.buttonAt(e.X, e.Y)
-	if !ok {
-		return
+	b, over := bar.strip.buttonAt(e.X, e.Y)
+	armed := bar.armed
+	if !over || b.kind != armed.kind {
+		bar.armed = armedButton{}
 	}
-	if bar.strip.disabled != "" {
+	switch {
+	case e.Action == xui.MousePress && over:
+		if bar.strip.disabled == "" {
+			bar.armed = armedButton{kind: b.kind, armed: true}
+		}
 		ctx.Consume = true
+	case e.Action == xui.MouseRelease && over && armed.armed && armed.kind == b.kind:
+		bar.armed = armedButton{}
+		bar.run(b.kind)
+		ctx.ConsumeAndRedraw()
+	}
+}
+
+// run calls the callback the button carries.
+func (bar *messageActionBar) run(kind actionKind) {
+	var fn func()
+	switch kind {
+	case actionRewind:
+		fn = bar.actions.OnRewind
+	case actionFork:
+		fn = bar.actions.OnFork
+	case actionAside:
+		fn = bar.actions.OnAside
+	}
+	if fn != nil {
+		fn()
+	}
+}
+
+// disarmOffButton drops the arming when the frame shows the pointer is no
+// longer on the armed button. A press that wandered off before the release
+// must not act, and once the pointer leaves the block altogether no mouse
+// event reaches it to say so; the hover state of the frame does.
+func (bar *messageActionBar) disarmOffButton(ctx components.DrawContext, w components.Widget) {
+	if !bar.armed.armed {
 		return
 	}
-	var run func()
-	switch b.kind {
-	case actionRewind:
-		run = bar.actions.OnRewind
-	case actionFork:
-		run = bar.actions.OnFork
-	case actionAside:
-		run = bar.actions.OnAside
+	if !components.Hovering(ctx, w) {
+		bar.armed = armedButton{}
+		return
 	}
-	if run != nil {
-		run()
+	if b, ok := bar.strip.buttonAt(ctx.Hover.X, ctx.Hover.Y); !ok || b.kind != bar.armed.kind {
+		bar.armed = armedButton{}
 	}
-	ctx.ConsumeAndRedraw()
 }
 
 // layout places the offered buttons flush right on row, keeping actionGap
 // between them, actionPad clear of the right edge and a blank column after
 // the row's own content, which ends at contentEnd.
 //
-// The spelled-out strip is the one to read, and the glyphs on their own are what
-// a narrow pane leaves room for. An end-of-turn footer spelling out a long
+// The words are the strip to read, and the initials are the same buttons on
+// a row with no room for words. An end-of-turn footer spelling out a long
 // model name, its context size and the round's duration eats most of the row
 // by itself, and that row is exactly where the closing reply's buttons
 // belong, so a tight row shortens the strip instead of dropping it. Buttons
-// vanish only when even the glyphs do not fit, and then the hint has nowhere
-// to appear either.
+// vanish only when even the initials do not fit, and then the hint has
+// nowhere to appear either.
 func (bar *messageActionBar) layout(row, width, contentEnd int, anchor string, method xui.WidthMethod) {
 	bar.strip = actionStrip{row: row, anchor: anchor, disabled: bar.actions.Disabled}
 	if !bar.actions.offers() || row < 0 {
@@ -258,9 +303,8 @@ func (bar *messageActionBar) place(buttons []actionButton, width, contentEnd int
 }
 
 // offeredButtons measures the labels of the wired actions, in strip order,
-// spelled out or as bare glyphs. The width comes from the draw method rather
-// than from the byte count: the glyphs are not one byte wide, and on some of
-// them the terminals disagree.
+// as words or as initials. The width is what the draw method makes of the
+// text, not its byte count: the strip is laid out in terminal columns.
 func (bar *messageActionBar) offeredButtons(method xui.WidthMethod, compact bool) []actionButton {
 	candidates := []struct {
 		kind  actionKind
@@ -268,9 +312,9 @@ func (bar *messageActionBar) offeredButtons(method xui.WidthMethod, compact bool
 		short string
 		fn    func()
 	}{
-		{actionRewind, rewindLabel, rewindGlyph, bar.actions.OnRewind},
-		{actionFork, forkLabel, forkGlyph, bar.actions.OnFork},
-		{actionAside, asideLabel, asideGlyph, bar.actions.OnAside},
+		{actionRewind, rewindLabel, rewindShort, bar.actions.OnRewind},
+		{actionFork, forkLabel, forkShort, bar.actions.OnFork},
+		{actionAside, asideLabel, asideShort, bar.actions.OnAside},
 	}
 	buttons := make([]actionButton, 0, len(candidates))
 	for _, c := range candidates {
@@ -304,6 +348,7 @@ func (bar *messageActionBar) paint(
 	th components.Theme,
 	bg xui.Style,
 ) {
+	bar.disarmOffButton(ctx, w)
 	if len(bar.strip.buttons) == 0 {
 		return
 	}
