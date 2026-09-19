@@ -20,7 +20,7 @@ verification_plan:
     - Capture model-facing outcomes and fake provider/network counters; assert safe refusal and no calls.
     - Run changed-package tests and scoped formatting/build; attach exact commands and regression evidence per delivery rules.
 created_at: "2026-09-19T19:10:37.683088Z"
-updated_at: "2026-09-19T22:01:29.455917Z"
+updated_at: "2026-09-19T23:01:21.341527Z"
 ---
 
 ## Body
@@ -40,6 +40,8 @@ updated_at: "2026-09-19T22:01:29.455917Z"
 **Stop condition:** If another entry point cannot be gated within this narrow change, report it as a blocker instead of claiming migration complete.
 
 **Started (2026-09-20).** Taking it after PR #42 merge (main c9833699). Branch feature/web-research-02-not-ready, worktree .worktrees/web-research-02-not-ready. Fail-closed migration boundary per spec D2/D3/D7/D16: not-ready refusal with setup guidance; legacy raw/quarantine-off/missing-reader/session-model paths refuse; zero provider/network calls on refusal paths.
+
+**Note (2026-09-20).** Implemented and independently reviewed (2026-09-20). Fail-closed not-ready boundary: webtool refuses every action before acquisition/model calls when Deps.Ready=false (default); raw refused unconditionally; session-model quarantine reader deleted from internal/agent; quarantine:off decodes but loader warns it authorizes nothing; permission gate raw special-case removed (raw gets no special treatment; overlay wording keeps Request.Raw). Boundary tests prove zero page/model calls under off/observe/allow-all × quarantine reader/off. Gates: gofmt/build/test scoped packages clean, golangci-lint 0 issues. Ready to commit; then PR per delivery rules.
 
 ## Acceptance Criteria
 

@@ -203,28 +203,21 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 	}
 }
 
-// checkWeb decides on one web call. Three rules, in order.
+// checkWeb decides on one web call. Two rules, in order.
 //
 // The setting comes first: web.enabled: false denies every action, so a tool
 // set assembled outside the normal wiring cannot reach the network behind the
 // user's back.
 //
-// A raw read or find asks always. It is the one path that puts page text into
-// the model's context verbatim, and no host allow-list pre-approves that:
-// trusting a host to be worth fetching is a smaller decision than letting it
-// address the model directly.
-//
 // Everything else asks by default, and a permissions.web.allow entry matching
 // the egress host allows it. Only fetch and search carry a host, so read and
-// find of an already-cached document keep asking unless the quarantine
-// reader is doing the reading — which is the ordinary path and costs one
-// approval per document, not per fragment.
+// find of an already-cached document keep asking. A raw read is not a gate
+// case: while protected web is not ready the web tool itself refuses raw
+// unconditionally (see doc/web.md), so the gate treats a raw request exactly
+// like any other web call.
 func (g *StaticGate) checkWeb(req Request) (Decision, string) {
 	if g.Policy.WebDisabled {
 		return Deny, "web access is off for this session (web.enabled: false)"
-	}
-	if req.Raw {
-		return Ask, "raw page text would reach the model verbatim: " + webSubject(req)
 	}
 	if req.Host != "" {
 		for _, re := range g.webAllow {

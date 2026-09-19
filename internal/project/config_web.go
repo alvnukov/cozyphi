@@ -7,7 +7,10 @@ import (
 	cozyconfig "github.com/alvnukov/cozy-tools/config"
 )
 
-// WebQuarantine selects how fetched page text reaches the model.
+// WebQuarantine names the configured web.quarantine mode. It decodes as
+// data — for observation and diagnostics — and authorizes nothing: the
+// unchecked-delivery paths the modes once selected are gone, and the web
+// tool fails closed until an explicit web model binding exists.
 type WebQuarantine string
 
 // Web quarantine modes.
@@ -16,9 +19,9 @@ const (
 	// fragment to a tool-less child model call, and only its answer reaches
 	// the session.
 	WebQuarantineReader WebQuarantine = "reader"
-	// WebQuarantineOff hands the bounded fragment straight to the session,
-	// still inside the untrusted frame. It is the user's own choice to trade
-	// the quarantine for fidelity.
+	// WebQuarantineOff used to hand the bounded fragment straight to the
+	// session. It still decodes so existing configs load, with a load-time
+	// warning that it no longer authorizes unchecked delivery.
 	WebQuarantineOff WebQuarantine = "off"
 )
 
@@ -153,6 +156,14 @@ func applyWeb(w *WebConfig, raw *webFileConfig) (allow, warnings []string, err e
 			return nil, nil, parseErr
 		}
 		w.Quarantine = mode
+		if mode == WebQuarantineOff {
+			// The mode still decodes — it is data for observation — but it
+			// no longer authorizes anything: unchecked delivery is gone.
+			warnings = append(warnings,
+				"web.quarantine: off no longer authorizes unchecked delivery: protected web research requires "+
+					"an explicit web model binding, and the web tool refuses page content until one is configured "+
+					"(see doc/web.md)")
+		}
 	}
 	if raw.Allow != nil {
 		allow = *raw.Allow

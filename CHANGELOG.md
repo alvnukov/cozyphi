@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Changed: protected web research is off the map until it has an explicit web
+  model binding. An enabled `web` tool now refuses every action — fetch,
+  search, read and find — before touching the network or any model, with a
+  not-ready answer that names the missing binding. The old unchecked escape
+  hatches are gone with it: `raw: true` is refused outright, the session
+  model is never used as the quarantine reader, and `web.quarantine: off`
+  still loads but no longer authorizes unchecked delivery — the loader warns
+  and points at `doc/web.md`. `web.enabled: false` (or no `web:` section)
+  behaves exactly as before: no tool is registered.
 - Added: every message in the feed carries its own controls. A prompt and the
   reply that closes a round show `rewind`, `fork` and `btw` at the right edge
   of a row that was already there. Nothing grew taller. A reply in the middle

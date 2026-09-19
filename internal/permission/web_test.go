@@ -97,20 +97,30 @@ func TestWebAllowPreApprovesAHost(t *testing.T) {
 	}
 }
 
-// TestRawAlwaysAsks: the allow-list pre-approves reaching a host, never
-// pouring its raw text into the model.
-func TestRawAlwaysAsks(t *testing.T) {
+// TestRawGetsNoSpecialGateTreatment: raw used to ask always, but the web
+// tool now refuses raw reads outright while protected web is not ready (see
+// doc/web.md), so the gate treats a raw:true request like any other web
+// call — ask by default, allow via the host list, no raw-specific reason.
+func TestRawGetsNoSpecialGateTreatment(t *testing.T) {
 	policy := permission.DefaultPolicy()
 	policy.WebAllow = []string{`.*`}
 	gate := webGate(t, policy)
 
+	// A raw fetch to an allow-listed host is pre-approved like any fetch.
+	if dec, _ := gate.Check(t.Context(), webRequest(t,
+		map[string]any{"action": "fetch", "url": "https://example.com/x", "raw": true})); dec != permission.Allow {
+		t.Fatalf("raw fetch to an allow-listed host = %v, want Allow", dec)
+	}
+
+	// A raw read of a cached document reaches no host, so it asks with the
+	// ordinary web reason.
 	dec, reason := gate.Check(t.Context(), webRequest(t,
 		map[string]any{"action": "read", "doc_id": "web_00112233445566aa", "raw": true}))
 	if dec != permission.Ask {
-		t.Fatalf("raw read under a wide allow-list = %v, want Ask", dec)
+		t.Fatalf("raw read = %v, want Ask", dec)
 	}
-	if !strings.Contains(reason, "raw page text") {
-		t.Fatalf("reason does not say what raw means: %q", reason)
+	if strings.Contains(reason, "raw") {
+		t.Fatalf("reason singles out raw: %q", reason)
 	}
 }
 

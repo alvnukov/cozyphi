@@ -136,8 +136,9 @@ const (
 	// separate things ride on it. Fetch and search are egress — a URL the
 	// model chose leaves this machine — and read and find bring back text
 	// written by whoever controls the page. Neither is a mutation, so
-	// readonly mode does not deny it, but both ask by default and a raw read
-	// asks always.
+	// readonly mode does not deny it, and both ask by default. A raw read
+	// gets no special case here: the web tool refuses raw outright while
+	// protected web is not ready (see doc/web.md).
 	ActionWeb Action = "web"
 )
 
@@ -159,7 +160,10 @@ type Request struct {
 	// call reaches no network at all.
 	Host string
 	// Raw marks a call that would put untrusted text into the model's
-	// context verbatim, with no intermediate reader. It always asks.
+	// context verbatim, with no intermediate reader. The gate treats it
+	// like any other web call — the web tool refuses raw reads outright
+	// while protected web is not ready (see doc/web.md) — so the mark is
+	// wording for the ask overlay, not a rule.
 	Raw bool
 
 	// Preview is display-only evidence for the ask overlay — the diff an
@@ -191,9 +195,9 @@ type Policy struct {
 	// fetch reaches (or "search:<provider>" for a search). It is the MCPAllow
 	// shape for the same reason: an ask nobody can answer turns every fetch
 	// into a denial in headless runs and sub-agents, and the list is the
-	// explicit opt-in that keeps documentation hosts usable there. It never
-	// covers a raw read — page text reaching the model verbatim is a separate
-	// decision the user makes per call.
+	// explicit opt-in that keeps documentation hosts usable there. Raw reads
+	// need no exclusion here: the web tool refuses them before anything the
+	// gate allows could deliver page text (see doc/web.md).
 	WebAllow []string // regex, matched against the egress host
 
 	// WebDisabled mirrors web.enabled: false. The tool is normally not even

@@ -85,15 +85,42 @@ func TestWebCacheDirFromTheFileWins(t *testing.T) {
 	assert.Equal(t, "/var/tmp/pages", p.Config().Web.Policy.CacheDir)
 }
 
-// TestQuarantineOffIsAccepted keeps the escape hatch reachable: it is the
-// user's own choice to trade the reader for fidelity.
-func TestQuarantineOffIsAccepted(t *testing.T) {
+// TestQuarantineOffDecodesAsDataWithAWarning: the legacy mode still loads
+// — an old config must not fail — but it no longer authorizes unchecked
+// delivery, and the loader says so.
+func TestQuarantineOffDecodesAsDataWithAWarning(t *testing.T) {
 	p := discoverInTempHome(t)
 	writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\nweb:\n  enabled: true\n  quarantine: off\n")
 
 	require.NoError(t, p.LoadConfig())
 
-	assert.Equal(t, WebQuarantineOff, p.Config().Web.Quarantine)
+	assert.Equal(t, WebQuarantineOff, p.Config().Web.Quarantine, "the mode is kept as data")
+
+	var found string
+	for _, w := range p.Config().Warnings() {
+		if strings.Contains(w, "web.quarantine") {
+			found = w
+		}
+	}
+	require.NotEmpty(t, found, "decoding off silently would read as still working")
+	assert.Contains(t, found, "no longer authorizes unchecked delivery")
+	assert.Contains(t, found, "doc/web.md", "the warning must point at the setup documentation")
+}
+
+// TestEnabledTrueCarriesNoWarningAndNoReadiness: web.enabled: true is the
+// tool's opt-in, nothing more — it loads without a warning and no field in
+// the resolved config claims protected readiness.
+func TestEnabledTrueCarriesNoWarningAndNoReadiness(t *testing.T) {
+	p := discoverInTempHome(t)
+	writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\nweb:\n  enabled: true\n")
+
+	require.NoError(t, p.LoadConfig())
+
+	cfg := p.Config()
+	assert.True(t, cfg.Web.Enabled(), "the opt-in still registers the tool")
+	for _, w := range cfg.Warnings() {
+		assert.NotContains(t, w, "web.quarantine", "an untouched quarantine setting needs no warning")
+	}
 }
 
 // TestUnknownQuarantineModeFailsTheLoad: guessing which mode the user meant

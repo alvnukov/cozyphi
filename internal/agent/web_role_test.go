@@ -90,7 +90,9 @@ func TestWebReaderIsNotSpawnable(t *testing.T) {
 }
 
 // TestWebOptionsFromConfig covers the translation of the `web:` section,
-// including the quarantine default and the off switch.
+// including the quarantine default and the off switch. The boolean is data
+// for observation now: neither mode authorizes delivery — web_boundary_test
+// pins that the tool refuses either way.
 func TestWebOptionsFromConfig(t *testing.T) {
 	on := true
 	cfg := project.WebConfig{

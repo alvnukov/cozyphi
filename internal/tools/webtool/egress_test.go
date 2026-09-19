@@ -13,7 +13,7 @@ import (
 // TestEgressRefusesAnOverlongURL: a 2048-byte ceiling is the browser's, and a
 // model-authored URL past it is a payload, not an address.
 func TestEgressRefusesAnOverlongURL(t *testing.T) {
-	deps := webtool.Deps{Policy: testPolicy(t)}
+	deps := webtool.Deps{Policy: testPolicy(t), Ready: true}
 	long := "https://example.com/?q=" + strings.Repeat("a", webtool.MaxEgressLength)
 
 	_, err := run(t, deps, map[string]any{"action": "fetch", "url": long})
@@ -30,7 +30,7 @@ func TestEgressRefusesASecretInTheURL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true }))
 	t.Cleanup(srv.Close)
 
-	deps := webtool.Deps{Policy: testPolicy(t), Mask: webtool.SecretMask()}
+	deps := webtool.Deps{Policy: testPolicy(t), Ready: true, Mask: webtool.SecretMask()}
 	_, err := run(t, deps, map[string]any{
 		"action": "fetch", "url": srv.URL + "/collect?token=sk-super-secret-value",
 	})
@@ -51,7 +51,7 @@ func TestEgressRefusesASecretInTheURL(t *testing.T) {
 // TestEgressRefusesASecretInASearchQuery covers the other egress channel.
 func TestEgressRefusesASecretInASearchQuery(t *testing.T) {
 	t.Setenv("COZYPHI_TEST_TOKEN", "ghp-abcdefghijklmnop")
-	deps := webtool.Deps{Policy: testPolicy(t), Mask: webtool.SecretMask()}
+	deps := webtool.Deps{Policy: testPolicy(t), Ready: true, Mask: webtool.SecretMask()}
 
 	_, err := run(t, deps, map[string]any{"action": "search", "query": "what is ghp-abcdefghijklmnop"})
 	if err == nil || !strings.Contains(err.Error(), "COZYPHI_TEST_TOKEN") {
@@ -94,7 +94,7 @@ func TestFetchDoesNotFollowLinks(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	deps := webtool.Deps{Policy: testPolicy(t)}
+	deps := webtool.Deps{Policy: testPolicy(t), Ready: true}
 	if _, err := run(t, deps, map[string]any{"action": "fetch", "url": srv.URL + "/first"}); err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestFetchDoesNotFollowLinks(t *testing.T) {
 func TestFetchBlockedHostIsReported(t *testing.T) {
 	policy := testPolicy(t)
 	policy.AllowedHosts = []string{"example.com"}
-	deps := webtool.Deps{Policy: policy}
+	deps := webtool.Deps{Policy: policy, Ready: true}
 
 	res, err := run(t, deps, map[string]any{"action": "fetch", "url": "http://127.0.0.1:1/x"})
 	if err != nil {
