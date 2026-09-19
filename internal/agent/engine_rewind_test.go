@@ -139,3 +139,33 @@ func TestEngineTurnAfterRewindContinuesFromTheNewLeaf(t *testing.T) {
 		assert.NotEqual(t, abandoned, entry.GetID())
 	}
 }
+
+// A prompt sent with skills attached carries a harness paragraph into the
+// log. What comes back to the composer is what the user wrote: sent again as
+// it stands, the instruction would reach the model a second time.
+func TestRewindHandsBackWhatTheUserTypedWithoutTheSkillParagraph(t *testing.T) {
+	engine := newContextTestEngine(t, "http://127.0.0.1:1", 100000)
+	composed := engine.composeUserPrompt(nil, []string{"proofread"}, "check my prose", "check my prose")
+	require.Contains(t, composed, skillReadInstruction, "the fixture is a prompt sent with a skill")
+
+	require.NoError(t, engine.session.Append(
+		llm.Message{Role: llm.RoleUser, Content: composed},
+		llm.Message{Role: llm.RoleAssistant, Content: "checked"},
+	))
+	anchor := engine.ContextReport().Items[0].EntryID
+
+	result, err := engine.Rewind(anchor)
+	require.NoError(t, err)
+	assert.Equal(t, "check my prose", result.Prompt)
+}
+
+// The paragraph is built from the same constant the strip looks for, so a
+// reworded instruction cannot silently start leaking into the composer.
+func TestTheSkillParagraphAndTheStripAgree(t *testing.T) {
+	instruction := pendingSkillsInstruction(t.TempDir(), []string{"proofread"})
+	require.NotEmpty(t, instruction)
+	assert.Empty(t, userTypedPrompt(instruction),
+		"an instruction with no words of the user's leaves nothing behind")
+	assert.Equal(t, "my words", userTypedPrompt(instruction+"\n\nmy words"))
+	assert.Equal(t, "untouched", userTypedPrompt("untouched"))
+}

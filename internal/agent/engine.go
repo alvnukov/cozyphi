@@ -1399,7 +1399,7 @@ func pendingSkillsInstruction(skillPath string, names []string) string {
 		targets = append(targets, names...)
 	}
 	return fmt.Sprintf(
-		"You MUST read these skill files first with the read tool and follow them: %s. Do this immediately before responding.",
+		skillReadInstruction+" %s. Do this immediately before responding.",
 		strings.Join(targets, ", "),
 	)
 }

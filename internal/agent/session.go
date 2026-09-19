@@ -226,6 +226,10 @@ func (s *Session) Rewind(entryID string) (session.RewindResult, error) {
 	if err != nil {
 		return session.RewindResult{}, err
 	}
+	// The session records the prompt as it was sent. What goes back to the
+	// composer is what the user wrote, without the harness paragraph the turn
+	// put in front of it.
+	result.Prompt = userTypedPrompt(result.Prompt)
 	s.invalidateContextCache()
 	return result, nil
 }

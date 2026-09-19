@@ -2,9 +2,38 @@ package agent
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/session"
 )
+
+// skillReadInstruction opens the paragraph composeUserPrompt puts in front of
+// a prompt sent with skills attached. It is harness text rather than the
+// user's, and pendingSkillsInstruction builds the paragraph from it, so the
+// two cannot drift apart without a test saying so.
+const skillReadInstruction = "You MUST read these skill files first with the read tool and follow them:"
+
+// userTypedPrompt takes the harness paragraph back off a recorded prompt, so
+// what reaches the composer is what the user wrote. Sent again as it stands,
+// the instruction would reach the model a second time.
+//
+// It handles the paragraph a skill attachment adds. A plan step that preloads
+// skill bodies prepends its own block, and that one ends in a skill body of
+// arbitrary shape: where the body stops and the user's text starts cannot be
+// read back out of the recorded message. Recovering that case needs the
+// user's own text kept on the entry, which is a change to the log format.
+func userTypedPrompt(prompt string) string {
+	if !strings.HasPrefix(prompt, skillReadInstruction) {
+		return prompt
+	}
+	_, rest, found := strings.Cut(prompt, "\n\n")
+	if !found {
+		// The instruction was the whole message: the turn carried skills and
+		// no words of the user's.
+		return ""
+	}
+	return strings.TrimLeft(rest, " \t\n")
+}
 
 // ErrTurnRunning refuses a cursor move while inference or a tool is still in
 // flight. Moving the leaf then would cut a round in half and hand the model a
