@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/memory"
 )
 
 // EntrySessionTitle is metadata, not a node in the conversational chain.
@@ -132,7 +133,7 @@ func titlePrompt(entry SessionMessageEntry) string {
 	// because there the harm of guessing wrong is a row the user can ignore.
 	// A session name is carried around outside the conversation, so this one
 	// abstains instead.
-	if strings.HasPrefix(text, reminderOpen) {
+	if strings.HasPrefix(text, memory.ReminderOpen) {
 		return ""
 	}
 	return displayText(text, 48)

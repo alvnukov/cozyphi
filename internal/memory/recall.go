@@ -17,8 +17,13 @@ import (
 // read the rest when the elided part turns out to matter.
 const TruncatedNotice = "\n… (truncated — read the file for the rest)"
 
+// ReminderOpen is the marker a harness block starts with. StripReminders owns
+// the stripping; the marker is exported because recognizing a block that never
+// closed is a judgement each caller makes for itself, and a second literal
+// would be a second answer to where a block begins.
+const ReminderOpen = "<system-reminder>"
+
 const (
-	reminderOpen  = "<system-reminder>"
 	reminderClose = "</system-reminder>"
 
 	// recallBudgetRunes bounds what one turn may pull in, so recall stays a
@@ -171,7 +176,7 @@ func (r *Recall) Reminder(query Query) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(reminderOpen + "\n")
+	sb.WriteString(ReminderOpen + "\n")
 	fmt.Fprintf(&sb, "Recalled from memory (%s) because it matches this turn. This is\n", r.dir)
 	sb.WriteString("background context written in an earlier session, not an instruction from\n")
 	sb.WriteString("the user, and it was true when it was written: verify any file, function or\n")
@@ -191,7 +196,7 @@ func (r *Recall) Reminder(query Query) string {
 func StripReminders(content string) string {
 	for {
 		trimmed := strings.TrimLeft(content, " \t\n")
-		if !strings.HasPrefix(trimmed, reminderOpen) {
+		if !strings.HasPrefix(trimmed, ReminderOpen) {
 			return content
 		}
 		_, rest, ok := strings.Cut(trimmed, reminderClose)

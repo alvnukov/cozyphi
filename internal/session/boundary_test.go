@@ -83,3 +83,25 @@ func TestAPromptOfPureScaffoldingIsNoBoundary(t *testing.T) {
 	var notBoundary *session.NotTurnBoundaryError
 	require.ErrorAs(t, err, &notBoundary)
 }
+
+// The preview the log yields and the preview a corrected boundary yields are
+// built by one rule. A caller that knows better than the record what the user
+// typed replaces both the text and the line it is offered under, and the two
+// must not drift into showing different things.
+func TestBothPreviewPathsUseOneRule(t *testing.T) {
+	manager := session.NewManager(t.TempDir())
+	turn := recordTurn(t, manager, "one", "answer one")
+
+	boundary, err := session.TurnBoundaryAt(manager.BuildContext(), turn.Prompt)
+	require.NoError(t, err)
+	require.Equal(t, "before one", boundary.Preview)
+
+	assert.Equal(t, boundary.Preview, boundary.WithPrompt(boundary.Prompt).Preview,
+		"replacing the prompt with the same text changes nothing")
+	assert.Equal(t, "before reworded", boundary.WithPrompt("reworded").Preview)
+
+	answer, err := session.TurnBoundaryAt(manager.BuildContext(), turn.Answer)
+	require.NoError(t, err)
+	assert.Equal(t, answer, answer.WithPrompt("ignored"),
+		"an answer boundary has no prompt to correct")
+}

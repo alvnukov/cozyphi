@@ -180,3 +180,17 @@ func TestIndexIsRebuiltOnlyWhenTheDirectoryChanges(t *testing.T) {
 	write(t, store.Dir(), "permission-prompts.md", permissionsMemory)
 	assert.NotSame(t, first, store.index(), "a new file rebuilds it")
 }
+
+// The exported marker and the stripping are one answer to where a block
+// begins. It is exported so a caller can recognize a block that never closed;
+// were it to drift from what StripReminders actually cuts on, every such
+// caller would be judging by a marker the stripper does not use.
+func TestTheExportedMarkerIsTheOneStripRemindersCutsOn(t *testing.T) {
+	block := ReminderOpen + "\nnoise\n</system-reminder>\nwhat the user typed"
+	require.Equal(t, "what the user typed", StripReminders(block))
+
+	unterminated := ReminderOpen + "\nnever closed"
+	require.Equal(t, unterminated, StripReminders(unterminated),
+		"an unterminated block is left whole, and the marker is how a caller spots it")
+	require.True(t, strings.HasPrefix(StripReminders(unterminated), ReminderOpen))
+}
