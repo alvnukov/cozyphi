@@ -1,7 +1,7 @@
 ---
 id: web-research-02-not-ready
 title: 02 — Refuse unready protected web without legacy bypasses
-status: in_progress
+status: done
 priority: high
 model_level: low
 task_type: feature
@@ -20,7 +20,7 @@ verification_plan:
     - Capture model-facing outcomes and fake provider/network counters; assert safe refusal and no calls.
     - Run changed-package tests and scoped formatting/build; attach exact commands and regression evidence per delivery rules.
 created_at: "2026-09-19T19:10:37.683088Z"
-updated_at: "2026-09-19T23:21:10.094563Z"
+updated_at: "2026-09-19T23:31:57.021203Z"
 ---
 
 ## Body
@@ -44,6 +44,8 @@ updated_at: "2026-09-19T23:21:10.094563Z"
 **Note (2026-09-20).** Implemented and independently reviewed (2026-09-20). Fail-closed not-ready boundary: webtool refuses every action before acquisition/model calls when Deps.Ready=false (default); raw refused unconditionally; session-model quarantine reader deleted from internal/agent; quarantine:off decodes but loader warns it authorizes nothing; permission gate raw special-case removed (raw gets no special treatment; overlay wording keeps Request.Raw). Boundary tests prove zero page/model calls under off/observe/allow-all × quarantine reader/off. Gates: gofmt/build/test scoped packages clean, golangci-lint 0 issues. Ready to commit; then PR per delivery rules.
 
 **Note (2026-09-20).** **2026-09-20, web-default flip.** По директиве пользователя («делаем веб енаблид фолс») дефолт `web.enabled` переведён на false до завершения protected-web эпика: секция `web:` без `enabled` больше не opt-in (applyWeb не сбрасывает `Enabled` в nil; TestWritingTheSectionIsTheOptIn → TestSectionWithoutEnabledStaysOff). Явный `enabled: true` по-прежнему регистрирует инструмент и получает not-ready отказ. Когда web-model binding приземлится — дефолт flip'аем на true (решение зафиксировано в doc/web.md «Configuration» и CHANGELOG [Unreleased]). Доставка: push + PR + merge на GitHub + локальный pull (директива пользователя).
+
+**Done (2026-09-20).** Landed via PR #43 (squash 706364a3, merged 2026-09-19): fail-closed not-ready boundary in internal/agent/web.go, refusal matrix in web_boundary_test.go, off-by-default config in internal/project/config_web.go (+config_web_test.go), doc/web.md and CHANGELOG updated. Legacy bypasses removed: raw:true refused, session model never the quarantine reader, quarantine:off authorizes nothing.
 
 ## Acceptance Criteria
 
