@@ -1,17 +1,12 @@
 package agent
 
 import (
-	"context"
-	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"sync"
 
 	cozyconfig "github.com/alvnukov/cozy-tools/config"
 
-	"github.com/alvnukov/cozyphi/internal/llm"
-	llmclient "github.com/alvnukov/cozyphi/internal/llm/client"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/session"
@@ -20,19 +15,24 @@ import (
 )
 
 // WebOptions is the engine's half of the web configuration: the library
-// policy plus cozyphi's quarantine choice. The zero value has web disabled
-// only if the policy says so — cozyconfig.WebPolicy defaults to enabled — so
-// callers that want no web tool pass an explicitly disabled policy.
+// policy plus the legacy quarantine setting, carried as data. The zero value
+// has web disabled only if the policy says so — cozyconfig.WebPolicy defaults
+// to enabled — so callers that want no web tool pass an explicitly disabled
+// policy.
 type WebOptions struct {
 	Policy cozyconfig.WebPolicy
-	// Quarantine is on when read and find must go through the tool-less
-	// reader instead of returning page text.
+	// Quarantine records the configured web.quarantine mode for observation
+	// (diag reports it). It authorizes nothing: unchecked delivery is gone,
+	// and the web tool fails closed until an explicit web model binding
+	// exists — see webtool.Deps.Ready.
 	Quarantine bool
 }
 
 // WebOptionsFrom translates the resolved `web:` config section into what an
 // engine needs. It is the one place the config's quarantine vocabulary turns
-// into a boolean, so a new mode cannot silently read as "off".
+// into a boolean, so a new mode cannot silently read as "off". The boolean
+// is data for observation only: it no longer authorizes unchecked delivery,
+// and web.enabled: true is not a protected-readiness claim.
 func WebOptionsFrom(cfg project.WebConfig) WebOptions {
 	return WebOptions{
 		Policy:     cfg.Policy,
@@ -123,58 +123,56 @@ func (t *turnWeb) reset() {
 	t.hosts = nil
 }
 
-// webRuntime is the snapshot the web tool's collaborators read at call time:
-// the live tool registry the decoys are copied from, and the model the
-// quarantine reader runs on. bindExecutor refreshes it under engine.mu, and
-// readers take only this lock — a tool running inside the executor must never
-// need the engine's.
+// webRuntime is the snapshot the web tool's collaborators read at call
+// time: the live tool registry the decoys are copied from. bindExecutor
+// refreshes it under engine.mu, and readers take only this lock — a tool
+// running inside the executor must never need the engine's.
 type webRuntime struct {
 	mu       sync.RWMutex
 	registry tools.Registry
-	model    llm.ModelConfig
 }
 
-func (r *webRuntime) set(registry tools.Registry, model llm.ModelConfig) {
+func (r *webRuntime) set(registry tools.Registry) {
 	if r == nil {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.registry = registry
-	r.model = model
 }
 
-func (r *webRuntime) snapshot() (tools.Registry, llm.ModelConfig) {
+func (r *webRuntime) snapshot() tools.Registry {
 	if r == nil {
-		return nil, llm.ModelConfig{}
+		return nil
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.registry, r.model
+	return r.registry
 }
 
 // webTool builds this engine's web tool, or nothing when web is off. The
 // caller must hold engine.mu (buildToolListFor does).
+//
+// Deps.Ready is deliberately never set here: protected readiness requires an
+// explicitly configured web model for the quarantined reader, and the session
+// model is not one — the legacy wiring that ran the reader on it is gone.
+// Until that binding exists the tool fails closed at its own entry, after
+// the permission gate has had its say, so no gate mode can weaken the
+// refusal.
 func (engine *Engine) webTool() []tools.Tool {
 	if engine == nil || !engine.web.enabled() {
 		return nil
 	}
 	runtime := engine.webRuntime
-	deps := webtool.Deps{
-		Policy:     engine.web.Policy,
-		Quarantine: engine.web.Quarantine,
-		Mask:       engine.webMask,
+	return webtool.Tool(webtool.Deps{
+		Policy: engine.web.Policy,
+		Mask:   engine.webMask,
 		Decoys: func(trap *webtool.Trap) []tools.Tool {
-			registry, _ := runtime.snapshot()
-			return webtool.Decoys(registry, trap)
+			return webtool.Decoys(runtime.snapshot(), trap)
 		},
 		Warn:        engine.emitWebNotice,
 		MarkTainted: engine.turnWeb.mark,
-	}
-	if engine.web.Quarantine {
-		deps.Reader = quarantineReader{runtime: runtime}
-	}
-	return webtool.Tool(deps)
+	})
 }
 
 // emitWebNotice publishes the user-facing row for a web warning — today a
@@ -187,87 +185,6 @@ func (engine *Engine) emitWebNotice(text string) {
 	if sink := engine.sessionEvents; sink != nil {
 		sink(session.WebNotice{Label: "web: prompt injection suspected", Text: text})
 	}
-}
-
-// quarantineReader runs the web-reader role: one model call with no real
-// tools, over one bounded fragment, answering one question.
-//
-// It is not a job and not an Engine. A job would give the page a session, a
-// transcript and a spawn surface; this is a single round with a fixed system
-// prompt and a tool list that is entirely decoys, which is the smallest thing
-// that can read a hostile page.
-type quarantineReader struct {
-	runtime *webRuntime
-}
-
-// Read implements webtool.Reader.
-func (r quarantineReader) Read(ctx context.Context, req webtool.ReaderRequest) (webtool.ReaderResult, error) {
-	_, model := r.runtime.snapshot()
-	if strings.TrimSpace(model.Name) == "" {
-		return webtool.ReaderResult{}, errors.New("agent: no model configured for the web quarantine reader")
-	}
-	// The reader is a sub-agent in posture, not in machinery: it gets the
-	// session's model but none of its context, prompt or history.
-	client := llmclient.NewClient(model, tools.Definitions(req.Tools), req.System)
-
-	message := llm.Message{Role: llm.RoleUser, Content: readerPrompt(req)}
-	for event, err := range client.Stream(ctx, []llm.Message{message}) {
-		if err != nil {
-			return webtool.ReaderResult{}, err
-		}
-		switch event.Type {
-		case llm.StreamEventTypeError:
-			if event.Err != nil {
-				return webtool.ReaderResult{}, event.Err
-			}
-			return webtool.ReaderResult{}, errors.New("agent: web reader stream error")
-		case llm.StreamEventTypeDone:
-			if len(event.Partial.Choices) == 0 {
-				return webtool.ReaderResult{}, errors.New("agent: web reader finished with no reply")
-			}
-			final := event.Partial.Choices[0].Message
-			if len(final.ToolCalls) > 0 {
-				return webtool.ReaderResult{}, fireDecoy(ctx, req.Tools, final.ToolCalls[0])
-			}
-			return webtool.ReaderResult{Answer: strings.TrimSpace(final.Content)}, nil
-		case llm.StreamEventTypeDelta:
-			// Nothing streams out of a quarantine read: the answer is only
-			// ever delivered as a whole, framed, by the tool.
-		}
-	}
-	return webtool.ReaderResult{}, errors.New("agent: web reader stream ended without a reply")
-}
-
-// fireDecoy runs the decoy the reader called so the trap records which one,
-// then reports the refusal. An unrecognized name still aborts: the reader had
-// only decoys, so any tool call at all is the page acting.
-func fireDecoy(ctx context.Context, decoys []tools.Tool, call llm.ToolCall) error {
-	for _, decoy := range decoys {
-		if decoy.Definition.Name != call.Function.Name {
-			continue
-		}
-		_, err := decoy.Run(ctx, []byte(call.Function.Arguments))
-		if err != nil {
-			return err
-		}
-		return webtool.ErrDecoy
-	}
-	return fmt.Errorf("%w: %s", webtool.ErrDecoy, call.Function.Name)
-}
-
-// readerPrompt is the reader's only user message: the question, then the
-// fragment inside the same untrusted frame the session would have seen.
-func readerPrompt(req webtool.ReaderRequest) string {
-	var b strings.Builder
-	b.WriteString("Question: ")
-	b.WriteString(req.Question)
-	b.WriteString("\n\nAnswer it from the page text below, and from nothing else.\n\n")
-	b.WriteString(webtool.Frame(map[string]string{
-		"kind":     "web_page_fragment",
-		"doc_id":   req.DocID,
-		"fragment": req.Fragment,
-	}))
-	return b.String()
 }
 
 // observeWebApproval remembers an egress destination the turn was allowed to

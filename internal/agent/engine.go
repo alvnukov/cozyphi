@@ -131,7 +131,7 @@ type Engine struct {
 	defaultTools []tools.Tool
 
 	// web is the resolved web configuration; webRuntime is the live
-	// registry/model snapshot the web tool's collaborators read; webMask is
+	// registry snapshot the web tool's decoys are copied from; webMask is
 	// the secret set no URL or query may carry; turnWeb is the per-turn
 	// untrusted-content state the permission layer reads.
 	web        WebOptions
@@ -788,9 +788,8 @@ func (engine *Engine) systemPrompt() string {
 // bindExecutor installs a freshly built executor; the caller must hold
 // engine.mu so the swap pairs with the client swap.
 func (engine *Engine) bindExecutor(registry tools.Registry) {
-	// The decoys are copied from this exact registry, and the quarantine
-	// reader runs on this exact model.
-	engine.webRuntime.set(registry, engine.modelCfg)
+	// The decoys are copied from this exact registry.
+	engine.webRuntime.set(registry)
 	// The taint wrapper goes outside everything, session-wide allow-all
 	// included: "allow all" was decided before any page was read.
 	inner := engine.gate

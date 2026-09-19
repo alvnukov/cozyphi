@@ -90,7 +90,7 @@ Every change is weighed on six axes; when they conflict, trade them off out loud
   `web-reader` child answers the caller's `question`, and the decoy tools it is
   offered turn any tool call into an `injection_suspected:<tool>` flag on the
   document, a notice instead of text, and a refusal on every later read.
-  `raw:true` asks the user every time. Every web text reaching the model is
+  `raw:true` is refused outright while protected web is not ready. Every web text reaching the model is
   wrapped in the untrusted frame and taints the turn: while the mark holds,
   mutating and egress actions ask again, session-wide allow included. URLs and
   queries are length-capped and scanned for secrets before any request, and
