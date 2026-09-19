@@ -1,7 +1,7 @@
 ---
 id: web-research-01-channel-inventory
 title: 01 — Inventory protected-web bypass channels and platform evidence
-status: todo
+status: in_progress
 priority: high
 model_level: low
 task_type: docs
@@ -9,6 +9,8 @@ parent_id: web-tools
 tags:
     - protected-web-research
     - ready-for-agent
+branch: docs/web-research-01-channel-inventory
+worktree_path: .worktrees/web-research-01-channel-inventory
 acceptance_criteria:
     - Inventory covers ordinary file tools, shell/Python, MCP, hooks, watches, delegated work, model requests, cache/transcripts and all supported product platforms.
     - Each enabled route has implementation evidence and a public boundary test, or is explicitly unproved and unavailable for protected web.
@@ -18,7 +20,7 @@ verification_plan:
     - Read linked task states and distinguish design, implementation and verification.
     - Validate local links and git diff --check only; do not run Go gates or live attacks for this documentation task.
 created_at: "2026-09-19T19:10:37.596089Z"
-updated_at: "2026-09-19T19:10:37.596089Z"
+updated_at: "2026-09-19T20:50:55.462584Z"
 ---
 
 ## Body
@@ -36,6 +38,8 @@ updated_at: "2026-09-19T19:10:37.596089Z"
 **Proof required:** Commit-bound inventory with source references, platform list and ready/disabled/unproved classifications; an independent reviewer can reproduce every claimed barrier. Unknown is an acceptable result, fabricated readiness is not.
 
 **Stop condition:** If a platform or owner cannot be established, record the missing evidence and block downstream enablement.
+
+**Started (2026-09-19).** Первая задача эпика после публикации тикетов: инвентаризация каналов обхода web-карантина. Только docs/расследование, рантайм не трогаем.
 
 ## Acceptance Criteria
 

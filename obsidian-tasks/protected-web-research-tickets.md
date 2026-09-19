@@ -1,7 +1,7 @@
 ---
 id: protected-web-research-tickets
 title: Publish the approved protected web research delivery tickets
-status: in_progress
+status: done
 priority: high
 model_level: medium
 task_type: docs
@@ -20,7 +20,7 @@ verification_plan:
     - Check the coverage index against the 43 decisions and 32 behavioral scenarios; run git diff --check on documentation only.
     - Obtain independent read-only review; commit only owned notes and delivery index with a signed Conventional Commit.
 created_at: "2026-09-19T19:08:55.690455Z"
-updated_at: "2026-09-19T19:37:51.020893Z"
+updated_at: "2026-09-19T20:50:04.873707Z"
 ---
 
 ## Body
@@ -30,6 +30,8 @@ The user approved the numbered 46-ticket breakdown via to-tickets on 2026-09-19.
 **Started (2026-09-19).** Authoring the user-approved 46-ticket breakdown only; code implementation and live model evaluation remain unstarted.
 
 **Note (2026-09-19).** Published the user-approved 46 delivery notes web-research-01 through web-research-46 locally under web-tools: 15 low / 31 medium, 2 todo / 44 blocked. Added specs/protected-web-research-tickets.md with executor/evidence rules, explicit unresolved isolation/coordination gates, dependency map and Q1–Q43/T01–T32 coverage. Each note has bounded work/exclusions, >=3 acceptance criteria, >=3 verification steps, proof and stop conditions. Structural validation passed: native registry discovery, all local links/whitespace, acyclic topological graph, exact internal/external edge parity with index, and all 01–45 transitively required by readiness46. Independent sizing/dependency and spec reviews found missing predecessor edges and enablement/context ambiguities; corrected 04/06 admission foundation, 23/38 budget, 40 delivered-revocation/cache dependencies, fixed-event scope for 26, disabled integration11 versus aggregate runtime gate41, and checking-context compatibility35. Targeted follow-up review confirmed all six issue classes addressed with no weakened safety. git diff --cached --check passed; original parent epic and source specification unchanged relative to aed5af09. No runtime/configuration/plan changes, Go gates, live model calls or remote publication. Authoring remains in progress pending authorized PR publication/review/merge; none of the implementation tasks has been started.
+
+**Done (2026-09-19).** 46 задач web-research-01…46 + индекс specs/protected-web-research-tickets.md опубликованы и смержены в main через PR #41 (squash 71b2277d). Локальный main обновлён ff-only. Реализация не начата; заблокированные фундаменты (provenance, egress, изоляция) остаются blocked.
 
 ## Acceptance Criteria
 
