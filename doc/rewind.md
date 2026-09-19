@@ -18,7 +18,9 @@ worded badly and you would rather send it again than explain it twice.
 3. If you rewound to a prompt, its text is waiting in the composer. Edit it and
    send it again.
 4. Changed your mind? Run `/rewind back`. The feed and the context return to
-   where they were.
+   where they were, and the composer gives back the prompt it was handed. A
+   draft you had typed before the rewind, or edited after it, stays where it
+   is.
 
 The keyboard does the same thing. `/rewind <entry id>` cuts at that message, and
 `/rewind back` undoes the last cut. Type `/rewind ` and press Tab for the list
@@ -42,8 +44,14 @@ Background deliveries are not offered either. A watch event, a finished
 background shell and a child's outcome all wear the user role. None of them is
 something you typed.
 
-A rewind is also refused while a reply or a queued prompt is running. Wait for
-the turn to finish, or cancel it, and ask again.
+A rewind is also refused while a reply or a queued prompt is running, and the
+buttons are dimmed to say so. Cancelling with Esc is not enough on its own: it
+stops the stream but keeps the prompts you already sent in the queue, and each
+of them is about to be appended where the cursor stands. Let the queue drain,
+or clear it, and ask again.
+
+A prompt sent with skills attached carries a harness paragraph into the log.
+What comes back to the composer is what you wrote, without it.
 
 ## What a rewind does to the branch
 
