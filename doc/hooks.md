@@ -275,7 +275,7 @@ Example stdin:
   "session_id": "…",
   "cwd": "/path/to/project",
   "hook_event": "post_turn",
-  "message_id": "b3f1a027",
+  "message_id": "b3f1a0274c9d6e15",
   "usage": { "prompt_tokens": 1200, "cached_tokens": 900, "completion_tokens": 40, "total_tokens": 1240 }
 }
 ```
