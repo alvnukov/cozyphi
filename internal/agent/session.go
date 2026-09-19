@@ -248,12 +248,19 @@ func (s *Session) UndoRewind() (session.RewindResult, error) {
 	return result, nil
 }
 
-// TurnBoundaries lists the places the current context can be cut at.
+// TurnBoundaries lists the places the current context can be cut at. Each
+// prompt is reported as the user wrote it, the same text a cut there would
+// hand the composer: the line the picker shows and the text the composer
+// receives must not be two different answers.
 func (s *Session) TurnBoundaries() []session.TurnBoundary {
 	if s == nil || s.manager == nil {
 		return nil
 	}
-	return s.manager.TurnBoundaries()
+	boundaries := s.manager.TurnBoundaries()
+	for i, boundary := range boundaries {
+		boundaries[i] = boundary.WithPrompt(userTypedPrompt(boundary.Prompt))
+	}
+	return boundaries
 }
 
 // Plan returns the latest durable model-managed plan snapshot.

@@ -169,3 +169,27 @@ func TestTheSkillParagraphAndTheStripAgree(t *testing.T) {
 	assert.Equal(t, "my words", userTypedPrompt(instruction+"\n\nmy words"))
 	assert.Equal(t, "untouched", userTypedPrompt("untouched"))
 }
+
+// The line the picker offers and the text the composer receives are one
+// answer, not two: both are what the user typed, without the harness
+// paragraph the turn put in front of it.
+func TestTheBoundaryPreviewMatchesWhatTheComposerGets(t *testing.T) {
+	engine := newContextTestEngine(t, "http://127.0.0.1:1", 100000)
+	composed := engine.composeUserPrompt(nil, []string{"proofread"}, "check my prose", "check my prose")
+	require.Contains(t, composed, skillReadInstruction)
+
+	require.NoError(t, engine.session.Append(
+		llm.Message{Role: llm.RoleUser, Content: composed},
+		llm.Message{Role: llm.RoleAssistant, Content: "checked"},
+	))
+
+	boundaries := engine.TurnBoundaries()
+	require.Len(t, boundaries, 2)
+	assert.Equal(t, "check my prose", boundaries[0].Prompt)
+	assert.Equal(t, "before check my prose", boundaries[0].Preview)
+
+	result, err := engine.Rewind(boundaries[0].EntryID)
+	require.NoError(t, err)
+	assert.Equal(t, boundaries[0].Prompt, result.Prompt,
+		"the picker and the composer say the same thing")
+}

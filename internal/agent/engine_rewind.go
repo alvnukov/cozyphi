@@ -11,6 +11,11 @@ import (
 // a prompt sent with skills attached. It is harness text rather than the
 // user's, and pendingSkillsInstruction builds the paragraph from it, so the
 // two cannot drift apart without a test saying so.
+//
+// No test can cover the other way this breaks. Rewording the constant moves
+// both sides at once and goes green, while every prompt already written to a
+// log keeps the old wording and stops being recognized. Change the wording
+// only by leaving the old one in place to be stripped as well.
 const skillReadInstruction = "You MUST read these skill files first with the read tool and follow them:"
 
 // userTypedPrompt takes the harness paragraph back off a recorded prompt, so
