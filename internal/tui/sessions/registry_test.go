@@ -227,3 +227,32 @@ func TestCallbackObservesCommittedState(t *testing.T) {
 		}
 	}
 }
+
+// Room answers ahead of Open and answers the same, so work that must not
+// start unless it can finish has one question to ask.
+func TestRoomAnswersAheadOfOpen(t *testing.T) {
+	r := sessions.NewRegistry(2, nil)
+	if err := r.Room(); err != nil {
+		t.Fatal(err)
+	}
+	open(t, r, "first")
+	if err := r.Room(); err != nil {
+		t.Fatal("a registry with a free slot must report room")
+	}
+	open(t, r, "second")
+	err := r.Room()
+	if err == nil || !strings.Contains(err.Error(), "close") {
+		t.Fatal("a full registry must say why nothing more opens")
+	}
+	_, openErr := r.Open("overflow", &sessions.View{})
+	if openErr == nil || openErr.Error() != err.Error() {
+		t.Fatal("Room and Open must refuse in the same words")
+	}
+	view, closeErr := r.Close(activeID(t, r))
+	if closeErr != nil || view == nil {
+		t.Fatal(closeErr)
+	}
+	if err := r.Room(); err != nil {
+		t.Fatal("closing a tab makes room again")
+	}
+}

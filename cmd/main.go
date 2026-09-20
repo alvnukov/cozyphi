@@ -168,7 +168,11 @@ func runTUI(acquired *session.Manager, developerMode bool) (runErr error) {
 	captureGate := voice.NewCaptureGate()
 	// Every View gets a cursor; only the append-only history corpus is shared.
 	hist := history.Open(history.DefaultPath())
-	var openNew func() error
+	var (
+		openNew  func() error
+		openTab  func(path string) (*sessions.View, error)
+		openFork = func(path string) (*sessions.View, error) { return openTab(path) }
+	)
 	create := func(path string, owner *session.Manager) (*sessions.View, error) {
 		bus := controller.NewBus(redraw.Fire)
 		ctrl, err := process.NewSession(bus, workspace, path, owner)
@@ -180,26 +184,39 @@ func runTUI(acquired *session.Manager, developerMode bool) (runErr error) {
 		view := newTUIView(application, vx, th, proj, ctrl, bus, hist, workspace.Root(), captureGate, cmds,
 			settingsManager)
 		view.ConfigureSessionNavigation(registry, ui.Activate)
+		view.ConfigureSessionFork(registry.Room, openFork)
 		bindFamilyScreen(ui, view)
 		return view, nil
 	}
 	// Names count openings, not live members: once sessions can close, a new
 	// one must not reuse the number of one that is still open.
 	opened := 1
-	openNew = func() error {
-		if registry.Len() >= 12 {
-			return errors.New("session limit (12) reached: close a session before opening another")
+	// A fork opens the same way /new does, with the session file it wrote
+	// instead of an empty path: one door for both, so a tab is a tab however
+	// it came to be.
+	openTab = func(path string) (*sessions.View, error) {
+		// The registry owns the limit and the words that report it, and a
+		// fork asks it the same question before writing anything.
+		if err := registry.Room(); err != nil {
+			return nil, err
 		}
-		view, err := create("", nil)
+		view, err := create(path, nil)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		opened++
 		id, err := registry.Open(fmt.Sprintf("session %d", opened), view)
 		if err != nil {
-			return errors.Join(err, view.Close(context.Background()))
+			return nil, errors.Join(err, view.Close(context.Background()))
 		}
-		return ui.Activate(id)
+		if err := ui.Activate(id); err != nil {
+			return nil, err
+		}
+		return view, nil
+	}
+	openNew = func() error {
+		_, err := openTab("")
+		return err
 	}
 	transferred := acquired
 	acquired = nil // Runtime.NewSession consumes ownership even on failure.
