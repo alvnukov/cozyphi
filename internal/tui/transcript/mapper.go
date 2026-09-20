@@ -75,11 +75,14 @@ type Mapper struct {
 	// rewindOffers asks the session which entries a cut may be taken at. The
 	// mapper knows the shape of a row but not where the context currently
 	// ends, and working that out here would be a second copy of a rule that
-	// belongs to the session. Nil means every boundary row offers a cut.
+	// belongs to the session. It is wired by the same call as the handlers
+	// above, so the two cannot be set apart, and unwired it offers nothing.
 	rewindOffers func() map[string]struct{}
-	// offered is that answer for the pass being built, re-read once per sync
-	// rather than once per row: the lock behind it is the one appends hold
-	// while they write to disk.
+	// offered is that answer for the rows as they stand, re-read on a full
+	// pass only. Asking walks the session path under the lock appends hold
+	// while they write to disk, and the tail pass has no use for a fresh
+	// answer: the row it patches is the answer still being streamed, which
+	// is no boundary while it streams and is not in the set once it is.
 	offered map[string]struct{}
 	// messageIDs is the snapshot's messages by id, re-read on every sync
 	// pass. It is what a row's action anchor is resolved against.
@@ -148,9 +151,18 @@ func (m *Mapper) toolStatus(it session.Item, detail string) status.ToolStatus {
 // SetMessageActions wires the three context operations a transcript message
 // offers. Each callback is handed the id of the session entry behind the row
 // it was clicked on, never the composite id of the row itself.
-func (m *Mapper) SetMessageActions(rewind, fork, aside func(entryID string)) {
+//
+// offers answers which entries a cut may actually be taken at, and it is
+// wired here rather than on its own so that nobody can wire the buttons and
+// forget it. Nil offers nothing: an unwired seam and a seam that answers with
+// an empty set mean the same thing, which is the harmless one.
+func (m *Mapper) SetMessageActions(
+	rewind, fork, aside func(entryID string),
+	offers func() map[string]struct{},
+) {
 	if m != nil {
 		m.onRewind, m.onFork, m.onAside = rewind, fork, aside
+		m.rewindOffers = offers
 	}
 }
 
@@ -240,27 +252,21 @@ func (m *Mapper) refreshActionContext(snap session.Snapshot) {
 	if session.IsStreaming(snap) || (m.runActive != nil && m.runActive()) {
 		m.actionsBusy = actionsBusyHint
 	}
+}
+
+// offersRewind reads one row against the answer the last full pass was given.
+func (m *Mapper) offersRewind(entryID string) bool {
+	_, ok := m.offered[entryID]
+	return ok
+}
+
+// refreshRewindOffers re-reads which entries a cut may be taken at. Only the
+// full pass calls it; see the offered field for why the tail pass does not.
+func (m *Mapper) refreshRewindOffers() {
 	m.offered = nil
 	if m.rewindOffers != nil {
 		m.offered = m.rewindOffers()
 	}
-}
-
-// SetRewindOffers wires the session's answer to which entries a cut may be
-// taken at. Without it every boundary row offers a cut.
-func (m *Mapper) SetRewindOffers(fn func() map[string]struct{}) {
-	if m != nil {
-		m.rewindOffers = fn
-	}
-}
-
-// offersRewind reads one row against the answer this pass was given.
-func (m *Mapper) offersRewind(entryID string) bool {
-	if m.rewindOffers == nil {
-		return true
-	}
-	_, ok := m.offered[entryID]
-	return ok
 }
 
 // SetRunActive wires the shell's run-in-flight answer, which the strips ask
@@ -345,6 +351,7 @@ func (m *Mapper) Sync(
 ) (newEntries []components.Widget, newIDs []string, dirty []int) {
 	m.refreshLiveStarts()
 	m.refreshActionContext(snap)
+	m.refreshRewindOffers()
 	items := m.groupTurns(m.shellItems(dropServiceRefusals(session.Project(snap))), snap)
 	n := len(items)
 	byID := make(map[string]int, len(entries))

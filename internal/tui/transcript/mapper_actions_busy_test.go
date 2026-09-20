@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/session"
@@ -53,4 +54,42 @@ func TestWithoutTheShellTheStripFollowsTheSnapshot(t *testing.T) {
 	streaming.Messages[1].State = session.StateStreaming
 	m.refreshActionContext(streaming)
 	assert.Equal(t, actionsBusyHint, m.actionsBusy)
+}
+
+// Asking which rows may be cut at walks the session path under the lock
+// appends hold while they write to disk. The tail pass runs on roughly every
+// frame of a streaming turn, and it has no use for a fresh answer: the row it
+// patches is the reply still arriving, which is no boundary while it streams.
+// So it must not ask.
+func TestTheTailPassNeverAsksTheSession(t *testing.T) {
+	m := NewMapper(components.DefaultTheme(), nil, nil)
+	asked := 0
+	m.SetMessageActions(func(string) {}, func(string) {}, func(string) {},
+		func() map[string]struct{} {
+			asked++
+			return map[string]struct{}{"u1": {}, "a1": {}}
+		})
+
+	streaming := func(text string) session.Snapshot {
+		return session.Snapshot{Messages: []session.Message{
+			{ID: "u1", Role: session.RoleUser, State: session.StateComplete, Text: "go"},
+			{
+				ID: "a1", Role: session.RoleAssistant, State: session.StateStreaming,
+				Content: []session.ContentBlock{{Type: session.BlockText, Text: text}},
+			},
+		}}
+	}
+
+	entries, ids, _ := m.Sync(nil, nil, streaming("one"))
+	require.Equal(t, 1, asked, "the full pass asks once")
+
+	for _, text := range []string{"one two", "one two three", "one two three four"} {
+		_, ok := m.syncTail(entries, ids, streaming(text))
+		require.True(t, ok, "the tail pass handled the growing reply")
+	}
+	assert.Equal(t, 1, asked, "however many chunks arrive, the session is asked no more")
+
+	// The next full pass picks the answer up again, so nothing goes stale.
+	_, _, _ = m.Sync(entries, ids, streaming("one two three four"))
+	assert.Equal(t, 2, asked)
 }

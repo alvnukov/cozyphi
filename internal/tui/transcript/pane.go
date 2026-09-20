@@ -195,9 +195,12 @@ func watchOwnsRow(ref WatchRef, entryID string, b *block.ToolBlock) bool {
 // SetMessageActions wires the context operations every message row offers:
 // rewind, fork and the side question. Each callback receives the id of the
 // session entry the clicked row stands for.
-func (t *TranscriptPane) SetMessageActions(rewind, fork, aside func(entryID string)) {
+func (t *TranscriptPane) SetMessageActions(
+	rewind, fork, aside func(entryID string),
+	offers func() map[string]struct{},
+) {
 	if t != nil && t.mapper != nil {
-		t.mapper.SetMessageActions(rewind, fork, aside)
+		t.mapper.SetMessageActions(rewind, fork, aside, offers)
 	}
 }
 
@@ -221,15 +224,6 @@ func (t *TranscriptPane) MessageActionsGuard() string {
 		return ""
 	}
 	return t.mapper.actionsBusy
-}
-
-// SetRewindOffers wires the session's answer to which entries a cut may be
-// taken at, so a strip can leave the button off a row where it would only
-// earn a refusal.
-func (t *TranscriptPane) SetRewindOffers(fn func() map[string]struct{}) {
-	if t != nil && t.mapper != nil {
-		t.mapper.SetRewindOffers(fn)
-	}
 }
 
 // SetRunActive wires the shell's run-in-flight answer for the action strips.

@@ -15,11 +15,25 @@ import (
 // anchors records the entry id every action was handed.
 type anchors struct{ rewind, fork, aside []string }
 
+// wire hands the mapper the three handlers, and says a cut may be taken at
+// the two entries these tests build their rows from. Which rows the session
+// allows a cut at is not what they are about, so they name the entries
+// instead of leaning on a default.
 func (a *anchors) wire(m *transcript.Mapper) {
+	a.wireOffering(m, "u1", "a1")
+}
+
+// wireOffering is wire with the entries a cut may be taken at spelled out.
+func (a *anchors) wireOffering(m *transcript.Mapper, offered ...string) {
+	set := make(map[string]struct{}, len(offered))
+	for _, id := range offered {
+		set[id] = struct{}{}
+	}
 	m.SetMessageActions(
 		func(id string) { a.rewind = append(a.rewind, id) },
 		func(id string) { a.fork = append(a.fork, id) },
 		func(id string) { a.aside = append(a.aside, id) },
+		func() map[string]struct{} { return set },
 	)
 }
 

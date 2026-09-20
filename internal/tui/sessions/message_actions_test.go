@@ -47,10 +47,17 @@ func TestClickingRewindReachesTheHostWithTheEntryID(t *testing.T) {
 	// The rows below are drawn straight into the pane and the session never
 	// receives them, so it would rightly say a cut at them leads nowhere and
 	// the button would not be drawn at all. This test is about the path a
-	// click takes, so it unwires the session's answer, which leaves every
-	// boundary row offering a cut. Which rows really offer one is pinned in
+	// click takes, so it names the entry a cut is on offer at and leaves the
+	// session out of it. Which rows really offer one is pinned in
 	// rewind_test.go.
-	e.transcript.SetRewindOffers(nil)
+	e.transcript.SetMessageActions(e.RewindTo, e.ForkFrom, e.AsideAbout,
+		func() map[string]struct{} {
+			offers := make(map[string]struct{})
+			for _, msg := range e.transcript.Snapshot().Messages {
+				offers[msg.ID] = struct{}{}
+			}
+			return offers
+		})
 	e.transcript.ApplySession(session.UserAppend{Text: "hello"})
 	e.transcript.ApplySession(session.AssistantMessageUpdate{Message: session.Message{
 		ID:    "a1",

@@ -417,18 +417,18 @@ func NewView(
 	)
 	// The strip on every message row reaches the shell the same way a slash
 	// command does, through the Host methods.
-	e.transcript.SetMessageActions(e.RewindTo, e.ForkFrom, e.AsideAbout)
+	// The strip and the /rewind picker read one answer, so a row that offers
+	// a cut is a row the cut will happen on.
+	e.transcript.SetMessageActions(e.RewindTo, e.ForkFrom, e.AsideAbout,
+		func() map[string]struct{} {
+			if e.ctrl == nil {
+				return nil
+			}
+			return e.ctrl.RewindOffers()
+		})
 	// The strips dim on the same truth the composer gates submits on, so a
 	// lit button is one the shell will actually act on.
 	e.transcript.SetRunActive(func() bool { return e.ctrl != nil && e.ctrl.RunActive() })
-	// The strip and the /rewind picker read one answer, so a row that offers
-	// a cut is a row the cut will happen on.
-	e.transcript.SetRewindOffers(func() map[string]struct{} {
-		if e.ctrl == nil {
-			return nil
-		}
-		return e.ctrl.RewindOffers()
-	})
 	// Composer copy/cut chords share the clipboard and confirm with a toast,
 	// so selection copy in the input feels the same as transcript copy.
 	e.composer.SetChatCopyFunc(func(text string) bool {
