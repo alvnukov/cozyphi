@@ -1,7 +1,7 @@
 ---
 id: transcript-message-actions
 title: 'Кнопки откат/форк/btw в сообщениях ленты: hover, тултип, клик'
-status: in_progress
+status: done
 priority: high
 model_level: high
 task_type: feature
@@ -26,7 +26,7 @@ verification_plan:
     - 'Ручная проверка в TUI: hover/тултип/клик на промпте и на ответе; во время стрима кнопки приглушены'
     - Один scoped golangci-lint run по изменённым пакетам перед коммитом
 created_at: "2026-09-16T08:00:30.673346Z"
-updated_at: "2026-09-16T08:00:30.673346Z"
+updated_at: "2026-09-20T19:09:21.000000Z"
 ---
 
 ## Body

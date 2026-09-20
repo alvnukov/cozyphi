@@ -1,7 +1,7 @@
 ---
 id: aside-entry-and-engine-ask
 title: 'Ядро /btw: запись aside вне контекста и одноразовый запрос движка'
-status: in_progress
+status: done
 priority: high
 model_level: high
 task_type: feature
@@ -24,7 +24,7 @@ verification_plan:
     - 'Ручная проверка: два хода -> /btw «что мы обсуждали?» -> следующий ход не видит вопроса/ответа (проверить через /context) -> перезапуск, файл содержит aside'
     - Один scoped golangci-lint run по изменённым пакетам перед коммитом
 created_at: "2026-09-16T08:00:30.676392Z"
-updated_at: "2026-09-21T12:00:00Z"
+updated_at: "2026-09-25T09:00:00.000000Z"
 ---
 
 ## Body

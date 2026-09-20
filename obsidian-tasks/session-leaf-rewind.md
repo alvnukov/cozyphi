@@ -1,7 +1,7 @@
 ---
 id: session-leaf-rewind
 title: 'Откат контекста: сдвиг листа дерева сессии, /rewind, кнопка rewind'
-status: in_progress
+status: done
 priority: high
 model_level: high
 task_type: feature
@@ -24,7 +24,7 @@ verification_plan:
     - 'Ручная проверка: три хода -> откат кнопкой к первому промпту -> новый ход -> /rewind back; перезапуск и /resume показывает тот же путь'
     - Один scoped golangci-lint run по изменённым пакетам перед коммитом
 created_at: "2026-09-16T08:00:30.674149Z"
-updated_at: "2026-09-20T00:00:00.000000Z"
+updated_at: "2026-09-20T19:09:21.000000Z"
 ---
 
 ## Body
