@@ -1,7 +1,11 @@
 package agent
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 
@@ -13,6 +17,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools"
 	"github.com/alvnukov/cozyphi/internal/tools/webtool"
+	"github.com/alvnukov/cozyphi/internal/webpreflight"
 )
 
 // WebOptions is the engine's half of the web configuration: the library
@@ -31,6 +36,12 @@ type WebOptions struct {
 	// connect/remove and route changes must invalidate the prior verdict without
 	// requiring a new engine.
 	resolveBinding func() project.WebBinding
+	// admit is the shared account admission hook for the capability
+	// preflight. The seam belongs to routing-openai-account-admission; until
+	// that task delivers an adapter it stays nil in production, and the
+	// preflight reports unavailable naming that task. Tests inject a fake
+	// here — nowhere else.
+	admit webpreflight.AdmissionFunc
 }
 
 // WebOptionsFrom translates the resolved `web:` config section into what an
@@ -140,6 +151,13 @@ func (t *turnWeb) reset() {
 type webRuntime struct {
 	mu       sync.RWMutex
 	registry tools.Registry
+	// verdictFP/verdict cache one preflight verdict for the route
+	// fingerprint it was earned against. It never survives a restart, and
+	// a fingerprint change leaves it behind — provider connect/remove and
+	// route edits re-probe rather than reuse (project.WebBinding.
+	// Fingerprint is the invalidation key).
+	verdictFP string
+	verdict   webpreflight.Verdict
 }
 
 func (r *webRuntime) set(registry tools.Registry) {
@@ -160,37 +178,177 @@ func (r *webRuntime) snapshot() tools.Registry {
 	return r.registry
 }
 
+// cachedVerdict returns the preflight verdict recorded for this exact route
+// fingerprint, if any. A zero Status means nothing is cached.
+func (r *webRuntime) cachedVerdict(fp string) (webpreflight.Verdict, bool) {
+	if r == nil || fp == "" {
+		return webpreflight.Verdict{}, false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.verdictFP != fp || r.verdict.Status == "" {
+		return webpreflight.Verdict{}, false
+	}
+	return r.verdict, true
+}
+
+// rememberVerdict records the preflight verdict for a route fingerprint,
+// replacing any verdict earned against a different route.
+func (r *webRuntime) rememberVerdict(fp string, v webpreflight.Verdict) {
+	if r == nil || fp == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.verdictFP = fp
+	r.verdict = v
+}
+
 // webTool builds this engine's web tool, or nothing when web is off. The
 // caller must hold engine.mu (buildToolListFor does).
 //
-// Deps.Ready is deliberately never set here: protected readiness requires a
-// consented capability preflight over the pinned web model, and that ticket
-// has not landed. The binding is still resolved at admission so the refusal
-// can name exactly what is missing — no pin, a stale pin, or the missing
-// preflight — instead of one generic answer; and the session model is never
-// a substitute, the legacy wiring that ran the reader on it is gone. The
-// tool fails closed at its own entry, after the permission gate has had its
-// say, so no gate mode can weaken the refusal.
+// Readiness runs through webAdmission: the binding is resolved, then the
+// consented capability preflight's verdict — cached per route fingerprint —
+// decides. Deps.Ready stays unset; the admission closure is the one entry
+// that guards acquisition and model calls, so no gate mode can weaken it,
+// and the session model is never a substitute, the legacy wiring that ran
+// the reader on it is gone.
 func (engine *Engine) webTool() []tools.Tool {
 	if engine == nil || !engine.web.enabled() {
 		return nil
 	}
 	runtime := engine.webRuntime
 	return webtool.Tool(webtool.Deps{
-		Policy: engine.web.Policy,
-		Mask:   engine.webMask,
-		Admission: func() (bool, string) {
-			if engine.web.resolveBinding == nil {
-				return false, project.WebBinding{}.NotReadyReason()
-			}
-			return false, engine.web.resolveBinding().NotReadyReason()
-		},
+		Policy:    engine.web.Policy,
+		Mask:      engine.webMask,
+		Admission: engine.webAdmission,
 		Decoys: func(trap *webtool.Trap) []tools.Tool {
 			return webtool.Decoys(runtime.snapshot(), trap)
 		},
 		Warn:        engine.emitWebNotice,
 		MarkTainted: engine.turnWeb.mark,
 	})
+}
+
+// webAdmission is the web tool's call-time readiness verdict: the binding
+// must resolve, and the consented capability preflight must have passed for
+// exactly this route. The verdict is cached per route fingerprint; with no
+// shared account admission adapter delivered the preflight reports
+// unavailable naming routing-openai-account-admission, and no consent
+// question and no provider request are spent. A consent the user refused is
+// cached as a refusal for the route — one denial, not one per call; a restart
+// or a fingerprint change re-asks. Policy and mode denials re-check per call:
+// they can change without the route changing.
+func (engine *Engine) webAdmission(ctx context.Context) (bool, string) {
+	if engine.web.resolveBinding == nil {
+		return false, project.WebBinding{}.NotReadyReason()
+	}
+	binding := engine.web.resolveBinding()
+	model, ok := binding.Model()
+	if !ok {
+		return false, binding.NotReadyReason()
+	}
+	fp := binding.Fingerprint()
+	if v, cached := engine.webRuntime.cachedVerdict(fp); cached {
+		return v.Status == webpreflight.StatusReady, verdictRefusal(binding.Identity(), v)
+	}
+	identity := binding.Identity()
+	runner := webpreflight.New(
+		model,
+		identity,
+		engine.webDecoyDefinitions(),
+		engine.web.admit,
+		engine.webPreflightConsent,
+	)
+	verdict, err := runner.Run(ctx)
+	if err != nil {
+		// Only the user's explicit refusal is a durable fact worth caching
+		// for the route. A failed ask channel is transport noise, and a
+		// policy or mode denial can change without the route changing;
+		// neither is remembered — they refuse this call and leave the route
+		// uncached so the next call re-checks.
+		verdict = webpreflight.Verdict{
+			Status:  webpreflight.StatusNotReady,
+			Blocker: fmt.Sprintf("consent for the web model preflight was not given: %v", err),
+		}
+		if errors.Is(err, errPreflightConsentRefused) {
+			engine.webRuntime.rememberVerdict(fp, verdict)
+		}
+		return false, verdictRefusal(identity, verdict)
+	}
+	engine.webRuntime.rememberVerdict(fp, verdict)
+	return verdict.Status == webpreflight.StatusReady, verdictRefusal(identity, verdict)
+}
+
+// verdictRefusal renders a non-ready verdict as the tool's refusal reason.
+// Identity and blocker are both fixed-vocabulary, non-secret text.
+func verdictRefusal(identity string, v webpreflight.Verdict) string {
+	if v.Status == webpreflight.StatusReady {
+		return ""
+	}
+	return fmt.Sprintf("capability preflight on %s: %s", identity, v.Blocker)
+}
+
+// webDecoyDefinitions offers the preflight the same tool names the
+// session's decoys carry, definitions only — the runner holds no executor,
+// so a tool call in a reply is recorded, never dispatched.
+func (engine *Engine) webDecoyDefinitions() []llm.ToolDefinition {
+	registry := engine.webRuntime.snapshot()
+	names := make([]string, 0, len(registry))
+	for name := range registry {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	live := make([]tools.Tool, 0, len(names))
+	for _, name := range names {
+		live = append(live, registry[name])
+	}
+	return tools.Definitions(live)
+}
+
+// errPreflightConsentRefused marks consent outcomes that are an explicit
+// no — a user denial or a policy denial — as opposed to a failed ask
+// channel or cancellation, which carry no answer at all.
+var errPreflightConsentRefused = errors.New("preflight consent refused")
+
+// webPreflightConsent asks the user for the one-time preflight approval
+// through the engine's permission gate — the same gate every tool call
+// passes, with the dedicated web_preflight action, so no mode approves what
+// the gate would not. The question names the recipient route and the exact
+// request budget it is asking to spend. A nil gate reads as allow-all (the
+// caller explicitly opted out); a nil ask channel fails closed without
+// marking the refusal.
+func (engine *Engine) webPreflightConsent(ctx context.Context, identity string, budget int) error {
+	req := permission.Request{Action: permission.ActionWebPreflight, Tool: "web", Target: identity}
+	gate := engine.gate
+	if gate == nil {
+		return nil
+	}
+	dec, reason := gate.Check(ctx, req)
+	if dec == permission.Ask {
+		reason = fmt.Sprintf("%s — up to %d model requests to %s", reason, budget, identity)
+	}
+	switch dec {
+	case permission.Allow:
+		return nil
+	case permission.Deny:
+		// Not wrapped in errPreflightConsentRefused: a policy or mode
+		// denial is re-checked on every call rather than cached, because
+		// the policy can change without the route changing.
+		return fmt.Errorf("denied by policy: %s", reason)
+	default: // Ask
+		if engine.ask == nil {
+			return fmt.Errorf("no approval channel wired; consent denied: %s", reason)
+		}
+		res, err := engine.ask(ctx, req, reason)
+		if err != nil {
+			return fmt.Errorf("asking for consent failed: %w", err)
+		}
+		if !res.Approved {
+			return fmt.Errorf("%w: denied by user", errPreflightConsentRefused)
+		}
+		return nil
+	}
 }
 
 // emitWebNotice publishes the user-facing row for a web warning — today a

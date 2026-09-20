@@ -178,6 +178,8 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 		return Allow, ""
 	case ActionWeb:
 		return g.checkWeb(req)
+	case ActionWebPreflight:
+		return g.checkWebPreflight(req)
 	case ActionMCPCall:
 		// A server tool is arbitrary capability the harness cannot see into,
 		// so the default is to ask, naming the server and tool being handed
@@ -230,6 +232,26 @@ func (g *StaticGate) checkWeb(req Request) (Decision, string) {
 	if req.Host != "" {
 		reason += " (pre-approve the host via permissions.web.allow)"
 	}
+	return Ask, reason
+}
+
+// checkWebPreflight decides on the one-time capability check of the
+// configured web model route. The setting comes first, as with any web
+// action: web.enabled: false denies it outright. Everything else asks —
+// always. The spend is model-provider quota, a recipient no
+// permissions.web.allow entry ever consented to (D8: separate recipients), so
+// there is no allowlist and no pre-approval beyond answering the question
+// itself. The harness-initiated request carries the route's non-secret
+// identity in Target; an empty one still asks, naming the action alone.
+func (g *StaticGate) checkWebPreflight(req Request) (Decision, string) {
+	if g.Policy.WebDisabled {
+		return Deny, "web access is off for this session (web.enabled: false)"
+	}
+	reason := "web model preflight requires approval"
+	if req.Target != "" {
+		reason += ": " + req.Target
+	}
+	reason += " (bounded fixture set; no page content leaves this machine)"
 	return Ask, reason
 }
 
@@ -457,6 +479,11 @@ func (g *StaticGate) foldMode(dec Decision, reason string, req Request) (Decisio
 			// nothing on this machine, so readonly has no quarrel with it,
 			// and research is most of what plan mode is for. What protects
 			// the session is the ask itself, and it is still asked.
+			//
+			// The web model preflight is different: it spends provider quota
+			// on outbound model requests, so it is not a read action. Readonly
+			// and plan modes fold its ask into a refusal like any other
+			// non-read spend, and the route re-asks once the mode lifts.
 			return Deny, askFoldReason(reason, mode)
 		}
 		return dec, reason
