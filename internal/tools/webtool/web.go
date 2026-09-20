@@ -40,6 +40,10 @@ type Deps struct {
 	// pin, or the missing capability preflight. It names what to fix in the
 	// refusal; empty falls back to the generic binding explanation.
 	NotReadyReason string
+	// Admission, when set, is the call-time readiness verdict. It overrides
+	// Ready and NotReadyReason so connection or route changes are observed at
+	// the same entry that guards acquisition and model calls.
+	Admission func() (ready bool, reason string)
 	// Reader runs the quarantined read. It is consulted only when Ready is
 	// set; nil then is a broken setup, and read and find refuse rather than
 	// fall back to raw text.
@@ -119,8 +123,12 @@ func (d Deps) run(ctx context.Context, input json.RawMessage) (tooldef.Result, e
 	// The readiness check is the whole migration boundary: it fires before
 	// any search, fetch, cache read or model call, so an unready tool has
 	// no way to acquire page content in the first place.
-	if !d.Ready {
-		return notReady(d.NotReadyReason), nil
+	ready, reason := d.Ready, d.NotReadyReason
+	if d.Admission != nil {
+		ready, reason = d.Admission()
+	}
+	if !ready {
+		return notReady(reason), nil
 	}
 	switch strings.ToLower(strings.TrimSpace(in.Action)) {
 	case "search":

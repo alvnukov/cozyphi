@@ -7,6 +7,8 @@ package provider
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -557,15 +559,16 @@ func (m *Manager) Models() []llm.ModelConfig {
 		}
 		for _, model := range connectedModels(item, cred) {
 			base := llm.ModelConfig{
-				Name:            id + "/" + model.ID,
-				APIName:         model.ID,
-				ProviderID:      id,
-				Protocol:        cred.Protocol,
-				APIKey:          cred.Key,
-				BaseURL:         cred.BaseURL,
-				Authenticator:   authenticator,
-				ContextWindow:   model.ContextWindow,
-				MaxOutputTokens: model.MaxOutputTokens,
+				Name:               id + "/" + model.ID,
+				APIName:            model.ID,
+				ProviderID:         id,
+				Protocol:           cred.Protocol,
+				APIKey:             cred.Key,
+				BaseURL:            cred.BaseURL,
+				Authenticator:      authenticator,
+				ConnectionIdentity: connectionIdentity(id, cred),
+				ContextWindow:      model.ContextWindow,
+				MaxOutputTokens:    model.MaxOutputTokens,
 			}
 			// One entry per model: the effort ladder is a capability of the
 			// entry, picked separately from the model, not a reason to list
@@ -588,6 +591,21 @@ func (m *Manager) Models() []llm.ModelConfig {
 	}
 	slices.SortFunc(result, func(a, b llm.ModelConfig) int { return strings.Compare(a.Name, b.Name) })
 	return result
+}
+
+func connectionIdentity(providerID string, cred credential) string {
+	if cred.Type != "oauth" || cred.AccountID == "" ||
+		(providerID == kimiProviderID && cred.AccountID == kimiAccountID) {
+		return ""
+	}
+	material := providerID + "\x00" + cred.AccountID
+	if providerID == openaiProviderID {
+		// Codex derives this routing header from the live token. It is not a
+		// credential, but changing it changes the effective request recipient.
+		material += "\x00" + extractResidency(cred.Access)
+	}
+	sum := sha256.Sum256([]byte(material))
+	return hex.EncodeToString(sum[:])
 }
 
 // connectedModels reports the models a stored credential actually reaches. A

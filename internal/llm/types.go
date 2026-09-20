@@ -104,6 +104,10 @@ type ModelConfig struct {
 	APIKey        string
 	BaseURL       string
 	Authenticator RequestAuthenticator
+	// ConnectionIdentity is an opaque, stable, non-secret identity for the
+	// actual account or connection receiving requests. Empty means the
+	// recipient cannot be bound safely; credentials must never be substituted.
+	ConnectionIdentity string
 	// SkillPath is the directory to scan for SKILL.md files.
 	// Defaults to ~/.cozyphi/skills if empty.
 	SkillPath string

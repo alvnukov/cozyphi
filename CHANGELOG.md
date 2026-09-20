@@ -7,15 +7,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Fixed: web model binding now stays secret-safe and current. Admission resolves
+  the pin again on every tool call, so model removal, connection and route
+  changes apply without rebuilding the engine. Routes without a proven stable
+  account/connection identity fail closed with an actionable blocker; a real
+  OAuth account contributes only an opaque derived identity, so account or
+  provider-derived routing changes invalidate the binding while credential rotation
+  with unchanged routing does not. A process-bound keyed fingerprint covers the
+  complete route and effective request configuration, including output limits,
+  without making secret endpoint components offline-guessable.
+  Model-facing identity and not-ready output show only the endpoint origin and
+  omit keys, URL userinfo, paths, queries and account identity. Protected web
+  still refuses before fetch, search, cache read or model use until the consented
+  capability preflight lands.
 - Added: the explicit web model binding. `web.model` pins an entry of the
-  config's `models:` list as the quarantine reader — credentials and endpoint
-  stay in the models section, the key never reaches any identity, fingerprint
-  or refusal text. The pin resolves once at engine admission: unset, a name no
-  list entry answers, and a resolved route each produce their own not-ready
-  answer, and the session model is never substituted. A resolved binding
-  carries a stable fingerprint over provider, protocol, model and endpoint, so
-  a route change invalidates whatever was derived from the old one; the tool
-  still fails closed on the missing capability preflight until that lands.
+  config's `models:` list as the quarantine reader; the session model is never
+  substituted. An unset pin or a name with no configured model produces its own
+  not-ready answer.
 - Changed: protected web research is off the map until it has an explicit web
   model binding. An enabled `web` tool now refuses every action — fetch,
   search, read and find — before touching the network or any model, with a

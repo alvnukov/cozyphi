@@ -27,11 +27,10 @@ type WebOptions struct {
 	// and the web tool fails closed until an explicit web model binding
 	// exists — see webtool.Deps.Ready.
 	Quarantine bool
-	// Binding is the web.model pin resolved against the model catalog at
-	// admission (engine construction). It decides what the not-ready answer
-	// names; it never flips Ready on its own — capability preflight has not
-	// landed yet.
-	Binding project.WebBinding
+	// resolveBinding re-reads the model catalog at each tool admission. Provider
+	// connect/remove and route changes must invalidate the prior verdict without
+	// requiring a new engine.
+	resolveBinding func() project.WebBinding
 }
 
 // WebOptionsFrom translates the resolved `web:` config section into what an
@@ -45,9 +44,9 @@ type WebOptions struct {
 // binding reports as missing rather than guessing.
 func WebOptionsFrom(cfg project.WebConfig, find func(string) (llm.ModelConfig, bool)) WebOptions {
 	return WebOptions{
-		Policy:     cfg.Policy,
-		Quarantine: cfg.Quarantine != project.WebQuarantineOff,
-		Binding:    cfg.Binding(find),
+		Policy:         cfg.Policy,
+		Quarantine:     cfg.Quarantine != project.WebQuarantineOff,
+		resolveBinding: func() project.WebBinding { return cfg.Binding(find) },
 	}
 }
 
@@ -178,9 +177,14 @@ func (engine *Engine) webTool() []tools.Tool {
 	}
 	runtime := engine.webRuntime
 	return webtool.Tool(webtool.Deps{
-		Policy:         engine.web.Policy,
-		Mask:           engine.webMask,
-		NotReadyReason: engine.web.Binding.NotReadyReason(),
+		Policy: engine.web.Policy,
+		Mask:   engine.webMask,
+		Admission: func() (bool, string) {
+			if engine.web.resolveBinding == nil {
+				return false, project.WebBinding{}.NotReadyReason()
+			}
+			return false, engine.web.resolveBinding().NotReadyReason()
+		},
 		Decoys: func(trap *webtool.Trap) []tools.Tool {
 			return webtool.Decoys(runtime.snapshot(), trap)
 		},

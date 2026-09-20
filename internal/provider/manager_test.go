@@ -1,6 +1,8 @@
 package provider_test
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +17,17 @@ import (
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/provider"
 )
+
+func oauthAccessToken(t *testing.T, residency, signature string) string {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{
+		"https://api.openai.com/auth": map[string]string{
+			"chatgpt_compute_residency": residency,
+		},
+	})
+	require.NoError(t, err)
+	return "header." + base64.RawURLEncoding.EncodeToString(payload) + "." + signature
+}
 
 func TestManagerIncludesPinnedSubscriptionProviders(t *testing.T) {
 	t.Parallel()
@@ -56,6 +69,59 @@ func TestManagerIncludesPinnedSubscriptionProviders(t *testing.T) {
 	require.NotEmpty(t, models)
 	require.Equal(t, llm.ProtocolOpenAI, models[0].Protocol)
 	require.Equal(t, "zai-coding-plan/glm-4.5-air", models[0].Name)
+	require.Empty(t, models[0].ConnectionIdentity, "an API key proves no stable account recipient")
+}
+
+func TestManagerConnectionIdentityFollowsAccountNotToken(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	credentials := filepath.Join(dir, "credentials.json")
+	open := func(account, access string) llm.ModelConfig {
+		t.Helper()
+		body := fmt.Sprintf(`{
+			"version": 1,
+			"providers": {
+				"openai": {
+					"type": "oauth",
+					"access": %q,
+					"refresh": "refresh",
+					"expires": 4102444800000,
+					"account_id": %q,
+					"base_url": "https://chatgpt.com/backend-api/codex",
+					"protocol": "openai-responses"
+				}
+			}
+		}`, access, account)
+		require.NoError(t, os.WriteFile(credentials, []byte(body), 0o600))
+		manager, err := provider.Open(provider.Options{
+			CachePath: filepath.Join(dir, "providers.json"), CredentialsPath: credentials,
+		})
+		require.NoError(t, err)
+		for _, model := range manager.Models() {
+			if model.Name == "openai/gpt-5.5" {
+				return model
+			}
+		}
+		t.Fatal("openai/gpt-5.5 not found")
+		return llm.ModelConfig{}
+	}
+
+	first := open("acct-one", "access-one")
+	rotated := open("acct-one", "access-two")
+	changed := open("acct-two", "access-three")
+	eu := open("acct-one", oauthAccessToken(t, "eu", "signature-one"))
+	euRotated := open("acct-one", oauthAccessToken(t, "eu", "signature-two"))
+	us := open("acct-one", oauthAccessToken(t, "us", "signature-three"))
+
+	require.NotEmpty(t, first.ConnectionIdentity)
+	assert.Equal(t, first.ConnectionIdentity, rotated.ConnectionIdentity, "token rotation keeps the recipient")
+	assert.NotEqual(t, first.ConnectionIdentity, changed.ConnectionIdentity, "account change replaces the recipient")
+	assert.Equal(t, eu.ConnectionIdentity, euRotated.ConnectionIdentity,
+		"token rotation with unchanged routing keeps the recipient")
+	assert.NotEqual(t, eu.ConnectionIdentity, us.ConnectionIdentity,
+		"a request-routing claim changes the effective recipient")
+	assert.NotContains(t, first.ConnectionIdentity, "acct-one", "the opaque identity must not expose the account id")
 }
 
 func TestManagerDefaultsKimiTemperatureToOne(t *testing.T) {
@@ -87,6 +153,7 @@ func TestManagerDefaultsKimiTemperatureToOne(t *testing.T) {
 	for _, cfg := range models {
 		require.NotNil(t, cfg.Options.Temperature, "kimi model %q carries the endpoint's required default", cfg.Name)
 		require.Equal(t, 1.0, *cfg.Options.Temperature)
+		require.Empty(t, cfg.ConnectionIdentity, "Kimi's synthetic cache key is not a proven account identity")
 	}
 	// The default rides the model entry, not the wire layer: every other
 	// provider's models must stay untouched.

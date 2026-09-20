@@ -46,10 +46,11 @@ web:
 // verdicts, and a caller that cannot supply the list resolves nothing.
 func TestWebBindingStates(t *testing.T) {
 	reader := llm.ModelConfig{
-		Name:       "reader-4o",
-		ProviderID: "openai",
-		BaseURL:    "https://api.example.test/v1",
-		APIKey:     "secret-key",
+		Name:               "reader-4o",
+		ProviderID:         "openai",
+		BaseURL:            "https://api.example.test/v1",
+		APIKey:             "secret-key",
+		ConnectionIdentity: "account-fingerprint",
 	}
 
 	unset := (WebConfig{}).Binding(findModel(reader))
@@ -76,11 +77,28 @@ func TestWebBindingStates(t *testing.T) {
 		"a caller without a model catalog resolves nothing")
 }
 
+func TestWebBindingWithoutConnectionIdentityFailsClosed(t *testing.T) {
+	reader := llm.ModelConfig{
+		Name: "reader-4o", ProviderID: "openai", BaseURL: "https://api.example.test/v1", APIKey: "secret-key",
+	}
+
+	binding := (WebConfig{Model: reader.Name}).Binding(findModel(reader))
+
+	assert.Equal(t, WebBindingUnidentified, binding.State())
+	assert.Contains(t, binding.NotReadyReason(), "stable account or connection identity")
+	assert.Empty(t, binding.Fingerprint())
+	_, ok := binding.Model()
+	assert.False(t, ok, "an unidentified recipient must not reach the transport owner")
+}
+
 // TestWebBindingModelCarriesCredentialsOnlyWhenResolved: Model() is the
 // transport seam — it hands the full connection config, credentials
 // included, to the future quarantined reader, and nothing to anyone else.
 func TestWebBindingModelCarriesCredentialsOnlyWhenResolved(t *testing.T) {
-	reader := llm.ModelConfig{Name: "reader-4o", BaseURL: "https://api.example.test/v1", APIKey: "secret-key"}
+	reader := llm.ModelConfig{
+		Name: "reader-4o", BaseURL: "https://api.example.test/v1", APIKey: "secret-key",
+		ConnectionIdentity: "account-fingerprint",
+	}
 
 	_, ok := (WebConfig{}).Binding(findModel(reader)).Model()
 	assert.False(t, ok, "unset hands out no config")
@@ -98,11 +116,12 @@ func TestWebBindingModelCarriesCredentialsOnlyWhenResolved(t *testing.T) {
 // changes none of them, and none of them leak the key.
 func TestWebBindingDisplayFormsCarryNoSecrets(t *testing.T) {
 	base := llm.ModelConfig{
-		Name:       "reader-4o",
-		ProviderID: "openai",
-		Protocol:   llm.ProtocolOpenAI,
-		BaseURL:    "https://api.example.test/v1",
-		APIKey:     "secret-key",
+		Name:               "reader-4o",
+		ProviderID:         "openai",
+		Protocol:           llm.ProtocolOpenAI,
+		BaseURL:            "https://user:password@gateway.example/v1/tenant-secret?token=query-secret",
+		APIKey:             "secret-key",
+		ConnectionIdentity: "account-fingerprint",
 	}
 	resolve := func(cfg llm.ModelConfig) WebBinding {
 		return (WebConfig{Model: cfg.Name}).Binding(findModel(cfg))
@@ -112,9 +131,11 @@ func TestWebBindingDisplayFormsCarryNoSecrets(t *testing.T) {
 	identity := a.Identity()
 	assert.Contains(t, identity, `provider="openai"`)
 	assert.Contains(t, identity, `protocol="openai"`)
-	assert.Contains(t, identity, `endpoint="https://api.example.test/v1"`)
+	assert.Contains(t, identity, `endpoint="https://gateway.example"`)
 	for _, form := range []string{identity, a.Fingerprint(), a.NotReadyReason()} {
-		assert.NotContains(t, form, "secret-key")
+		for _, secret := range []string{"secret-key", "user", "password", "tenant-secret", "query-secret"} {
+			assert.NotContains(t, form, secret)
+		}
 	}
 
 	rotated := base
@@ -132,8 +153,12 @@ func TestWebBindingDisplayFormsCarryNoSecrets(t *testing.T) {
 // resolutions. The fingerprint is the invalidation key: pending state
 // checked against one fingerprint must not ride another.
 func TestWebBindingFingerprintFollowsTheRoute(t *testing.T) {
-	cheap := llm.ModelConfig{Name: "cheap", ProviderID: "openai", BaseURL: "https://a.test/v1"}
-	reader := llm.ModelConfig{Name: "reader", ProviderID: "openai", BaseURL: "https://b.test/v1"}
+	cheap := llm.ModelConfig{
+		Name: "cheap", ProviderID: "openai", BaseURL: "https://a.test/v1", ConnectionIdentity: "account-a",
+	}
+	reader := llm.ModelConfig{
+		Name: "reader", ProviderID: "openai", BaseURL: "https://b.test/v1", ConnectionIdentity: "account-a",
+	}
 
 	first := (WebConfig{Model: "cheap"}).Binding(findModel(cheap, reader))
 	second := (WebConfig{Model: "reader"}).Binding(findModel(cheap, reader))
@@ -158,6 +183,16 @@ func TestWebBindingFingerprintFollowsTheRoute(t *testing.T) {
 	reprovidered.ProviderID = "anthropic"
 	assert.NotEqual(t, first.Fingerprint(), (WebConfig{Model: "cheap"}).Binding(findModel(reprovidered)).Fingerprint(),
 		"a changed provider is a new binding")
+
+	reaccounted := cheap
+	reaccounted.ConnectionIdentity = "account-b"
+	assert.NotEqual(t, first.Fingerprint(), (WebConfig{Model: "cheap"}).Binding(findModel(reaccounted)).Fingerprint(),
+		"a changed recipient is a new binding")
+
+	limited := cheap
+	limited.MaxOutputTokens = 4096
+	assert.NotEqual(t, first.Fingerprint(), (WebConfig{Model: "cheap"}).Binding(findModel(limited)).Fingerprint(),
+		"a changed effective output limit is a new binding")
 
 	unresolved := (WebConfig{Model: "cheap"}).Binding(findModel(reader))
 	require.Equal(t, WebBindingMissing, unresolved.State())

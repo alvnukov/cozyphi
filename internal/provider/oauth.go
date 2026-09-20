@@ -598,8 +598,11 @@ func (m *Manager) storeOAuthCredential(
 	previous := m.credentials[providerID]
 	next := cloneCredentials(m.credentials)
 	accountID := extractAccountID(token)
-	if accountID == "" {
-		accountID = previous.AccountID
+	if accountID == "" && expected != nil {
+		// Only a compare-checked refresh is known to belong to the same
+		// connection. A fresh sign-in without an authenticated account claim
+		// must not inherit the previous recipient.
+		accountID = expected.AccountID
 	}
 	// Kimi's tokens carry no account id. A constant key marks "the one kimi
 	// subscription connection" so account-bound model caching keeps working.
