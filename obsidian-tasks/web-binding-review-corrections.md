@@ -1,7 +1,7 @@
 ---
 id: web-binding-review-corrections
 title: Fix secret exposure and incomplete web model binding identity
-status: in_progress
+status: done
 priority: high
 model_level: high
 task_type: bug
@@ -22,7 +22,7 @@ verification_plan:
     - Test live missing-to-connected and changed/removed binding admission scenarios.
     - Run only affected package tests and scoped gates during implementation.
 created_at: "2026-09-20T08:06:10.513899Z"
-updated_at: "2026-09-20T09:10:43.618155Z"
+updated_at: "2026-09-20T09:19:13.058966Z"
 ---
 
 ## Body
@@ -32,6 +32,8 @@ Review of web-research-01/02/03 at ec8a7b0b (PRs #42/#43/#45) found four defects
 **Started (2026-09-20).** Fixing the confirmed review defects test-first; delivery is through a PR.
 
 **Note (2026-09-20).** Implemented the four confirmed corrections and the follow-up security fixes on `bug/web-binding-review-corrections`. Scoped package tests passed for `internal/llm`, `internal/project`, `internal/provider`, `internal/tools/webtool`, and `internal/agent`; the single scoped golangci-lint run reported 0 issues. Independent repeat standards/security and spec reviews both passed with 0 findings. Signed candidate commit: `c54d11ea`.
+
+**Done (2026-09-20).** Delivered in PR #46 as squash commit `8f2b5a52`. All required CI checks passed. Scoped local tests and the single scoped lint run passed, and independent repeat standards/security and spec reviews reported 0 findings. Local `main` was updated with `git pull --ff-only`.
 
 ## Acceptance Criteria
 
