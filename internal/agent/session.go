@@ -263,13 +263,13 @@ func (s *Session) TurnBoundaries() []session.TurnBoundary {
 	return boundaries
 }
 
-// RewindMovesCursor reports whether a cut at this entry would move the
-// cursor (see Manager.RewindMovesCursor).
-func (s *Session) RewindMovesCursor(entryID string) bool {
+// RewindOffers returns the entries a cut may be taken at right now
+// (see Manager.RewindOffers).
+func (s *Session) RewindOffers() map[string]struct{} {
 	if s == nil || s.manager == nil {
-		return false
+		return nil
 	}
-	return s.manager.RewindMovesCursor(entryID)
+	return s.manager.RewindOffers()
 }
 
 // Plan returns the latest durable model-managed plan snapshot.

@@ -72,11 +72,15 @@ type Mapper struct {
 	// queued prompt is still waiting its turn. Without this the buttons would
 	// light up in that gap and every click would be refused.
 	runActive func() bool
-	// canRewind answers, for one entry, whether a cut there would move the
-	// cursor. The mapper knows the shape of a row but not where the context
-	// currently ends, and working that out here would be a second copy of a
-	// rule that belongs to the session.
-	canRewind func(entryID string) bool
+	// rewindOffers asks the session which entries a cut may be taken at. The
+	// mapper knows the shape of a row but not where the context currently
+	// ends, and working that out here would be a second copy of a rule that
+	// belongs to the session. Nil means every boundary row offers a cut.
+	rewindOffers func() map[string]struct{}
+	// offered is that answer for the pass being built, re-read once per sync
+	// rather than once per row: the lock behind it is the one appends hold
+	// while they write to disk.
+	offered map[string]struct{}
 	// messageIDs is the snapshot's messages by id, re-read on every sync
 	// pass. It is what a row's action anchor is resolved against.
 	messageIDs map[string]bool
@@ -212,7 +216,7 @@ func (m *Mapper) messageActions(it session.Item, boundary bool) block.MessageAct
 	// The row at the end of the context is the commonest case: a finished
 	// turn leaves the cursor on its last answer, which is the bottom of the
 	// feed and the first button a reader reaches for.
-	if m.onRewind != nil && (m.canRewind == nil || m.canRewind(id)) {
+	if m.onRewind != nil && m.offersRewind(id) {
 		actions.OnRewind = func() { m.onRewind(id) }
 	}
 	if m.onFork != nil {
@@ -236,14 +240,27 @@ func (m *Mapper) refreshActionContext(snap session.Snapshot) {
 	if session.IsStreaming(snap) || (m.runActive != nil && m.runActive()) {
 		m.actionsBusy = actionsBusyHint
 	}
+	m.offered = nil
+	if m.rewindOffers != nil {
+		m.offered = m.rewindOffers()
+	}
 }
 
-// SetCanRewind wires the session's answer to whether a cut at one entry would
-// move the cursor. Without it every boundary row offers a cut.
-func (m *Mapper) SetCanRewind(fn func(entryID string) bool) {
+// SetRewindOffers wires the session's answer to which entries a cut may be
+// taken at. Without it every boundary row offers a cut.
+func (m *Mapper) SetRewindOffers(fn func() map[string]struct{}) {
 	if m != nil {
-		m.canRewind = fn
+		m.rewindOffers = fn
 	}
+}
+
+// offersRewind reads one row against the answer this pass was given.
+func (m *Mapper) offersRewind(entryID string) bool {
+	if m.rewindOffers == nil {
+		return true
+	}
+	_, ok := m.offered[entryID]
+	return ok
 }
 
 // SetRunActive wires the shell's run-in-flight answer, which the strips ask

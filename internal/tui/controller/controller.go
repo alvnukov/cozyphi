@@ -2099,13 +2099,13 @@ func (c *Controller) UndoRewind() (session.RewindResult, error) {
 	return c.engine.UndoRewind()
 }
 
-// RewindMovesCursor reports whether a cut at this entry would move the
-// cursor. Asking moves nothing, so it needs no busy guard.
-func (c *Controller) RewindMovesCursor(entryID string) bool {
+// RewindOffers returns the entries a cut may be taken at right now. Asking
+// moves nothing, so it needs no busy guard.
+func (c *Controller) RewindOffers() map[string]struct{} {
 	if c == nil || c.engine == nil {
-		return false
+		return nil
 	}
-	return c.engine.RewindMovesCursor(entryID)
+	return c.engine.RewindOffers()
 }
 
 // TurnBoundaries lists the places the context can be cut at, oldest first.

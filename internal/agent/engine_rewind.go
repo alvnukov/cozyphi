@@ -87,11 +87,10 @@ func (engine *Engine) UndoRewind() (session.RewindResult, error) {
 	return engine.sessionRef().UndoRewind()
 }
 
-// RewindMovesCursor reports whether a cut at this entry would move the
-// cursor. The strips ask it for every row they draw, so it stays a question
-// about one entry and never a walk of the history.
-func (engine *Engine) RewindMovesCursor(entryID string) bool {
-	return engine.sessionRef().RewindMovesCursor(entryID)
+// RewindOffers returns the entries a cut may be taken at right now. A feed
+// asks it once per frame and reads every row against the answer.
+func (engine *Engine) RewindOffers() map[string]struct{} {
+	return engine.sessionRef().RewindOffers()
 }
 
 // TurnBoundaries lists the places the current context can be cut at, oldest

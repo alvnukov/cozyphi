@@ -223,12 +223,12 @@ func (t *TranscriptPane) MessageActionsGuard() string {
 	return t.mapper.actionsBusy
 }
 
-// SetCanRewind wires the session's answer to whether a cut at one entry would
-// move the cursor, so a strip can leave the button off a row where it would
-// only earn a refusal.
-func (t *TranscriptPane) SetCanRewind(fn func(entryID string) bool) {
+// SetRewindOffers wires the session's answer to which entries a cut may be
+// taken at, so a strip can leave the button off a row where it would only
+// earn a refusal.
+func (t *TranscriptPane) SetRewindOffers(fn func() map[string]struct{}) {
 	if t != nil && t.mapper != nil {
-		t.mapper.SetCanRewind(fn)
+		t.mapper.SetRewindOffers(fn)
 	}
 }
 

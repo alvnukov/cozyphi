@@ -423,8 +423,11 @@ func NewView(
 	e.transcript.SetRunActive(func() bool { return e.ctrl != nil && e.ctrl.RunActive() })
 	// The strip and the /rewind picker read one answer, so a row that offers
 	// a cut is a row the cut will happen on.
-	e.transcript.SetCanRewind(func(entryID string) bool {
-		return e.ctrl != nil && e.ctrl.RewindMovesCursor(entryID)
+	e.transcript.SetRewindOffers(func() map[string]struct{} {
+		if e.ctrl == nil {
+			return nil
+		}
+		return e.ctrl.RewindOffers()
 	})
 	// Composer copy/cut chords share the clipboard and confirm with a toast,
 	// so selection copy in the input feels the same as transcript copy.

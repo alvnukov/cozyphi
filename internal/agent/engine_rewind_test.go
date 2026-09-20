@@ -69,8 +69,8 @@ func TestEngineTurnBoundaries(t *testing.T) {
 	for _, boundary := range boundaries {
 		assert.NotEqual(t, answer, boundary.EntryID)
 	}
-	assert.False(t, engine.RewindMovesCursor(answer))
-	assert.True(t, engine.RewindMovesCursor(prompt))
+	assert.NotContains(t, engine.RewindOffers(), answer)
+	assert.Contains(t, engine.RewindOffers(), prompt)
 }
 
 // Moving the cursor mid-turn would hand the model a round it never ran, so
