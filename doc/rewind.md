@@ -12,7 +12,9 @@ worded badly and you would rather send it again than explain it twice.
 
 1. Find the message you want to go back to. Every prompt you sent carries a
    `rewind` button at the right edge of its row, and so does every reply that
-   finished a turn.
+   finished a turn. One row does not: the one the context already ends at,
+   usually the last reply on screen. There is nothing after it to remove. To
+   undo the turn that just finished, use the prompt above it.
 2. Click it. The rows after that point disappear. A notice says where the
    context now ends.
 3. If you rewound to a prompt, its text is waiting in the composer. Edit it and
@@ -43,6 +45,11 @@ ran. Anything else is refused by name, and the refusal says what a boundary is.
 Background deliveries are not offered either. A watch event, a finished
 background shell and a child's outcome all wear the user role. None of them is
 something you typed.
+
+A row the context already ends at carries no button, and the Tab list leaves
+it out. A cut there would put the context back exactly where it is. After a
+finished turn that row is the last reply. After a rewind it is wherever the
+rewind landed.
 
 A rewind is also refused while a reply or a queued prompt is running, and the
 buttons are dimmed to say so. Cancelling with Esc is not enough on its own: it
