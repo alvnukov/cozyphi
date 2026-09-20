@@ -140,6 +140,17 @@ const (
 	// gets no special case here: the web tool refuses raw outright while
 	// protected web is not ready (see doc/web.md).
 	ActionWeb Action = "web"
+
+	// ActionWebPreflight covers the harness-initiated capability check of the
+	// configured web model route (spec protected-web-research.md, D2): a small
+	// fixture set sent to the pinned model's provider to observe vision,
+	// executor-less tool calls and structured replies before web is used. It is
+	// not a model tool call and extracts no args: the harness builds the request
+	// directly, with Target carrying the route's non-secret identity. The spend
+	// is quota on the model provider — a recipient separate from any page host
+	// (D8) — so permissions.web.allow cannot pre-approve it and the gate always
+	// asks, naming the route.
+	ActionWebPreflight Action = "web_preflight"
 )
 
 // Request describes a tool invocation for permission evaluation.

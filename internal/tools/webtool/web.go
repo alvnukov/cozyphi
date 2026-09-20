@@ -42,8 +42,9 @@ type Deps struct {
 	NotReadyReason string
 	// Admission, when set, is the call-time readiness verdict. It overrides
 	// Ready and NotReadyReason so connection or route changes are observed at
-	// the same entry that guards acquisition and model calls.
-	Admission func() (ready bool, reason string)
+	// the same entry that guards acquisition and model calls; it takes the
+	// call's context so a preflight it may run stays cancellable.
+	Admission func(ctx context.Context) (ready bool, reason string)
 	// Reader runs the quarantined read. It is consulted only when Ready is
 	// set; nil then is a broken setup, and read and find refuse rather than
 	// fall back to raw text.
@@ -125,7 +126,7 @@ func (d Deps) run(ctx context.Context, input json.RawMessage) (tooldef.Result, e
 	// no way to acquire page content in the first place.
 	ready, reason := d.Ready, d.NotReadyReason
 	if d.Admission != nil {
-		ready, reason = d.Admission()
+		ready, reason = d.Admission(ctx)
 	}
 	if !ready {
 		return notReady(reason), nil

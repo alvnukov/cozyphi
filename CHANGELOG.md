@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Added: consented capability preflight for the web model route. A new
+  `web_preflight` permission action (always Ask, no allowlist branch, denied
+  under readonly-folding modes) gates the one-time probe spend; the offline
+  preflight runner checks the pinned route for image input, executor-less
+  tool-call rounds and strict structured replies with a fixed budget of three
+  requests. The verdict is cached per route fingerprint in the web tool's
+  admission closure, and a denied consent is remembered for the route. Until
+  the shared account admission adapter lands (routing-openai-account-admission)
+  the preflight reports unavailable naming that task, spends no requests and
+  raises no consent question.
 - Fixed: web model binding now stays secret-safe and current. Admission resolves
   the pin again on every tool call, so model removal, connection and route
   changes apply without rebuilding the engine. Routes without a proven stable

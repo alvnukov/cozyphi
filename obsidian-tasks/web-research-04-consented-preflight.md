@@ -17,7 +17,7 @@ verification_plan:
     - Verify images and decoy tool events have no real executor; malformed replies and unsupported account/route adapters cannot pass.
     - Record request counts, effective route, claim reconciliation, capability outcomes and scoped commands; no paid/live trial without separate approval.
 created_at: "2026-09-19T19:10:37.855215Z"
-updated_at: "2026-09-19T19:31:28.612283Z"
+updated_at: "2026-09-20T22:31:41.321796Z"
 ---
 
 ## Body
@@ -35,6 +35,8 @@ updated_at: "2026-09-19T19:31:28.612283Z"
 **Proof required:** Offline request captures before/after consent, unsupported tool/image/schema cases and binding changes; zero pre-consent calls, exact route and shared claim reconciliation throughout. A live preflight needs separately approved scope/budget.
 
 **Stop condition:** Unknown capabilities, recipient identity or shared account support block readiness, not implementation of an optimistic default.
+
+**Note (2026-09-21).** 2026-09-06: реализация завершена на ветке feature/web-research-04-consented-preflight (worktree). Proof: 4 новых agent-теста (web_preflight_admission_test.go) зелёные — undelivered-adapter отказ naming routing-openai-account-admission без запросов/асков; consent 1 раз с Action=web_preflight, кэш вердикта по fingerprint маршрута; deny кэшируется; смена BaseURL → повторный preflight. Регрессия: go test agent/permission/webpreflight ok, go build ./internal/... чисто, gofmt чисто, один scoped golangci-lint run (5 замечаний исправлено: echoMarker rename для G101, errors.New ×2, _ int, инлайн sseToolCall). Проводка: webRuntime кэширует Verdict по WebBinding.Fingerprint; webAdmission → webpreflight.New(model, identity, decoys, admit, consent через engine.gate).
 
 ## Acceptance Criteria
 
