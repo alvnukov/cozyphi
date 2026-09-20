@@ -99,19 +99,19 @@ func TestWebOptionsFromConfig(t *testing.T) {
 		Policy:     cozyconfig.WebPolicy{Enabled: &on, CacheDir: t.TempDir()},
 		Quarantine: project.WebQuarantineReader,
 	}
-	opts := WebOptionsFrom(cfg)
+	opts := WebOptionsFrom(cfg, nil)
 	assert.True(t, opts.Quarantine)
 	assert.True(t, opts.enabled())
 
 	cfg.Quarantine = project.WebQuarantineOff
-	assert.False(t, WebOptionsFrom(cfg).Quarantine)
+	assert.False(t, WebOptionsFrom(cfg, nil).Quarantine)
 
 	off := false
 	assert.False(t, WebOptionsFrom(project.WebConfig{
 		Policy: cozyconfig.WebPolicy{Enabled: &off, CacheDir: t.TempDir()},
-	}).enabled())
+	}, nil).enabled())
 
-	assert.False(t, WebOptionsFrom(project.WebConfig{Policy: cozyconfig.WebPolicy{Enabled: &on}}).enabled(),
+	assert.False(t, WebOptionsFrom(project.WebConfig{Policy: cozyconfig.WebPolicy{Enabled: &on}}, nil).enabled(),
 		"no cache directory means no place to keep a fetched page")
 }
 

@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Added: the explicit web model binding. `web.model` pins an entry of the
+  config's `models:` list as the quarantine reader — credentials and endpoint
+  stay in the models section, the key never reaches any identity, fingerprint
+  or refusal text. The pin resolves once at engine admission: unset, a name no
+  list entry answers, and a resolved route each produce their own not-ready
+  answer, and the session model is never substituted. A resolved binding
+  carries a stable fingerprint over provider, protocol, model and endpoint, so
+  a route change invalidates whatever was derived from the old one; the tool
+  still fails closed on the missing capability preflight until that lands.
 - Changed: protected web research is off the map until it has an explicit web
   model binding. An enabled `web` tool now refuses every action — fetch,
   search, read and find — before touching the network or any model, with a

@@ -7,6 +7,7 @@ import (
 
 	cozyconfig "github.com/alvnukov/cozy-tools/config"
 
+	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/session"
@@ -26,6 +27,11 @@ type WebOptions struct {
 	// and the web tool fails closed until an explicit web model binding
 	// exists — see webtool.Deps.Ready.
 	Quarantine bool
+	// Binding is the web.model pin resolved against the model catalog at
+	// admission (engine construction). It decides what the not-ready answer
+	// names; it never flips Ready on its own — capability preflight has not
+	// landed yet.
+	Binding project.WebBinding
 }
 
 // WebOptionsFrom translates the resolved `web:` config section into what an
@@ -33,10 +39,15 @@ type WebOptions struct {
 // into a boolean, so a new mode cannot silently read as "off". The boolean
 // is data for observation only: it no longer authorizes unchecked delivery,
 // and web.enabled: true is not a protected-readiness claim.
-func WebOptionsFrom(cfg project.WebConfig) WebOptions {
+//
+// find resolves a model name against the session's catalog (configured
+// models plus connected providers); nil leaves any pin unresolved, which the
+// binding reports as missing rather than guessing.
+func WebOptionsFrom(cfg project.WebConfig, find func(string) (llm.ModelConfig, bool)) WebOptions {
 	return WebOptions{
 		Policy:     cfg.Policy,
 		Quarantine: cfg.Quarantine != project.WebQuarantineOff,
+		Binding:    cfg.Binding(find),
 	}
 }
 
@@ -153,20 +164,23 @@ func (r *webRuntime) snapshot() tools.Registry {
 // webTool builds this engine's web tool, or nothing when web is off. The
 // caller must hold engine.mu (buildToolListFor does).
 //
-// Deps.Ready is deliberately never set here: protected readiness requires an
-// explicitly configured web model for the quarantined reader, and the session
-// model is not one — the legacy wiring that ran the reader on it is gone.
-// Until that binding exists the tool fails closed at its own entry, after
-// the permission gate has had its say, so no gate mode can weaken the
-// refusal.
+// Deps.Ready is deliberately never set here: protected readiness requires a
+// consented capability preflight over the pinned web model, and that ticket
+// has not landed. The binding is still resolved at admission so the refusal
+// can name exactly what is missing — no pin, a stale pin, or the missing
+// preflight — instead of one generic answer; and the session model is never
+// a substitute, the legacy wiring that ran the reader on it is gone. The
+// tool fails closed at its own entry, after the permission gate has had its
+// say, so no gate mode can weaken the refusal.
 func (engine *Engine) webTool() []tools.Tool {
 	if engine == nil || !engine.web.enabled() {
 		return nil
 	}
 	runtime := engine.webRuntime
 	return webtool.Tool(webtool.Deps{
-		Policy: engine.web.Policy,
-		Mask:   engine.webMask,
+		Policy:         engine.web.Policy,
+		Mask:           engine.webMask,
+		NotReadyReason: engine.web.Binding.NotReadyReason(),
 		Decoys: func(trap *webtool.Trap) []tools.Tool {
 			return webtool.Decoys(runtime.snapshot(), trap)
 		},
