@@ -31,6 +31,13 @@ const (
 type WebConfig struct {
 	Policy     cozyconfig.WebPolicy
 	Quarantine WebQuarantine
+	// Model is the web.model pin: the name of one entry in the configured
+	// models list that the quarantined reader must run on. Empty means no
+	// pin, which is one of the not-ready states — see WebBinding. It is a
+	// reference, never a credential: resolving it against the model catalog
+	// happens at admission, and nothing here authorizes a fallback to the
+	// session model.
+	Model string
 }
 
 // Enabled reports whether the web tool is registered at all.
@@ -62,6 +69,7 @@ type webFileConfig struct {
 	GoogleAPIKey         *string     `yaml:"google_api_key"`
 	GoogleCSEURL         *string     `yaml:"google_cse_url"`
 	Quarantine           *string     `yaml:"quarantine"`
+	Model                *string     `yaml:"model"`
 	Allow                *stringList `yaml:"allow"`
 }
 
@@ -165,6 +173,13 @@ func applyWeb(w *WebConfig, raw *webFileConfig) (allow, warnings []string, err e
 					"an explicit web model binding, and the web tool refuses page content until one is configured "+
 					"(see doc/web.md)")
 		}
+	}
+	// The pin is kept verbatim (trimmed): whether it names a model is
+	// decided at admission against the live catalog, not at load — a model
+	// can appear after the file was written, and a load-time guess would
+	// freeze the wrong verdict.
+	if raw.Model != nil {
+		w.Model = strings.TrimSpace(*raw.Model)
 	}
 	if raw.Allow != nil {
 		allow = *raw.Allow

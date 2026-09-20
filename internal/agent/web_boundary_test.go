@@ -115,7 +115,7 @@ func boundaryEngine(
 		Gate:        gate,
 		Ask:         ask,
 		AutoApprove: func() bool { return true },
-		Web:         WebOptionsFrom(cfg),
+		Web:         WebOptionsFrom(cfg, nil),
 	})
 	require.NoError(t, err)
 	return engine

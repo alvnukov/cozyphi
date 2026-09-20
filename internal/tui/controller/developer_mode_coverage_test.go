@@ -244,6 +244,12 @@ var withheldConfig = merge(
 		"internal/project:webFileConfig.google_api_key",
 	),
 	because(
+		"пин web.model — имя записи из списка моделей, а не поведение: разрешённый биндинг и его "+
+			"состояние появятся в каталоге вместе с capability-preflight, ради которого биндинг заведён",
+		"config.yaml:web.model",
+		"internal/project:webFileConfig.model",
+	),
+	because(
 		"геометрия и история панелей TUI: раскладка, а не поведение harness — каталог описывает, что harness "+
 			"делает, а не как он выглядит",
 		"internal/project:UIState.sidebarWidth",

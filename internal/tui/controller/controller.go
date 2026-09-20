@@ -349,7 +349,7 @@ func (c *Controller) webOptions() agent.WebOptions {
 	if c == nil || c.proj == nil || c.proj.Config() == nil {
 		return agent.WebOptions{}
 	}
-	return agent.WebOptionsFrom(c.proj.Config().Web)
+	return agent.WebOptionsFrom(c.proj.Config().Web, c.findModel)
 }
 
 func (c *Controller) bindJobRunner(

@@ -36,6 +36,10 @@ type Deps struct {
 	// before any acquisition or model call, and no permission mode, approval
 	// or raw:true weakens that.
 	Ready bool
+	// NotReadyReason is the host's specific gap — no web.model pin, a stale
+	// pin, or the missing capability preflight. It names what to fix in the
+	// refusal; empty falls back to the generic binding explanation.
+	NotReadyReason string
 	// Reader runs the quarantined read. It is consulted only when Ready is
 	// set; nil then is a broken setup, and read and find refuse rather than
 	// fall back to raw text.
@@ -116,7 +120,7 @@ func (d Deps) run(ctx context.Context, input json.RawMessage) (tooldef.Result, e
 	// any search, fetch, cache read or model call, so an unready tool has
 	// no way to acquire page content in the first place.
 	if !d.Ready {
-		return notReady(), nil
+		return notReady(d.NotReadyReason), nil
 	}
 	switch strings.ToLower(strings.TrimSpace(in.Action)) {
 	case "search":
@@ -249,17 +253,20 @@ func (d Deps) bounded(in args, find bool, docID, query string) (text string, fla
 }
 
 // notReady is the one answer a session gets while the web tool is enabled
-// but protected web has no explicit web model binding: every action refuses
-// here, before any acquisition or model call, and no permission mode,
-// approval or raw:true changes that. It names the missing binding and the
-// off switch so the user can act on either.
-func notReady() tooldef.Result {
-	body := "web is not ready: protected web research requires an explicitly configured web model binding " +
-		"for the quarantined reader, and this session has none. " +
+// but protected web is not ready: every action refuses here, before any
+// acquisition or model call, and no permission mode, approval or raw:true
+// changes that. reason is the host's specific gap (unset or stale web.model
+// pin, missing preflight); empty gets the generic binding explanation. Either
+// way the answer names the off switch so the user can act on both.
+func notReady(reason string) tooldef.Result {
+	if reason == "" {
+		reason = "there is no explicitly configured web model binding for the quarantined reader"
+	}
+	body := "web is not ready: " + reason + ". " +
 		"The legacy unchecked paths — raw:true, web.quarantine: off, the session model as reader and direct " +
 		"search snippets — no longer deliver page content, and no permission mode or approval unlocks them. " +
 		"Set web.enabled: false to turn the tool off; see doc/web.md for the required setup."
-	return tooldef.Result{Content: body, Detail: "web not ready: no web model binding", Output: body}
+	return tooldef.Result{Content: body, Detail: "web not ready: " + reason, Output: body}
 }
 
 // rawRefusal is what raw:true gets now: the unchecked escape hatch is gone,

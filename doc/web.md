@@ -16,10 +16,16 @@ the agent use the page's information anyway.
 
 Protected web research is being rebuilt around an **explicit web model
 binding** — a pinned, user-configured model that runs the quarantined
-reading — instead of borrowing the session model. Until that binding exists,
-the enabled `web` tool **refuses every action at its entry**, before any
-fetch, search or model call, with a not-ready answer that names the missing
-binding. No permission mode, approval or legacy setting changes that:
+reading — instead of borrowing the session model. The binding exists now:
+`web.model` pins an entry of the config's `models:` list, resolved once at
+engine admission, and the enabled `web` tool still **refuses every action at
+its entry**, before any fetch, search or model call — what remains is the
+consented capability preflight over the pinned model. The not-ready answer
+names exactly what is missing: no `web.model` pin, a pin that names no
+configured model, or the preflight itself. A resolved pin carries a stable
+identity and fingerprint (provider, protocol, model, endpoint — never the
+key), and any route change invalidates state derived from the old one. No
+permission mode, approval or legacy setting weakens the refusal:
 
 - `raw: true` no longer delivers page text — the unchecked escape hatch is
   gone, for flagged documents too;
@@ -172,11 +178,12 @@ query.
 Web is **off** until the config says `enabled: true`. Writing any other
 `web:` key configures the tool but does not switch it on: while protected web
 is not ready an enabled tool only refuses, so opting in must be deliberate.
-The default flips to on once the protected web model binding lands.
+The default flips to on once the protected capability preflight lands.
 
 ```yaml
 web:
   enabled: true
+  model: reader-4o                    # a name from the config's models: list
   # cache_dir: ~/.cozyphi/web by default
   max_source_bytes: 2000000
   timeout_seconds: 20
@@ -195,11 +202,17 @@ web:
     - ^pkg\.go\.dev$
 ```
 
-Two keys are cozyphi's own. `quarantine` still decodes (`reader` default,
-`off` accepted with a load-time warning) but is now data for observation: it
-no longer authorizes unchecked delivery, and neither mode makes an enabled
-tool ready — readiness needs the explicit web model binding. `allow` feeds the
-permission policy, not the library.
+Three keys are cozyphi's own. `model` pins the web model: it is the **name of
+an entry in the config's `models:` list**, not a model definition — the
+credentials and endpoint stay where they already live. The pin is resolved
+once at engine admission; unset, a name no list entry answers, and any later
+route change (endpoint, wire model, provider) are each their own not-ready
+answer, and no path borrows the session model instead. `quarantine` still
+decodes (`reader` default, `off` accepted with a load-time warning) but is
+now data for observation: it no longer authorizes unchecked delivery, and
+neither mode makes an enabled tool ready — readiness needs the capability
+preflight over the pinned model. `allow` feeds the permission policy, not the
+library.
 
 `google_api_key` is refused: the CSE key travels in a request query string and
 must not sit in a file a backup or a repository can carry. A literal in the
