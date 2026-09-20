@@ -115,6 +115,39 @@ func TestOpenAIDeviceAuthorizationPersistsAndAuthorizes(t *testing.T) {
 	require.Empty(t, untrusted.Header.Get("Authorization"))
 }
 
+func TestFreshOAuthCredentialDoesNotReusePreviousAccount(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	manager, err := Open(Options{
+		CachePath:       filepath.Join(dir, "providers.json"),
+		CredentialsPath: filepath.Join(dir, "credentials.json"),
+	})
+	require.NoError(t, err)
+	manager.credentials[openaiProviderID] = credential{
+		Type:      "oauth",
+		Access:    "old-access",
+		Refresh:   "old-refresh",
+		Expires:   time.Now().Add(time.Hour).UnixMilli(),
+		AccountID: "account-a",
+		BaseURL:   chatgptCodexBaseURL,
+		Protocol:  llm.ProtocolOpenAIResponses,
+	}
+
+	require.NoError(t, manager.saveOAuthCredential(openaiProviderID, AuthOAuthDevice, oauthTokenResponse{
+		AccessToken:  "claimless-account-b-access",
+		RefreshToken: "account-b-refresh",
+		ExpiresIn:    3600,
+	}))
+	assert.Empty(t, manager.credentials[openaiProviderID].AccountID,
+		"a fresh claim-less sign-in must not inherit the previous recipient")
+	for _, model := range manager.Models() {
+		if model.ProviderID == openaiProviderID {
+			assert.Empty(t, model.ConnectionIdentity)
+		}
+	}
+}
+
 func TestOpenAIDeviceAuthorizationExplainsDisabledDeviceLogin(t *testing.T) {
 	t.Parallel()
 

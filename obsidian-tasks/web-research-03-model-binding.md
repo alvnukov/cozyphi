@@ -1,7 +1,7 @@
 ---
 id: web-research-03-model-binding
 title: 03 — Configure an explicit pinned web model without fallback
-status: in_progress
+status: done
 priority: high
 model_level: low
 task_type: feature
@@ -19,7 +19,7 @@ verification_plan:
     - Change account, endpoint, model and effective options; assert readiness invalidation and no default substitution.
     - Run only affected configuration/settings tests and scoped gates; record captured identity with credentials removed.
 created_at: "2026-09-19T19:10:37.769516Z"
-updated_at: "2026-09-19T23:33:16.570439Z"
+updated_at: "2026-09-20T07:59:25.087931Z"
 ---
 
 ## Body
@@ -41,6 +41,8 @@ updated_at: "2026-09-19T23:33:16.570439Z"
 **Reopened (2026-09-20).** Блокер 02 снят (PR #43 в main).
 
 **Started (2026-09-20).** Беру в работу: явный web-модельный биндинг без фолбэка, маршрут как у 02.
+
+**Done (2026-09-20).** PR #45 влит squash-коммитом 42c1e9d1 в main. web.model пинит имя записи из models:; биндинг резолвится на admission (unset/missing/resolved), identity/fingerprint без APIKey, отказ называет причину, fallback на сессионную модель отсутствует; tool остаётся fail-closed до capability-preflight. Гейты scoped, линтер 0 issues.
 
 ## Acceptance Criteria
 

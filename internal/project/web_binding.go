@@ -1,10 +1,8 @@
 package project
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
@@ -20,6 +18,10 @@ const (
 	// There is no fallback: a stale pin is a broken configuration, not a
 	// reason to borrow the session model.
 	WebBindingMissing
+	// WebBindingUnidentified means the model exists, but its actual recipient
+	// has no stable non-secret account or connection identity. It must not be
+	// treated as a resolved route because token replacement could redirect it.
+	WebBindingUnidentified
 	// WebBindingResolved means the pin names a configured model. Resolution
 	// alone is not readiness: the consented capability preflight (spec D2)
 	// has not landed yet, so the web tool still fails closed.
@@ -51,7 +53,10 @@ func (w WebConfig) Binding(find func(string) (llm.ModelConfig, bool)) WebBinding
 	}
 	if model, ok := find(pin); ok {
 		b.model = model
-		b.state = WebBindingResolved
+		b.state = WebBindingUnidentified
+		if strings.TrimSpace(model.ConnectionIdentity) != "" {
+			b.state = WebBindingResolved
+		}
 	}
 	return b
 }
@@ -76,16 +81,24 @@ func (b WebBinding) Model() (model llm.ModelConfig, ok bool) {
 // Identity is the display form of the resolved route: provider, protocol,
 // model name and endpoint. It contains no credentials.
 func (b WebBinding) Identity() string {
-	if b.state != WebBindingResolved {
+	if b.state != WebBindingResolved && b.state != WebBindingUnidentified {
 		return ""
 	}
 	parts := []string{
 		fmt.Sprintf("provider=%q", b.model.ProviderID),
 		fmt.Sprintf("protocol=%q", b.model.Protocol),
 		fmt.Sprintf("model=%q", b.model.RequestModel()),
-		fmt.Sprintf("endpoint=%q", b.model.BaseURL),
+		fmt.Sprintf("endpoint=%q", safeEndpointIdentity(b.model.BaseURL)),
 	}
 	return strings.Join(parts, " ")
+}
+
+func safeEndpointIdentity(raw string) string {
+	endpoint, err := url.Parse(raw)
+	if err != nil || endpoint.Scheme == "" || endpoint.Host == "" {
+		return "configured"
+	}
+	return (&url.URL{Scheme: endpoint.Scheme, Host: endpoint.Host}).String()
 }
 
 // Fingerprint is the invalidation key for anything checked against this
@@ -97,35 +110,7 @@ func (b WebBinding) Fingerprint() string {
 	if b.state != WebBindingResolved {
 		return ""
 	}
-	projection := struct {
-		Name             string                        `json:"name"`
-		APIName          string                        `json:"api_name"`
-		ProviderID       string                        `json:"provider"`
-		Protocol         llm.Protocol                  `json:"protocol"`
-		BaseURL          string                        `json:"base_url"`
-		ReasoningEffort  llm.ReasoningEffort           `json:"reasoning_effort"`
-		ReasoningEfforts []llm.ReasoningEffort         `json:"reasoning_efforts"`
-		Options          llm.ModelOptions              `json:"options"`
-		Variants         map[string]llm.VariantOptions `json:"variants"`
-	}{
-		Name:             b.model.Name,
-		APIName:          b.model.APIName,
-		ProviderID:       b.model.ProviderID,
-		Protocol:         b.model.Protocol,
-		BaseURL:          b.model.BaseURL,
-		ReasoningEffort:  b.model.ReasoningEffort,
-		ReasoningEfforts: b.model.ReasoningEfforts,
-		Options:          b.model.Options,
-		Variants:         b.model.Variants,
-	}
-	data, err := json.Marshal(projection)
-	if err != nil {
-		// Marshal of plain data does not fail; refuse to mint a key rather
-		// than risk two routes sharing one.
-		return ""
-	}
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
+	return b.model.RequestBindingFingerprint()
 }
 
 // NotReadyReason is the actionable explanation the web tool reports while
@@ -140,6 +125,11 @@ func (b WebBinding) NotReadyReason() string {
 		return fmt.Sprintf(
 			"web.model %q names no configured model: fix the pin to reference one entry of the models list — "+
 				"there is no fallback to the session model", b.pin)
+	case WebBindingUnidentified:
+		return fmt.Sprintf(
+			"web.model resolves to %s, but this route exposes no stable account or connection identity; "+
+				"reconnect through a provider that supplies one — credentials cannot stand in for recipient identity",
+			b.Identity())
 	default:
 		return fmt.Sprintf(
 			"web.model resolves to %s, but the consented capability preflight that must verify this route "+

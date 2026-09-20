@@ -17,15 +17,23 @@ the agent use the page's information anyway.
 Protected web research is being rebuilt around an **explicit web model
 binding** — a pinned, user-configured model that runs the quarantined
 reading — instead of borrowing the session model. The binding exists now:
-`web.model` pins an entry of the config's `models:` list, resolved once at
-engine admission, and the enabled `web` tool still **refuses every action at
-its entry**, before any fetch, search or model call — what remains is the
-consented capability preflight over the pinned model. The not-ready answer
-names exactly what is missing: no `web.model` pin, a pin that names no
-configured model, or the preflight itself. A resolved pin carries a stable
-identity and fingerprint (provider, protocol, model, endpoint — never the
-key), and any route change invalidates state derived from the old one. No
-permission mode, approval or legacy setting weakens the refusal:
+`web.model` pins an entry of the config's `models:` list and is resolved again
+at every tool admission, so removal, connection and route changes take effect
+without rebuilding the engine. The enabled `web` tool still **refuses every
+action at its entry**, before any fetch, search, cache read or model call — what
+remains is the consented capability preflight over the pinned model. The
+not-ready answer names exactly what is missing: no `web.model` pin, a pin that
+names no configured model, no proven stable account/connection identity, or the
+preflight itself. A resolved pin carries an opaque connection identity and a
+process-bound keyed fingerprint of the effective request configuration, including
+the complete route, output limits and provider-derived routing claims. The key
+keeps secret endpoint components out of an offline-guessable display value while
+route, account or routing-claim changes still invalidate state derived from the
+old binding; credential rotation with unchanged routing does not. Model-facing
+the endpoint origin (`scheme://host`): keys, URL userinfo, paths, queries,
+account identity and other endpoint secrets never enter identities, errors or
+transcript fields. No permission mode, approval or legacy setting weakens the
+refusal:
 
 - `raw: true` no longer delivers page text — the unchecked escape hatch is
   gone, for flagged documents too;
@@ -203,16 +211,18 @@ web:
 ```
 
 Three keys are cozyphi's own. `model` pins the web model: it is the **name of
-an entry in the config's `models:` list**, not a model definition — the
-credentials and endpoint stay where they already live. The pin is resolved
-once at engine admission; unset, a name no list entry answers, and any later
-route change (endpoint, wire model, provider) are each their own not-ready
-answer, and no path borrows the session model instead. `quarantine` still
-decodes (`reader` default, `off` accepted with a load-time warning) but is
-now data for observation: it no longer authorizes unchecked delivery, and
-neither mode makes an enabled tool ready — readiness needs the capability
-preflight over the pinned model. `allow` feeds the permission policy, not the
-library.
+an entry in the config's `models:` list**, not a model definition — credentials
+and endpoint stay where they already live. The pin is resolved at every tool
+admission. An unset pin, a name no list entry answers, or a route without a
+proven stable account/connection identity each produces an actionable
+not-ready answer, and no path borrows the session model instead. Changes to the
+connection, route or effective request options are reflected without rebuilding
+the engine; model-facing diagnostics identify an endpoint only by its origin
+and omit endpoint and account secrets. `quarantine` still decodes (`reader`
+default, `off` accepted with a load-time warning) but is now data for
+observation: it no longer authorizes unchecked delivery, and neither mode makes
+an enabled tool ready — readiness needs the capability preflight over the
+pinned model. `allow` feeds the permission policy, not the library.
 
 `google_api_key` is refused: the CSE key travels in a request query string and
 must not sit in a file a backup or a repository can carry. A literal in the
