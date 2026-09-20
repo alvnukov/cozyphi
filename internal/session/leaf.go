@@ -54,9 +54,8 @@ type RewindResult struct {
 // TurnBoundaries lists the places the current context can be cut at, oldest
 // first. A boundary whose cut would leave the cursor where it already stands
 // is left out: it is no offer, and taking it up earns nothing but a refusal.
-// The plain TurnBoundaries function keeps every boundary, because a fork
-// reads the same list and copying a branch from the current leaf is a real
-// thing to do.
+// The plain TurnBoundaries function keeps every boundary, for a caller that
+// wants the shape of the path rather than a list to offer.
 func (sm *Manager) TurnBoundaries() []TurnBoundary {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -71,19 +70,32 @@ func (sm *Manager) TurnBoundaries() []TurnBoundary {
 	return movable
 }
 
-// RewindMovesCursor reports whether a cut at this entry would move the
-// cursor, so a strip can leave the button off a row where it would only earn
-// a refusal. It is asked per drawn row, so it answers from the entry alone:
-// no walk of the history, no preview built.
-func (sm *Manager) RewindMovesCursor(entryID string) bool {
+// RewindOffers returns the entries a cut may be taken at right now: the turn
+// boundaries of the current path, less the one the cursor already stands on.
+// It is what a feed asks to decide which rows carry the button.
+//
+// It answers for a whole frame rather than for one row. The lock it takes is
+// the one appends hold while they write to disk, so asking per row would put
+// every redraw of a long feed behind that many chances to wait out a flush.
+//
+// The answer is the current path, exactly like Rewind's own. A row from a
+// branch the cursor has left is not in it and so carries no button, which is
+// the right answer today because a feed only ever draws the path. Should a
+// fork or a branch switcher start drawing rows from elsewhere, this is the
+// place that decides what those rows may offer, and the decision has to be
+// made with Rewind, which refuses an entry that is not on the path.
+func (sm *Manager) RewindOffers() map[string]struct{} {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	entry, known := sm.byIDs[entryID]
-	if !known {
-		return false
+	leaf := sm.leafLocked()
+	path := sm.contextPathLocked()
+	offers := make(map[string]struct{}, len(path))
+	for _, entry := range path {
+		if cut, ok := boundaryCutAt(entry); ok && cut.target != leaf {
+			offers[entry.GetID()] = struct{}{}
+		}
 	}
-	target, ok := boundaryTarget(entry)
-	return ok && target != sm.leafLocked()
+	return offers
 }
 
 // Rewind moves the cursor to the turn boundary anchored at entryID: before a

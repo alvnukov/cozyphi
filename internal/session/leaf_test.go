@@ -370,10 +370,10 @@ func TestLoadRefusesACursorMoveWithAnUnknownOrigin(t *testing.T) {
 	assert.Contains(t, err.Error(), "gone")
 }
 
-// A cut whose target is the cursor moves nothing, and the three shapes that
-// reach it are the ones a reader meets first: the answer a finished turn left
-// the cursor on, a prompt whose turn never produced an answer, and whatever
-// row the previous rewind landed on.
+// A cut whose target is the cursor moves nothing, and the shapes that reach
+// it are the ones a reader meets first: the answer a finished turn left the
+// cursor on, and whatever row the previous rewind landed on. What a feed is
+// told it may cut at is what this pins.
 func TestACutAtTheCursorIsNotOffered(t *testing.T) {
 	manager := session.NewManager(t.TempDir())
 	first := recordTurn(t, manager, "one", "answer one")
@@ -381,8 +381,8 @@ func TestACutAtTheCursorIsNotOffered(t *testing.T) {
 
 	t.Run("the answer a finished turn ended on", func(t *testing.T) {
 		require.Equal(t, second.Answer, manager.LeafID())
-		assert.False(t, manager.RewindMovesCursor(second.Answer))
-		assert.True(t, manager.RewindMovesCursor(second.Prompt))
+		assert.NotContains(t, manager.RewindOffers(), second.Answer)
+		assert.Contains(t, manager.RewindOffers(), second.Prompt)
 		for _, boundary := range manager.TurnBoundaries() {
 			assert.NotEqual(t, second.Answer, boundary.EntryID)
 		}
@@ -395,26 +395,26 @@ func TestACutAtTheCursorIsNotOffered(t *testing.T) {
 		// it does move the cursor: back onto the answer it was appended to.
 		// This row keeps its button, and taking it up works.
 		require.Equal(t, orphan, manager.LeafID())
-		assert.True(t, manager.RewindMovesCursor(orphan))
+		assert.Contains(t, manager.RewindOffers(), orphan)
 		// Cutting after the answer the prompt hangs off leads to the same
 		// place by the other route, and it moves the cursor too.
-		assert.True(t, manager.RewindMovesCursor(second.Answer))
+		assert.Contains(t, manager.RewindOffers(), second.Answer)
 	})
 
 	t.Run("a row the session never recorded", func(t *testing.T) {
 		// A prompt drawn into the feed for a turn that failed before the log
 		// received it. There is nothing to cut back to, and the row must not
 		// say otherwise.
-		assert.False(t, manager.RewindMovesCursor("never-recorded"))
+		assert.NotContains(t, manager.RewindOffers(), "never-recorded")
 	})
 
 	t.Run("the row the previous rewind landed on", func(t *testing.T) {
 		_, err := manager.Rewind(second.Prompt)
 		require.NoError(t, err)
 		require.Equal(t, first.Answer, manager.LeafID())
-		assert.False(t, manager.RewindMovesCursor(first.Answer),
+		assert.NotContains(t, manager.RewindOffers(), first.Answer,
 			"the cursor stands here now, so cutting here again moves nothing")
-		assert.True(t, manager.RewindMovesCursor(first.Prompt))
+		assert.Contains(t, manager.RewindOffers(), first.Prompt)
 		for _, boundary := range manager.TurnBoundaries() {
 			assert.NotEqual(t, first.Answer, boundary.EntryID)
 		}

@@ -50,6 +50,13 @@ func (e *NotTurnBoundaryError) Error() string {
 // TurnBoundaries lists the places the given context path can be cut at,
 // oldest first. The path is what BuildContext returns, so a boundary is
 // always a row the user can see.
+//
+// It reports the shape of the path and nothing else: a boundary whose cut
+// would leave the cursor exactly where it stands is in this list like any
+// other. That is deliberate, because a copy of the branch taken from the
+// current leaf is a whole session and a reasonable thing to ask for. Anything
+// offering a cut to a reader wants Manager.TurnBoundaries instead, which
+// leaves that one out; taking it up there earns nothing but a refusal.
 func TurnBoundaries(path []MessageEntry) []TurnBoundary {
 	boundaries := make([]TurnBoundary, 0, len(path))
 	for _, entry := range path {
@@ -106,53 +113,61 @@ func (b TurnBoundary) MovesCursor(leaf string) bool {
 	return b.Target != leaf
 }
 
-// boundaryTarget returns the entry a cut at this message would leave the
-// cursor on, and false when the message is no boundary at all. It is the one
-// place the target is worked out, and it costs nothing: asking whether one
-// row may be cut at must not walk the history or build a preview, because the
-// strips ask it for every row they draw.
-func boundaryTarget(entry MessageEntry) (target string, ok bool) {
+// boundaryCut is what a cut at one entry amounts to, before it is dressed up
+// for a picker: the message, the entry the cursor would land on, the kind of
+// cut, and the prompt text a prompt boundary hands back. Everything that asks
+// where a cut leads goes through here, and it stays cheap on purpose, because
+// the strips ask it for every row they draw.
+type boundaryCut struct {
+	message SessionMessageEntry
+	target  string
+	prompt  string
+	kind    TurnBoundaryKind
+}
+
+// boundaryCutAt works out the cut at one entry, and reports false when the
+// entry is no boundary at all. It carries the message out with it so no
+// caller has to assert the type a second time, and reads the prompt out once
+// so no caller strips the harness wrapper twice.
+func boundaryCutAt(entry MessageEntry) (boundaryCut, bool) {
 	message, isMessage := entry.(SessionMessageEntry)
 	if !isMessage {
-		return "", false
+		return boundaryCut{}, false
 	}
-	if _, isPrompt := userPrompt(message); isPrompt {
+	if prompt, isPrompt := userPrompt(message); isPrompt {
 		// The cut lands before the prompt, so the cursor goes to whatever
 		// the prompt was appended after. A first prompt has no parent, and
 		// an empty target is an empty context.
+		target := ""
 		if parent := message.GetParent(); parent != nil {
-			return *parent, true
+			target = *parent
 		}
-		return "", true
+		return boundaryCut{message: message, target: target, prompt: prompt, kind: BoundaryPrompt}, true
 	}
 	if !finishedAnswer(message) {
-		return "", false
+		return boundaryCut{}, false
 	}
 	// The cut lands after the answer, so the answer itself is the cursor.
-	return message.ID, true
+	return boundaryCut{message: message, target: message.ID, kind: BoundaryAnswer}, true
 }
 
 func turnBoundary(entry MessageEntry) (TurnBoundary, bool) {
-	target, ok := boundaryTarget(entry)
+	cut, ok := boundaryCutAt(entry)
 	if !ok {
 		return TurnBoundary{}, false
 	}
-	message := entry.(SessionMessageEntry)
-	if prompt, isPrompt := userPrompt(message); isPrompt {
-		return TurnBoundary{
-			EntryID: message.ID,
-			Kind:    BoundaryPrompt,
-			Target:  target,
-			Prompt:  prompt,
-			Preview: promptPreview(prompt),
-		}, true
+	boundary := TurnBoundary{
+		EntryID: cut.message.ID,
+		Kind:    cut.kind,
+		Target:  cut.target,
+		Prompt:  cut.prompt,
 	}
-	return TurnBoundary{
-		EntryID: message.ID,
-		Kind:    BoundaryAnswer,
-		Target:  target,
-		Preview: "after " + displayText(message.Message.Content, 48),
-	}, true
+	if cut.kind == BoundaryPrompt {
+		boundary.Preview = promptPreview(cut.prompt)
+		return boundary, true
+	}
+	boundary.Preview = "after " + displayText(cut.message.Message.Content, 48)
+	return boundary, true
 }
 
 // userPrompt returns what the user typed, and false for anything else the
