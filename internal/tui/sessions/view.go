@@ -132,6 +132,11 @@ type View struct {
 	hookCmds   *commands.HookCommands
 	submitter  *submit.Submitter
 
+	// rewindDraft remembers what the composer held around the last rewind, so
+	// that undoing it takes back the prompt it handed over and leaves the
+	// user's own draft where it was.
+	rewindDraft rewindDraft
+
 	// notifier pings the OS when the model stops or waits for input; nil
 	// (the default) disables notifications entirely.
 	notifier attentionNotifier
@@ -412,7 +417,18 @@ func NewView(
 	)
 	// The strip on every message row reaches the shell the same way a slash
 	// command does, through the Host methods.
-	e.transcript.SetMessageActions(e.RewindTo, e.ForkFrom, e.AsideAbout)
+	// The strip and the /rewind picker read one answer, so a row that offers
+	// a cut is a row the cut will happen on.
+	e.transcript.SetMessageActions(e.RewindTo, e.ForkFrom, e.AsideAbout,
+		func() map[string]struct{} {
+			if e.ctrl == nil {
+				return nil
+			}
+			return e.ctrl.RewindOffers()
+		})
+	// The strips dim on the same truth the composer gates submits on, so a
+	// lit button is one the shell will actually act on.
+	e.transcript.SetRunActive(func() bool { return e.ctrl != nil && e.ctrl.RunActive() })
 	// Composer copy/cut chords share the clipboard and confirm with a toast,
 	// so selection copy in the input feels the same as transcript copy.
 	e.composer.SetChatCopyFunc(func(text string) bool {
@@ -593,6 +609,7 @@ func NewView(
 		e.composer.SetMode(e.ctrl.Mode())
 	}
 	e.configureEditing()
+	e.configureRewind()
 	e.composer.Chat.OnModelPick = func(at components.Point) {
 		e.OpenModelPicker()
 		e.composer.AnchorPalette(components.Point{X: e.composerOrigin.X + at.X, Y: e.composerOrigin.Y + at.Y})
@@ -921,6 +938,14 @@ func (e *View) drainBus() {
 			if e.transcript.ApplyChildOutcome(msg.Outcome) {
 				agentEvent = true
 			}
+		case controller.RunEndedMsg:
+			e.Update(m)
+			// The pipeline is idle only now, and the turn's last session
+			// event was drawn while it still was not. Nothing else rebuilds
+			// the message strips, so the end of the turn is what lets them
+			// act again.
+			e.transcript.InvalidateMessageActions()
+			agentEvent = true
 		default:
 			e.Update(m)
 		}
@@ -1608,6 +1633,7 @@ func (e *View) ShowHelp() {
 
 // ResumeSession selects a retained session, or loads prior history into this view.
 func (e *View) ResumeSession(id string) {
+	e.forgetRewindDraft()
 	if selected, err := e.selectRetainedSession(id); selected || err != nil {
 		if err != nil {
 			e.toast.Show(err.Error(), toast.ToastError, 4*time.Second)
@@ -1623,6 +1649,7 @@ func (e *View) ClearSession() {
 		e.toast.Show("Cannot clear while a reply or command is running", toast.ToastWarning, 3*time.Second)
 		return
 	}
+	e.forgetRewindDraft()
 	e.sessions.Clear()
 }
 
@@ -2043,14 +2070,11 @@ func (e *View) RunCompact() {
 	}
 }
 
-// RewindTo, ForkFrom and AsideAbout are the three context operations a
-// transcript message offers. The engine cannot do any of them yet, so the
-// view answers the click by saying so: the strip, its hints and its wiring
-// are testable now, and each operation replaces its own toast when it lands.
-func (e *View) RewindTo(entryID string) {
-	e.announceMessageAction("Rewind", entryID)
-}
-
+// ForkFrom and AsideAbout are the two context operations the engine cannot
+// do yet, so the view answers the click by saying so: the strip, its hints
+// and its wiring are testable now, and each operation replaces its own toast
+// when it lands. The third, RewindTo, lives in rewind.go and works.
+//
 // ForkFrom opens a copy of the branch up to the entry in a new tab.
 func (e *View) ForkFrom(entryID string) {
 	e.announceMessageAction("Fork", entryID)

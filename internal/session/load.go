@@ -315,6 +315,31 @@ func OpenSession(path string) (_ *Manager, err error) {
 			byIDs[e.ID] = e
 			entries = append(entries, e)
 			title, titleSource = e.Title, e.Source
+		case LeafEntry:
+			if header == nil {
+				return nil, fmt.Errorf("session: first entry must be session header at %s:%d", path, lineNo)
+			}
+			// A move names entries written earlier in this same file, both
+			// the one it goes to and the one it came from. One that does not
+			// is a broken log, and taking it would leave the cursor dangling,
+			// where the context builder falls back to the last entry in the
+			// file and lands somewhere right only by luck. From is checked
+			// with Target because an undo moves onto it, so an unchecked one
+			// is the same dangling cursor held back until /rewind back.
+			for _, id := range []string{e.Target, e.From} {
+				if id == "" {
+					continue
+				}
+				if _, known := byIDs[id]; !known {
+					return nil, fmt.Errorf(
+						"session: cursor move at %s:%d points at unknown entry %s", path, lineNo, id)
+				}
+			}
+			byIDs[e.ID] = e
+			entries = append(entries, e)
+			// The move carries the cursor, so the last one in the file wins
+			// and everything appended to the branch it left is skipped over.
+			setLeaf(&leafID, e.Target)
 		case PlanEntry:
 			if header == nil {
 				return nil, fmt.Errorf("session: first entry must be session header at %s:%d", path, lineNo)
@@ -440,6 +465,12 @@ func decodeEntryLine(raw []byte, lineNo int) (MessageEntry, error) {
 		}
 		title.Title = normalized
 		return title, nil
+	case EntryLeaf:
+		var move LeafEntry
+		if err := json.Unmarshal(raw, &move); err != nil {
+			return nil, fmt.Errorf("session: line %d cursor move: %w", lineNo, err)
+		}
+		return move, nil
 	case EntryPlan:
 		var p PlanEntry
 		if err := json.Unmarshal(raw, &p); err != nil {

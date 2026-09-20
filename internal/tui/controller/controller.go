@@ -2068,6 +2068,55 @@ func (c *Controller) DropContextEntries(ids []string) error {
 	return c.engine.DropContextEntries(ids)
 }
 
+// Rewind moves the session cursor to the turn boundary anchored at entryID
+// (append-only). It waits for the whole pipeline to be idle, not just the
+// stream: a prompt still sitting in the queue is about to be appended under
+// the current cursor, and moving the cursor out from under it would write
+// that turn onto a branch nobody asked for.
+func (c *Controller) Rewind(entryID string) (session.RewindResult, error) {
+	if c == nil || c.engine == nil {
+		return session.RewindResult{}, errors.New("controller: no engine")
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if err := c.requireRunIdleLocked("rewind"); err != nil {
+		return session.RewindResult{}, err
+	}
+	return c.engine.Rewind(entryID)
+}
+
+// UndoRewind sends the session cursor back to where the last move started
+// from (/rewind back), under the same idle requirement as Rewind.
+func (c *Controller) UndoRewind() (session.RewindResult, error) {
+	if c == nil || c.engine == nil {
+		return session.RewindResult{}, errors.New("controller: no engine")
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if err := c.requireRunIdleLocked("rewind"); err != nil {
+		return session.RewindResult{}, err
+	}
+	return c.engine.UndoRewind()
+}
+
+// RewindOffers returns the entries a cut may be taken at right now. Asking
+// moves nothing, so it needs no busy guard.
+func (c *Controller) RewindOffers() map[string]struct{} {
+	if c == nil || c.engine == nil {
+		return nil
+	}
+	return c.engine.RewindOffers()
+}
+
+// TurnBoundaries lists the places the context can be cut at, oldest first.
+// Asking moves nothing, so it needs no busy guard.
+func (c *Controller) TurnBoundaries() []session.TurnBoundary {
+	if c == nil || c.engine == nil {
+		return nil
+	}
+	return c.engine.TurnBoundaries()
+}
+
 // SessionID returns the short-form-friendly session id.
 func (c *Controller) SessionID() string {
 	if c.engine == nil {

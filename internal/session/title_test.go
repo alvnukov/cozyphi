@@ -125,3 +125,21 @@ func TestTitleLegacyListFallback(t *testing.T) {
 	require.Equal(t, "first prompt", DisplayTitle(rows[0]))
 	require.Equal(t, "last prompt", rows[0].Preview)
 }
+
+// A wrapper that never closed is scaffolding all the way down. The feed shows
+// it as the user's words and a rewind offers it as a boundary, because there
+// a wrong guess costs a row the user can ignore. A session name travels
+// outside the conversation, so it abstains and falls through to the next
+// prompt.
+func TestAnUnterminatedReminderIsNoCandidateForTheTitle(t *testing.T) {
+	m := NewManager(t.TempDir())
+	_, err := m.Append(llm.Message{
+		Role:    llm.RoleUser,
+		Content: "<system-reminder>never closed, so it is all harness",
+	})
+	require.NoError(t, err)
+	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "the real goal"})
+	require.NoError(t, err)
+
+	require.Equal(t, "the real goal", m.DisplayTitle())
+}

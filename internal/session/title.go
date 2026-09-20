@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/memory"
 )
 
 // EntrySessionTitle is metadata, not a node in the conversational chain.
@@ -125,14 +126,15 @@ func titlePrompt(entry SessionMessageEntry) string {
 	if entry.Message.Role != llm.RoleUser || entry.DeliveryID != "" {
 		return ""
 	}
-	text := strings.TrimSpace(entry.Message.Content)
 	// Harness deliveries are not the user's goal. Older logs lack delivery IDs.
-	for strings.HasPrefix(text, "<system-reminder>") {
-		_, after, found := strings.Cut(text, "</system-reminder>")
-		if !found {
-			return ""
-		}
-		text = strings.TrimSpace(after)
+	text := stripReminders(entry.Message.Content)
+	// A block that never closed is scaffolding all the way down. The feed
+	// shows it as the user's words and a rewind offers it as a boundary,
+	// because there the harm of guessing wrong is a row the user can ignore.
+	// A session name is carried around outside the conversation, so this one
+	// abstains instead.
+	if strings.HasPrefix(text, memory.ReminderOpen) {
+		return ""
 	}
 	return displayText(text, 48)
 }

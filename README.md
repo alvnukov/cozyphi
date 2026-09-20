@@ -118,6 +118,7 @@ Run `cozyphi --help` or `cozyphi <command> --help` for the full command referenc
 - [Hooks](doc/hooks.md)
 - [MCP](doc/mcp.md)
 - [OpenCode integration](doc/opencode.md)
+- [Rewind](doc/rewind.md)
 - [Session names](doc/session.md)
 - [Terminal UI](doc/tui.md)
 - [Watches](doc/watch.md)

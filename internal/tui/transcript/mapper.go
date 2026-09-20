@@ -64,8 +64,26 @@ type Mapper struct {
 	// over that entry's id and hands the widgets plain functions.
 	onRewind, onFork, onAside func(entryID string)
 	// actionsBusy is the hint the strips show while a turn is running, empty
-	// when they act. Refreshed from the snapshot on every sync pass.
+	// when they act. Refreshed on every sync pass.
 	actionsBusy string
+	// runActive is the shell's own answer to "is a run in flight", asked
+	// alongside the snapshot. The snapshot goes quiet the moment the last
+	// chunk lands, while the turn is still writing itself to the log and a
+	// queued prompt is still waiting its turn. Without this the buttons would
+	// light up in that gap and every click would be refused.
+	runActive func() bool
+	// rewindOffers asks the session which entries a cut may be taken at. The
+	// mapper knows the shape of a row but not where the context currently
+	// ends, and working that out here would be a second copy of a rule that
+	// belongs to the session. It is wired by the same call as the handlers
+	// above, so the two cannot be set apart, and unwired it offers nothing.
+	rewindOffers func() map[string]struct{}
+	// offered is that answer for the rows as they stand, re-read on a full
+	// pass only. Asking walks the session path under the lock appends hold
+	// while they write to disk, and the tail pass has no use for a fresh
+	// answer: the row it patches is the answer still being streamed, which
+	// is no boundary while it streams and is not in the set once it is.
+	offered map[string]struct{}
 	// messageIDs is the snapshot's messages by id, re-read on every sync
 	// pass. It is what a row's action anchor is resolved against.
 	messageIDs map[string]bool
@@ -133,9 +151,18 @@ func (m *Mapper) toolStatus(it session.Item, detail string) status.ToolStatus {
 // SetMessageActions wires the three context operations a transcript message
 // offers. Each callback is handed the id of the session entry behind the row
 // it was clicked on, never the composite id of the row itself.
-func (m *Mapper) SetMessageActions(rewind, fork, aside func(entryID string)) {
+//
+// offers answers which entries a cut may actually be taken at, and it is
+// wired here rather than on its own so that nobody can wire the buttons and
+// forget it. Nil offers nothing: an unwired seam and a seam that answers with
+// an empty set mean the same thing, which is the harmless one.
+func (m *Mapper) SetMessageActions(
+	rewind, fork, aside func(entryID string),
+	offers func() map[string]struct{},
+) {
 	if m != nil {
 		m.onRewind, m.onFork, m.onAside = rewind, fork, aside
+		m.rewindOffers = offers
 	}
 }
 
@@ -197,7 +224,11 @@ func (m *Mapper) messageActions(it session.Item, boundary bool) block.MessageAct
 	if !boundary {
 		return actions
 	}
-	if m.onRewind != nil {
+	// A cut that would leave the cursor where it already stands is no offer.
+	// The row at the end of the context is the commonest case: a finished
+	// turn leaves the cursor on its last answer, which is the bottom of the
+	// feed and the first button a reader reaches for.
+	if m.onRewind != nil && m.offersRewind(id) {
 		actions.OnRewind = func() { m.onRewind(id) }
 	}
 	if m.onFork != nil {
@@ -218,8 +249,31 @@ func (m *Mapper) refreshActionContext(snap session.Snapshot) {
 		m.messageIDs[msg.ID] = true
 	}
 	m.actionsBusy = ""
-	if session.IsStreaming(snap) {
+	if session.IsStreaming(snap) || (m.runActive != nil && m.runActive()) {
 		m.actionsBusy = actionsBusyHint
+	}
+}
+
+// offersRewind reads one row against the answer the last full pass was given.
+func (m *Mapper) offersRewind(entryID string) bool {
+	_, ok := m.offered[entryID]
+	return ok
+}
+
+// refreshRewindOffers re-reads which entries a cut may be taken at. Only the
+// full pass calls it; see the offered field for why the tail pass does not.
+func (m *Mapper) refreshRewindOffers() {
+	m.offered = nil
+	if m.rewindOffers != nil {
+		m.offered = m.rewindOffers()
+	}
+}
+
+// SetRunActive wires the shell's run-in-flight answer, which the strips ask
+// together with the snapshot.
+func (m *Mapper) SetRunActive(fn func() bool) {
+	if m != nil {
+		m.runActive = fn
 	}
 }
 
@@ -297,6 +351,7 @@ func (m *Mapper) Sync(
 ) (newEntries []components.Widget, newIDs []string, dirty []int) {
 	m.refreshLiveStarts()
 	m.refreshActionContext(snap)
+	m.refreshRewindOffers()
 	items := m.groupTurns(m.shellItems(dropServiceRefusals(session.Project(snap))), snap)
 	n := len(items)
 	byID := make(map[string]int, len(entries))

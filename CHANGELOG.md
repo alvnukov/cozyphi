@@ -34,6 +34,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   and points at `doc/web.md`. `web.enabled: false`, an absent `enabled` key
   or no `web:` section behaves exactly as before: no tool is registered —
   writing any other `web:` key no longer opts the tool in.
+- Added: the `rewind` button works. It takes the conversation back to the
+  message it sits on, and `/rewind <id>` does the same from the keyboard. The
+  rows after the cut leave the feed and the model's context. A cut at a prompt
+  hands its text back to the composer, so a badly worded question can be sent
+  again instead of explained twice. Only a turn boundary can be cut at: a prompt
+  you sent, or the reply that finished a turn. A tool call and its result are
+  refused by name, because the model would be handed half a round it never ran,
+  and so is any cut while a reply or a queued prompt is running. `/rewind back`
+  undoes the last one, and typing `/rewind ` lists the places to cut at, newest
+  first. Nothing is deleted: the session file is a tree, a rewind only moves the
+  cursor, and the branch it leaves keeps every entry it had. The next turn grows
+  a new branch from the new cursor. Reopening the file puts the cursor back
+  where you left it. See `doc/rewind.md`.
 - Added: every message in the feed carries its own controls. A prompt and the
   reply that closes a round show `rewind`, `fork` and `btw` at the right edge
   of a row that was already there. Nothing grew taller. A reply in the middle

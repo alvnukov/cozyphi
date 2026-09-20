@@ -44,6 +44,20 @@ func newActionsEditor(t *testing.T) *View {
 // row stands for.
 func TestClickingRewindReachesTheHostWithTheEntryID(t *testing.T) {
 	e := newActionsEditor(t)
+	// The rows below are drawn straight into the pane and the session never
+	// receives them, so it would rightly say a cut at them leads nowhere and
+	// the button would not be drawn at all. This test is about the path a
+	// click takes, so it names the entry a cut is on offer at and leaves the
+	// session out of it. Which rows really offer one is pinned in
+	// rewind_test.go.
+	e.transcript.SetMessageActions(e.RewindTo, e.ForkFrom, e.AsideAbout,
+		func() map[string]struct{} {
+			offers := make(map[string]struct{})
+			for _, msg := range e.transcript.Snapshot().Messages {
+				offers[msg.ID] = struct{}{}
+			}
+			return offers
+		})
 	e.transcript.ApplySession(session.UserAppend{Text: "hello"})
 	e.transcript.ApplySession(session.AssistantMessageUpdate{Message: session.Message{
 		ID:    "a1",
@@ -77,10 +91,18 @@ func TestClickingRewindReachesTheHostWithTheEntryID(t *testing.T) {
 	hit.Handle(ctx, xui.MouseEvent{X: lx, Y: ly, Button: xui.MouseLeft, Action: xui.MouseRelease})
 	require.True(t, ctx.Consume, "the release that acted was not consumed")
 
+	// This test is about the path a click takes, and it pins it as tightly as
+	// it ever did: the strip is drawn, the hit test lands on it, the press
+	// arms and the release acts, carrying this row's entry id and no other.
+	// It can go no further, because the rows here were drawn straight into
+	// the pane and the session has never heard of them, so the rewind is
+	// refused by name. The click on a row the session did record, and the cut
+	// it performs, are pinned in rewind_test.go by
+	// TestTheStripActsAgainOnceTheTurnIsOver, which drives a real turn.
 	history := e.toast.History()
 	require.NotEmpty(t, history)
 	assert.Contains(t, history[0].Message, prompt)
-	assert.Contains(t, history[0].Message, "Rewind")
+	assert.Contains(t, history[0].Message, "Cannot rewind")
 }
 
 // A press one column left of the strip belongs to the transcript, not to the
@@ -94,7 +116,9 @@ func TestClickingBesideTheStripActsOnNothing(t *testing.T) {
 		Max:    components.Size{Width: 140, Height: 40},
 		Method: xui.WidthUnicode,
 	})
-	x, y, ok := controlTextPosition(root, nil, "rewind", components.Point{})
+	// Any button of the strip anchors this: fork is the one every boundary
+	// row offers regardless of where the cursor stands.
+	x, y, ok := controlTextPosition(root, nil, "fork", components.Point{})
 	require.True(t, ok)
 
 	hit, lx, ly := root.HitTestAt(x-4, y)
