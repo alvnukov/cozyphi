@@ -87,6 +87,13 @@ func (engine *Engine) UndoRewind() (session.RewindResult, error) {
 	return engine.sessionRef().UndoRewind()
 }
 
+// RewindMovesCursor reports whether a cut at this entry would move the
+// cursor. The strips ask it for every row they draw, so it stays a question
+// about one entry and never a walk of the history.
+func (engine *Engine) RewindMovesCursor(entryID string) bool {
+	return engine.sessionRef().RewindMovesCursor(entryID)
+}
+
 // TurnBoundaries lists the places the current context can be cut at, oldest
 // first: what the /rewind completer offers.
 func (engine *Engine) TurnBoundaries() []session.TurnBoundary {

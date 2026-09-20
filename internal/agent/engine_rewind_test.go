@@ -56,16 +56,21 @@ func TestEngineUndoRewindRestoresTheBranch(t *testing.T) {
 	require.Len(t, engine.session.BuildContext(), 4)
 }
 
-// The engine lists the places a cut is allowed: both prompts and both
-// answers of two finished turns.
+// The engine lists the places a cut is allowed: both prompts and the first
+// answer of two finished turns. The second answer is where the cursor already
+// stands, so cutting there would move nothing and it is not offered.
 func TestEngineTurnBoundaries(t *testing.T) {
 	engine := newContextTestEngine(t, "http://127.0.0.1:1", 100000)
 	prompt, answer := seedTwoTurns(t, engine)
 
 	boundaries := engine.TurnBoundaries()
-	require.Len(t, boundaries, 4)
+	require.Len(t, boundaries, 3)
 	assert.Equal(t, prompt, boundaries[2].EntryID)
-	assert.Equal(t, answer, boundaries[3].EntryID)
+	for _, boundary := range boundaries {
+		assert.NotEqual(t, answer, boundary.EntryID)
+	}
+	assert.False(t, engine.RewindMovesCursor(answer))
+	assert.True(t, engine.RewindMovesCursor(prompt))
 }
 
 // Moving the cursor mid-turn would hand the model a round it never ran, so
@@ -184,7 +189,8 @@ func TestTheBoundaryPreviewMatchesWhatTheComposerGets(t *testing.T) {
 	))
 
 	boundaries := engine.TurnBoundaries()
-	require.Len(t, boundaries, 2)
+	// One, not two: the answer is where the cursor stands.
+	require.Len(t, boundaries, 1)
 	assert.Equal(t, "check my prose", boundaries[0].Prompt)
 	assert.Equal(t, "before check my prose", boundaries[0].Preview)
 

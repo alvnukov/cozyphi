@@ -20,7 +20,9 @@ func seedRewindSession(t *testing.T, ctrl *Controller) string {
 		llm.Message{Role: llm.RoleAssistant, Content: "second answer"},
 	))
 	boundaries := ctrl.TurnBoundaries()
-	require.Len(t, boundaries, 4)
+	// Three, not four: the last answer is where the cursor stands, and a cut
+	// there would move nothing, so it is not among the offers.
+	require.Len(t, boundaries, 3)
 	return boundaries[2].EntryID
 }
 

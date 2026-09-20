@@ -44,6 +44,12 @@ func newActionsEditor(t *testing.T) *View {
 // row stands for.
 func TestClickingRewindReachesTheHostWithTheEntryID(t *testing.T) {
 	e := newActionsEditor(t)
+	// The rows below are drawn straight into the pane and the session never
+	// receives them, so it would rightly say a cut at them leads nowhere and
+	// the button would not be drawn at all. This test is about the path a
+	// click takes, so it says the cut is on offer and leaves the session out
+	// of it. Which rows really offer one is pinned in rewind_test.go.
+	e.transcript.SetCanRewind(func(string) bool { return true })
 	e.transcript.ApplySession(session.UserAppend{Text: "hello"})
 	e.transcript.ApplySession(session.AssistantMessageUpdate{Message: session.Message{
 		ID:    "a1",
@@ -102,7 +108,9 @@ func TestClickingBesideTheStripActsOnNothing(t *testing.T) {
 		Max:    components.Size{Width: 140, Height: 40},
 		Method: xui.WidthUnicode,
 	})
-	x, y, ok := controlTextPosition(root, nil, "rewind", components.Point{})
+	// Any button of the strip anchors this: fork is the one every boundary
+	// row offers regardless of where the cursor stands.
+	x, y, ok := controlTextPosition(root, nil, "fork", components.Point{})
 	require.True(t, ok)
 
 	hit, lx, ly := root.HitTestAt(x-4, y)

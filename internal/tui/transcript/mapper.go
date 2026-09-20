@@ -72,6 +72,11 @@ type Mapper struct {
 	// queued prompt is still waiting its turn. Without this the buttons would
 	// light up in that gap and every click would be refused.
 	runActive func() bool
+	// canRewind answers, for one entry, whether a cut there would move the
+	// cursor. The mapper knows the shape of a row but not where the context
+	// currently ends, and working that out here would be a second copy of a
+	// rule that belongs to the session.
+	canRewind func(entryID string) bool
 	// messageIDs is the snapshot's messages by id, re-read on every sync
 	// pass. It is what a row's action anchor is resolved against.
 	messageIDs map[string]bool
@@ -203,7 +208,11 @@ func (m *Mapper) messageActions(it session.Item, boundary bool) block.MessageAct
 	if !boundary {
 		return actions
 	}
-	if m.onRewind != nil {
+	// A cut that would leave the cursor where it already stands is no offer.
+	// The row at the end of the context is the commonest case: a finished
+	// turn leaves the cursor on its last answer, which is the bottom of the
+	// feed and the first button a reader reaches for.
+	if m.onRewind != nil && (m.canRewind == nil || m.canRewind(id)) {
 		actions.OnRewind = func() { m.onRewind(id) }
 	}
 	if m.onFork != nil {
@@ -226,6 +235,14 @@ func (m *Mapper) refreshActionContext(snap session.Snapshot) {
 	m.actionsBusy = ""
 	if session.IsStreaming(snap) || (m.runActive != nil && m.runActive()) {
 		m.actionsBusy = actionsBusyHint
+	}
+}
+
+// SetCanRewind wires the session's answer to whether a cut at one entry would
+// move the cursor. Without it every boundary row offers a cut.
+func (m *Mapper) SetCanRewind(fn func(entryID string) bool) {
+	if m != nil {
+		m.canRewind = fn
 	}
 }
 

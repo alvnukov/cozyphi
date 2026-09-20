@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -239,12 +241,12 @@ func TestRewindCompleterListsTheBoundaries(t *testing.T) {
 
 	items, ok := e.commands.CompleteSlashArg("rewind", nil, "")
 	require.True(t, ok)
-	require.Len(t, items, 5)
+	// Four, not five: the last answer is where the cursor already stands.
+	require.Len(t, items, 4)
 	assert.Equal(t, "back", items[0].Path)
-	assert.Equal(t, "after reply 2", items[1].Description)
-	assert.Equal(t, "before second", items[2].Description)
-	assert.Equal(t, "after reply 1", items[3].Description)
-	assert.Equal(t, "before first", items[4].Description)
+	assert.Equal(t, "before second", items[1].Description)
+	assert.Equal(t, "after reply 1", items[2].Description)
+	assert.Equal(t, "before first", items[3].Description)
 
 	only, ok := e.commands.CompleteSlashArg("rewind", nil, "ba")
 	require.True(t, ok)
@@ -383,4 +385,91 @@ func TestASessionSwitchForgetsWhatTheUndoWouldTakeBack(t *testing.T) {
 	require.True(t, e.commands.DispatchSlash("/rewind back", e.commandContext()))
 	assert.Equal(t, "fourth", e.composer.Chat.Value,
 		"this session's undo has nothing of its own to take back from the composer")
+}
+
+// controlTextRows lists the screen rows a label is drawn on, top to bottom.
+// Counting strips is how a test says which rows offer a button without
+// reaching into the widgets.
+func controlTextRows(s components.Surface, label string, origin components.Point) []int {
+	var rows []int
+	if s.Buffer != nil {
+		local := s
+		local.Children = nil
+		for y, row := range strings.Split(components.SurfaceText(local), "\n") {
+			if strings.Contains(row, label) {
+				rows = append(rows, origin.Y+y)
+			}
+		}
+	}
+	for _, child := range s.Children {
+		p := components.Point{X: origin.X + child.Origin.X, Y: origin.Y + child.Origin.Y}
+		rows = append(rows, controlTextRows(child.Surface, label, p)...)
+	}
+	slices.Sort(rows)
+	return slices.Compact(rows)
+}
+
+// The button a reader reaches for first sits on the last answer, at the
+// bottom of the feed. A finished turn leaves the cursor on exactly that
+// answer, so a cut there moves nothing and the manager refuses it. The strip
+// must not offer a cut that cannot happen.
+func TestTheLastAnswerOffersNoRewind(t *testing.T) {
+	server, _ := replyingSSEServer(t)
+	defer server.Close()
+
+	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
+	t.Cleanup(ctrl.Close)
+	e.App = app.NewApp(nil, components.DefaultTheme())
+
+	runTurn(t, e, "first", 2)
+	waitFor(t, 10*time.Second, func() bool {
+		e.DrainNow()
+		return e.transcript.MessageActionsGuard() == ""
+	})
+
+	root := e.Draw(components.DrawContext{
+		Max:    components.Size{Width: 140, Height: 40},
+		Method: xui.WidthUnicode,
+	})
+	forks := controlTextRows(root, "fork", components.Point{})
+	require.Len(t, forks, 2, "the prompt and the answer that closed the turn both offer a fork")
+
+	rewinds := controlTextRows(root, "rewind", components.Point{})
+	assert.Equal(t, forks[:1], rewinds,
+		"only the prompt offers a cut: the cursor already stands on the answer")
+}
+
+// The picker and the strip answer the same question, so neither offers a cut
+// that would only earn a refusal. Before this they disagreed with the manager
+// rather than with each other, and both offered the last answer.
+func TestTheCompleterSkipsTheRowTheCursorStandsOn(t *testing.T) {
+	server, _ := replyingSSEServer(t)
+	defer server.Close()
+
+	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
+	t.Cleanup(ctrl.Close)
+
+	runTurn(t, e, "first", 2)
+	runTurn(t, e, "second", 4)
+	snap := e.transcript.Snapshot()
+	lastAnswer := snap.Messages[3].ID
+
+	items, ok := e.commands.CompleteSlashArg("rewind", nil, "")
+	require.True(t, ok)
+	for _, item := range items {
+		assert.NotEqual(t, lastAnswer, item.Path,
+			"the cursor stands on the last answer, so it is no offer")
+	}
+	// It still offers the three that do move the cursor, plus the undo.
+	require.Len(t, items, 4)
+	assert.Equal(t, "back", items[0].Path)
+
+	// After a cut, the row it landed on drops out of the list in its turn.
+	e.RewindTo(snap.Messages[2].ID)
+	after, ok := e.commands.CompleteSlashArg("rewind", nil, "")
+	require.True(t, ok)
+	for _, item := range after {
+		assert.NotEqual(t, snap.Messages[1].ID, item.Path,
+			"the cut landed on the first answer, so cutting there again moves nothing")
+	}
 }

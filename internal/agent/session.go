@@ -263,6 +263,15 @@ func (s *Session) TurnBoundaries() []session.TurnBoundary {
 	return boundaries
 }
 
+// RewindMovesCursor reports whether a cut at this entry would move the
+// cursor (see Manager.RewindMovesCursor).
+func (s *Session) RewindMovesCursor(entryID string) bool {
+	if s == nil || s.manager == nil {
+		return false
+	}
+	return s.manager.RewindMovesCursor(entryID)
+}
+
 // Plan returns the latest durable model-managed plan snapshot.
 func (s *Session) Plan() session.Plan {
 	if s == nil || s.manager == nil {
