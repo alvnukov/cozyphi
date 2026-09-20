@@ -96,19 +96,49 @@ func promptPreview(prompt string) string {
 	return "before " + displayText(prompt, 48)
 }
 
-func turnBoundary(entry MessageEntry) (TurnBoundary, bool) {
-	message, ok := entry.(SessionMessageEntry)
-	if !ok {
-		return TurnBoundary{}, false
+// MovesCursor reports whether a cut here would actually move the cursor.
+// A cut whose target is where the cursor already stands changes nothing, and
+// Manager.Rewind refuses it. Everything that offers a cut asks this first, so
+// that refusal stays a last resort rather than what the user meets: after a
+// finished turn the cursor sits on the very answer at the bottom of the feed,
+// which is the first button a reader reaches for.
+func (b TurnBoundary) MovesCursor(leaf string) bool {
+	return b.Target != leaf
+}
+
+// boundaryTarget returns the entry a cut at this message would leave the
+// cursor on, and false when the message is no boundary at all. It is the one
+// place the target is worked out, and it costs nothing: asking whether one
+// row may be cut at must not walk the history or build a preview, because the
+// strips ask it for every row they draw.
+func boundaryTarget(entry MessageEntry) (target string, ok bool) {
+	message, isMessage := entry.(SessionMessageEntry)
+	if !isMessage {
+		return "", false
 	}
-	if prompt, isPrompt := userPrompt(message); isPrompt {
+	if _, isPrompt := userPrompt(message); isPrompt {
 		// The cut lands before the prompt, so the cursor goes to whatever
 		// the prompt was appended after. A first prompt has no parent, and
 		// an empty target is an empty context.
-		target := ""
 		if parent := message.GetParent(); parent != nil {
-			target = *parent
+			return *parent, true
 		}
+		return "", true
+	}
+	if !finishedAnswer(message) {
+		return "", false
+	}
+	// The cut lands after the answer, so the answer itself is the cursor.
+	return message.ID, true
+}
+
+func turnBoundary(entry MessageEntry) (TurnBoundary, bool) {
+	target, ok := boundaryTarget(entry)
+	if !ok {
+		return TurnBoundary{}, false
+	}
+	message := entry.(SessionMessageEntry)
+	if prompt, isPrompt := userPrompt(message); isPrompt {
 		return TurnBoundary{
 			EntryID: message.ID,
 			Kind:    BoundaryPrompt,
@@ -117,13 +147,10 @@ func turnBoundary(entry MessageEntry) (TurnBoundary, bool) {
 			Preview: promptPreview(prompt),
 		}, true
 	}
-	if !finishedAnswer(message) {
-		return TurnBoundary{}, false
-	}
 	return TurnBoundary{
 		EntryID: message.ID,
 		Kind:    BoundaryAnswer,
-		Target:  message.ID,
+		Target:  target,
 		Preview: "after " + displayText(message.Message.Content, 48),
 	}, true
 }

@@ -17,22 +17,29 @@ func TestTurnBoundariesListPromptsAndFinishedAnswers(t *testing.T) {
 	first := recordTurn(t, manager, "one", "answer one")
 	second := recordTurn(t, manager, "two", "answer two")
 
-	boundaries := manager.TurnBoundaries()
-	require.Len(t, boundaries, 4)
+	// The plain function reports the shape of the path: all four.
+	all := session.TurnBoundaries(manager.BuildContext())
+	require.Len(t, all, 4)
 
-	assert.Equal(t, first.Prompt, boundaries[0].EntryID)
-	assert.Equal(t, session.BoundaryPrompt, boundaries[0].Kind)
-	assert.Empty(t, boundaries[0].Target, "nothing stands before the first prompt")
-	assert.Equal(t, "before one", boundaries[0].Preview)
+	assert.Equal(t, first.Prompt, all[0].EntryID)
+	assert.Equal(t, session.BoundaryPrompt, all[0].Kind)
+	assert.Empty(t, all[0].Target, "nothing stands before the first prompt")
+	assert.Equal(t, "before one", all[0].Preview)
 
-	assert.Equal(t, first.Answer, boundaries[1].EntryID)
-	assert.Equal(t, session.BoundaryAnswer, boundaries[1].Kind)
-	assert.Equal(t, first.Answer, boundaries[1].Target)
-	assert.Equal(t, "after answer one", boundaries[1].Preview)
+	assert.Equal(t, first.Answer, all[1].EntryID)
+	assert.Equal(t, session.BoundaryAnswer, all[1].Kind)
+	assert.Equal(t, first.Answer, all[1].Target)
+	assert.Equal(t, "after answer one", all[1].Preview)
 
-	assert.Equal(t, second.Prompt, boundaries[2].EntryID)
-	assert.Equal(t, first.Answer, boundaries[2].Target)
-	assert.Equal(t, second.Answer, boundaries[3].EntryID)
+	assert.Equal(t, second.Prompt, all[2].EntryID)
+	assert.Equal(t, first.Answer, all[2].Target)
+	assert.Equal(t, second.Answer, all[3].EntryID)
+
+	// What the manager offers leaves out the last answer, because the cursor
+	// already stands there and a cut would move nothing.
+	offered := manager.TurnBoundaries()
+	require.Len(t, offered, 3)
+	assert.Equal(t, all[:3], offered)
 }
 
 // A background delivery wears the user role but is not something the user

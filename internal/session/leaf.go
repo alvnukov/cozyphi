@@ -52,12 +52,38 @@ type RewindResult struct {
 }
 
 // TurnBoundaries lists the places the current context can be cut at, oldest
-// first. It is what the /rewind completer offers and what a refused cut is
-// measured against.
+// first. A boundary whose cut would leave the cursor where it already stands
+// is left out: it is no offer, and taking it up earns nothing but a refusal.
+// The plain TurnBoundaries function keeps every boundary, because a fork
+// reads the same list and copying a branch from the current leaf is a real
+// thing to do.
 func (sm *Manager) TurnBoundaries() []TurnBoundary {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	return TurnBoundaries(sm.contextPathLocked())
+	leaf := sm.leafLocked()
+	all := TurnBoundaries(sm.contextPathLocked())
+	movable := all[:0]
+	for _, boundary := range all {
+		if boundary.MovesCursor(leaf) {
+			movable = append(movable, boundary)
+		}
+	}
+	return movable
+}
+
+// RewindMovesCursor reports whether a cut at this entry would move the
+// cursor, so a strip can leave the button off a row where it would only earn
+// a refusal. It is asked per drawn row, so it answers from the entry alone:
+// no walk of the history, no preview built.
+func (sm *Manager) RewindMovesCursor(entryID string) bool {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	entry, known := sm.byIDs[entryID]
+	if !known {
+		return false
+	}
+	target, ok := boundaryTarget(entry)
+	return ok && target != sm.leafLocked()
 }
 
 // Rewind moves the cursor to the turn boundary anchored at entryID: before a
