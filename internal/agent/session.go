@@ -263,6 +263,52 @@ func (s *Session) TurnBoundaries() []session.TurnBoundary {
 	return boundaries
 }
 
+// Fork copies the branch up to the anchor into a session file of its own
+// (see session.Fork) and reports where it landed. The new session is closed
+// again before this returns: whatever shows the fork opens the file the same
+// way it opens any other session, and two owners of one file is one too many.
+func (s *Session) Fork(anchorID string) (session.ForkResult, error) {
+	if s == nil || s.manager == nil {
+		return session.ForkResult{}, errors.New("agent: session unavailable")
+	}
+	// The anchor is resolved first and then forked at by name, so an empty
+	// anchor cannot mean one entry here and another one line later.
+	boundary, err := s.manager.ForkBoundary(anchorID)
+	if err != nil {
+		return session.ForkResult{}, err
+	}
+	forked, err := session.Fork(s.manager, boundary.EntryID)
+	if err != nil {
+		return session.ForkResult{}, err
+	}
+	result := session.ForkResult{
+		SessionID: forked.ID(),
+		File:      forked.File(),
+		Anchor:    boundary.EntryID,
+		// The log records the prompt as it was sent. What the composer of the
+		// new session receives is what the user wrote, without the harness
+		// paragraph the turn put in front of it.
+		Prompt: userTypedPrompt(boundary.Prompt),
+	}
+	if err := forked.Close(); err != nil {
+		return session.ForkResult{}, err
+	}
+	return result, nil
+}
+
+// ForkBoundaries lists the places a fork may be taken at, each prompt as the
+// user wrote it (see Manager.ForkBoundaries).
+func (s *Session) ForkBoundaries() []session.TurnBoundary {
+	if s == nil || s.manager == nil {
+		return nil
+	}
+	boundaries := s.manager.ForkBoundaries()
+	for i, boundary := range boundaries {
+		boundaries[i] = boundary.WithPrompt(userTypedPrompt(boundary.Prompt))
+	}
+	return boundaries
+}
+
 // RewindOffers returns the entries a cut may be taken at right now
 // (see Manager.RewindOffers).
 func (s *Session) RewindOffers() map[string]struct{} {
