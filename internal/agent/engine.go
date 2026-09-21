@@ -177,6 +177,10 @@ type Engine struct {
 	// message each time. A landed compaction clears it.
 	microStubbed map[string]struct{}
 
+	// asideStream replaces the client's stream for a side question; nil uses
+	// the client. Tests set it to put a cancel at an exact point of a stream.
+	asideStream func(context.Context, []llm.Message) iter.Seq2[llm.StreamEvent, error]
+
 	// tokenObs is the live calibration of the token estimate against the
 	// provider's own count (see engine_context.go): what the last request
 	// estimated next to what it was billed for. nil means no observation —
