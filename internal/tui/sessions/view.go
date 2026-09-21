@@ -615,6 +615,7 @@ func NewView(
 	e.configureEditing()
 	e.configureRewind()
 	e.configureFork()
+	e.configureAside()
 	e.composer.Chat.OnModelPick = func(at components.Point) {
 		e.OpenModelPicker()
 		e.composer.AnchorPalette(components.Point{X: e.composerOrigin.X + at.X, Y: e.composerOrigin.Y + at.Y})
@@ -2075,21 +2076,15 @@ func (e *View) RunCompact() {
 	}
 }
 
-// AsideAbout asks about the context as it stood at the entry. It is the one
-// context operation the engine cannot do yet, so the view answers the click
-// by saying so, and the operation replaces this toast when it lands. The
-// other two work: RewindTo lives in rewind.go and ForkFrom in fork.go.
+// AsideAbout answers the side-question button on a message. The composer
+// has no mode for typing the question yet, so the click says how to ask it
+// from the keyboard, naming the anchor so a click that landed on the wrong
+// row is visible at once. AskAside in aside.go does the asking.
 func (e *View) AsideAbout(entryID string) {
-	e.announceMessageAction("Asking on the side", entryID)
-}
-
-// announceMessageAction is the placeholder answer. It names the anchor, so a
-// click that landed on the wrong row is visible at once.
-func (e *View) announceMessageAction(what, entryID string) {
 	if e == nil || entryID == "" {
 		return
 	}
-	e.toast.Show(what+" is not wired up yet: "+entryID, toast.ToastWarning, 3*time.Second)
+	e.toast.Show("Ask about this message with /btw @"+entryID+" <question>", toast.ToastWarning, 5*time.Second)
 }
 
 // SubmitPrompt publishes a user prompt onto the bus.

@@ -64,7 +64,7 @@ func NewBus(onWake func()) *Bus {
 }
 
 // Publish enqueues a message from any goroutine.
-// Same-row AssistantMessageUpdate / same-tool ToolData / same child Progress
+// Same-row AssistantMessageUpdate or AsideUpdate / same-tool ToolData / same child Progress
 // coalesce even when not adjacent in the queue (latest wins).
 func (b *Bus) Publish(m Msg) {
 	if b == nil {
@@ -141,6 +141,20 @@ func (b *Bus) Chan() <-chan struct{} {
 }
 
 func findCoalesceSession(pending []Msg, te SessionEventMsg) (int, bool) {
+	if cur, ok := te.Event.(session.AsideUpdate); ok {
+		// An update carries the whole answer so far, so the newest one of a
+		// row stands for every one before it.
+		for i := range slices.Backward(pending) {
+			prev, ok := pending[i].(SessionEventMsg)
+			if !ok {
+				continue
+			}
+			if prevUpd, ok := prev.Event.(session.AsideUpdate); ok && prevUpd.ID == cur.ID {
+				return i, true
+			}
+		}
+		return -1, false
+	}
 	if cur, ok := te.Event.(session.AssistantMessageUpdate); ok {
 		for i := range slices.Backward(pending) {
 			prev, ok := pending[i].(SessionEventMsg)

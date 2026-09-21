@@ -86,3 +86,23 @@ func TestBusCoalesceJobProgressAcrossSession(t *testing.T) {
 		t.Fatalf("status=%q", jp.Progress.Status)
 	}
 }
+
+// Updates of one side question coalesce, the newest winning, and a second
+// question keeps a row of its own.
+func TestBusCoalesceAsideUpdatesOfOneRow(t *testing.T) {
+	b := controller.NewBus(nil)
+	publish := func(id, answer string, state session.State) {
+		b.Publish(controller.SessionEventMsg{Event: session.AsideUpdate{ID: id, Answer: answer, State: state}})
+	}
+	publish("s1", "one", session.StateStreaming)
+	publish("s2", "other", session.StateStreaming)
+	publish("s1", "one two", session.StateComplete)
+	batch := b.Drain()
+	if len(batch) != 2 {
+		t.Fatalf("len=%d want 2", len(batch))
+	}
+	first := batch[0].(controller.SessionEventMsg).Event.(session.AsideUpdate)
+	if first.ID != "s1" || first.Answer != "one two" || first.State != session.StateComplete {
+		t.Fatalf("first=%+v want the newest s1 update", first)
+	}
+}
