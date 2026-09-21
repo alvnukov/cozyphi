@@ -250,8 +250,12 @@ func TestRewindCompleterListsTheBoundaries(t *testing.T) {
 
 	only, ok := e.commands.CompleteSlashArg("rewind", nil, "ba")
 	require.True(t, ok)
-	require.Len(t, only, 1)
+	require.NotEmpty(t, only)
 	assert.Equal(t, "back", only[0].Path)
+	// An entry id is random hex and begins with "ba" once in 256 draws.
+	for _, item := range only[1:] {
+		assert.True(t, strings.HasPrefix(item.Path, "ba"), item.Path)
+	}
 }
 
 // /rewind with nothing to go on says how to use it rather than guessing.
