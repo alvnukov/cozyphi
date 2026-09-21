@@ -84,7 +84,8 @@ already been shown. Clear it before sending, unless you meant to ask twice.
 Switching between branches in the interface is not available. After a rewind the
 branch you left is in the log, not on the screen. To keep both branches in front
 of you, copy the conversation into a second tab instead of rewinding this one:
-see [Fork](fork.md).
+see [Fork](fork.md). To ask about an earlier moment without moving the cursor
+at all, see [Side questions](aside.md).
 
 ## Log format
 

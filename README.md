@@ -121,6 +121,7 @@ Run `cozyphi --help` or `cozyphi <command> --help` for the full command referenc
 - [OpenCode integration](doc/opencode.md)
 - [Rewind](doc/rewind.md)
 - [Session names](doc/session.md)
+- [Side questions](doc/aside.md)
 - [Terminal UI](doc/tui.md)
 - [Watches](doc/watch.md)
 - [Project layout](doc/project-layout.md)
