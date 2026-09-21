@@ -255,6 +255,16 @@ func applyInPlace(out *Snapshot, ev Event) {
 				Detail:    b.Input,
 			}
 		}
+	case AsideUpdate:
+		row := asideRow(e)
+		if row.ID == "" {
+			row.ID = fmt.Sprintf("aside-%d", len(out.Messages)+1)
+		}
+		if i := slices.IndexFunc(out.Messages, func(m Message) bool { return m.ID == row.ID }); i >= 0 {
+			out.Messages[i] = row
+		} else {
+			out.Messages = append(out.Messages, row)
+		}
 	case ToolData:
 		if out.Tools == nil {
 			out.Tools = make(map[string]ToolRun)

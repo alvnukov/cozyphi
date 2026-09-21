@@ -317,6 +317,26 @@ type AssistantMessageUpdate struct {
 
 func (AssistantMessageUpdate) isSessionEvent() {}
 
+// AsideUpdate streams the answer to a side question. ID is the id the aside
+// entry is written under, the same from the first token to the last, so the
+// row it draws and the record in the log carry one name. Answer is the whole
+// answer so far, not a delta.
+type AsideUpdate struct {
+	ID       string
+	Anchor   string
+	Question string
+	Answer   string
+	State    State
+	// SkippedTool names the tool the model asked for when the answer
+	// stopped there instead of running it.
+	SkippedTool string
+	// Error explains a StateError update.
+	Error string
+	Model string
+}
+
+func (AsideUpdate) isSessionEvent() {}
+
 // ToolData updates a tool run by tool_use id.
 type ToolData struct {
 	Run ToolRun

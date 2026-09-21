@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Added: side questions. `/btw <question>` asks the model about the
+  conversation as it stands, and `/btw @<id> <question>` about the conversation
+  up to that message. The answer streams into the feed as a row marked `btw:`
+  and is kept in the session file, but neither the question nor the answer is
+  ever shown to the model again, and the cursor does not move. Tools do not run
+  for a side question: a tool call ends the answer with a note naming the tool.
+  A question is refused while a reply or a queued prompt is running, and a
+  cancelled or failed answer is not written down. See `doc/aside.md`.
 - Added: the `fork` button works. It copies the conversation up to the message
   it sits on into a session of its own and opens it as another tab, and
   `/fork [<id>]` does the same from the keyboard, with no id meaning the whole

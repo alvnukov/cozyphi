@@ -309,6 +309,33 @@ func (s *Session) ForkBoundaries() []session.TurnBoundary {
 	return boundaries
 }
 
+// AsideScope resolves the context a side question is asked about (see
+// Manager.AsideScope). It reads the log and changes nothing, the context
+// cache included.
+func (s *Session) AsideScope(anchorID string) (session.AsideScope, error) {
+	if s == nil || s.manager == nil {
+		return session.AsideScope{}, errors.New("agent: session unavailable")
+	}
+	return s.manager.AsideScope(anchorID)
+}
+
+// AsideAnchors lists the messages a side question may be asked about.
+func (s *Session) AsideAnchors() []session.AsideAnchor {
+	if s == nil || s.manager == nil {
+		return nil
+	}
+	return s.manager.AsideAnchors()
+}
+
+// AppendAside records a side question. The context is untouched, so the
+// cache built for it stays valid.
+func (s *Session) AppendAside(entry session.AsideEntry) error {
+	if s == nil || s.manager == nil {
+		return errors.New("agent: session unavailable")
+	}
+	return s.manager.AppendAside(entry)
+}
+
 // RewindOffers returns the entries a cut may be taken at right now
 // (see Manager.RewindOffers).
 func (s *Session) RewindOffers() map[string]struct{} {
@@ -521,7 +548,12 @@ func (s *Session) BuildContext() []llm.Message {
 }
 
 func (s *Session) buildRawContext() []llm.Message {
-	entries := s.manager.BuildContext()
+	return contextMessages(s.manager.BuildContext())
+}
+
+// contextMessages turns context entries into the messages a provider is sent:
+// a compaction becomes a user message carrying its summary.
+func contextMessages(entries []session.MessageEntry) []llm.Message {
 	msgs := make([]llm.Message, 0, len(entries))
 	for _, entry := range entries {
 		switch entry.GetType() {
