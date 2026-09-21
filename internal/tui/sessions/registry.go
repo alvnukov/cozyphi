@@ -49,8 +49,8 @@ func (r *Registry) Open(name string, view *View) (string, error) {
 			return "", fmt.Errorf("view is already open as session %q: activate it instead", entry.ID)
 		}
 	}
-	if len(r.entries) >= r.limit {
-		return "", fmt.Errorf("session limit (%d) reached: close a session before opening another", r.limit)
+	if err := r.Room(); err != nil {
+		return "", err
 	}
 	id := rand.Text()
 	for r.index(id) >= 0 {
@@ -65,6 +65,18 @@ func (r *Registry) Open(name string, view *View) (string, error) {
 	r.entries = append(r.entries, entry)
 	r.changed()
 	return id, nil
+}
+
+// Room reports whether another view may be opened, and says why not when the
+// answer is no. Open refuses on the same answer, so asking first changes
+// nothing about what may be opened. It exists for work that must not start
+// unless it can finish: a fork writes a session file for a tab to show, and
+// a file written for a tab that cannot be opened is a file nobody asked for.
+func (r *Registry) Room() error {
+	if len(r.entries) >= r.limit {
+		return fmt.Errorf("session limit (%d) reached: close a session before opening another", r.limit)
+	}
+	return nil
 }
 
 // Active returns a value snapshot of the selected entry, if any.

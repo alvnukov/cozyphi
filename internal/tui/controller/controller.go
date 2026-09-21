@@ -2099,6 +2099,32 @@ func (c *Controller) UndoRewind() (session.RewindResult, error) {
 	return c.engine.UndoRewind()
 }
 
+// Fork writes the branch up to the anchor as a new session file and reports
+// where it went; an empty anchor copies the conversation as it stands. It
+// waits for the same idle pipeline a rewind does: a prompt still in the queue
+// is about to be appended, and the copy would then stop one turn short of
+// what the user is looking at.
+func (c *Controller) Fork(anchorID string) (session.ForkResult, error) {
+	if c == nil || c.engine == nil {
+		return session.ForkResult{}, errors.New("controller: no engine")
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if err := c.requireRunIdleLocked("fork"); err != nil {
+		return session.ForkResult{}, err
+	}
+	return c.engine.Fork(anchorID)
+}
+
+// ForkBoundaries lists the places a fork may be taken at, oldest first.
+// Asking copies nothing, so it needs no busy guard.
+func (c *Controller) ForkBoundaries() []session.TurnBoundary {
+	if c == nil || c.engine == nil {
+		return nil
+	}
+	return c.engine.ForkBoundaries()
+}
+
 // RewindOffers returns the entries a cut may be taken at right now. Asking
 // moves nothing, so it needs no busy guard.
 func (c *Controller) RewindOffers() map[string]struct{} {

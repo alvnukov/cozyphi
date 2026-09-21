@@ -57,6 +57,7 @@ type ManagerConfig struct {
 	sessionDir  string
 	shouldFlush bool
 	parentID    string
+	forkAnchor  string
 	model       string
 }
 
@@ -97,6 +98,15 @@ func WithParent(sessionID string) OptionFunc {
 	}
 }
 
+// WithForkAnchor returns an option that records the entry of the parent
+// session a fork was taken at.
+func WithForkAnchor(entryID string) OptionFunc {
+	return func(config ManagerConfig) ManagerConfig {
+		config.forkAnchor = entryID
+		return config
+	}
+}
+
 // WithModel returns an option that records the model name used by the session.
 func WithModel(name string) OptionFunc {
 	return func(config ManagerConfig) ManagerConfig {
@@ -118,6 +128,7 @@ func NewSessionManager(sessionPath string, opt ...ManagerOption) (*Manager, erro
 	header := SessionHeader{
 		Type:          EntrySession,
 		ParentSession: config.parentID,
+		ForkedFrom:    config.forkAnchor,
 		ID:            sessionID,
 		Timestamp:     time.Now().Format("2006-01-02T15-04-05"),
 		Cwd:           sessionPath,

@@ -129,8 +129,12 @@ type View struct {
 
 	sessions   *commands.SessionCommands
 	navigation *sessionNavigation
-	hookCmds   *commands.HookCommands
-	submitter  *submit.Submitter
+	// openFork is the shell's tab door: whether another tab may be opened,
+	// and how to open one on a session file. Only the shell knows how a tab
+	// is built, so it hands this in.
+	openFork  *forkTabDoor
+	hookCmds  *commands.HookCommands
+	submitter *submit.Submitter
 
 	// rewindDraft remembers what the composer held around the last rewind, so
 	// that undoing it takes back the prompt it handed over and leaves the
@@ -610,6 +614,7 @@ func NewView(
 	}
 	e.configureEditing()
 	e.configureRewind()
+	e.configureFork()
 	e.composer.Chat.OnModelPick = func(at components.Point) {
 		e.OpenModelPicker()
 		e.composer.AnchorPalette(components.Point{X: e.composerOrigin.X + at.X, Y: e.composerOrigin.Y + at.Y})
@@ -2070,23 +2075,16 @@ func (e *View) RunCompact() {
 	}
 }
 
-// ForkFrom and AsideAbout are the two context operations the engine cannot
-// do yet, so the view answers the click by saying so: the strip, its hints
-// and its wiring are testable now, and each operation replaces its own toast
-// when it lands. The third, RewindTo, lives in rewind.go and works.
-//
-// ForkFrom opens a copy of the branch up to the entry in a new tab.
-func (e *View) ForkFrom(entryID string) {
-	e.announceMessageAction("Fork", entryID)
-}
-
-// AsideAbout asks about the context as it stood at the entry.
+// AsideAbout asks about the context as it stood at the entry. It is the one
+// context operation the engine cannot do yet, so the view answers the click
+// by saying so, and the operation replaces this toast when it lands. The
+// other two work: RewindTo lives in rewind.go and ForkFrom in fork.go.
 func (e *View) AsideAbout(entryID string) {
 	e.announceMessageAction("Asking on the side", entryID)
 }
 
-// announceMessageAction is the placeholder answer the three share. It names
-// the anchor, so a click that landed on the wrong row is visible at once.
+// announceMessageAction is the placeholder answer. It names the anchor, so a
+// click that landed on the wrong row is visible at once.
 func (e *View) announceMessageAction(what, entryID string) {
 	if e == nil || entryID == "" {
 		return

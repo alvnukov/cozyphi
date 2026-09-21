@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Added: the `fork` button works. It copies the conversation up to the message
+  it sits on into a session of its own and opens it as another tab, and
+  `/fork [<id>]` does the same from the keyboard, with no id meaning the whole
+  conversation. A fork at a prompt hands its text to the composer of the new
+  tab. The session forked from keeps its transcript, its place and its draft,
+  and its file is not written to. The header of the copy names the session and
+  the message it came from. See `doc/fork.md`.
 - Fixed: web model binding now stays secret-safe and current. Admission resolves
   the pin again on every tool call, so model removal, connection and route
   changes apply without rebuilding the engine. Routes without a proven stable

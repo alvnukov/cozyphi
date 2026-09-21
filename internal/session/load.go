@@ -403,6 +403,7 @@ func OpenSession(path string) (_ *Manager, err error) {
 			sessionDir:  filepath.Dir(path),
 			shouldFlush: true,
 			parentID:    parent,
+			forkAnchor:  header.ForkedFrom,
 		},
 		hasAssistantMsg: hasAssistantMsg,
 	}, nil

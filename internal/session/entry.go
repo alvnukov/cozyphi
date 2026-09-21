@@ -30,13 +30,19 @@ const (
 
 // SessionHeader is the root entry of a session file.
 type SessionHeader struct {
-	Type          string `json:"type"` // Always "session"
+	Type          string `json:"type"` // Always EntrySession
 	Version       int    `json:"version,omitempty"`
 	ID            string `json:"id"`
 	Timestamp     string `json:"timestamp"`
 	Cwd           string `json:"cwd"`
 	ParentSession string `json:"parentSession,omitempty"`
-	Model         string `json:"model,omitempty"`
+	// ForkedFrom names the entry of the parent session the copy stops at.
+	// Together with ParentSession it says where this conversation came from:
+	// the session, and the message inside it. Both are empty in a session
+	// nobody forked, and a log written before forks existed simply has
+	// neither.
+	ForkedFrom string `json:"forkedFrom,omitempty"`
+	Model      string `json:"model,omitempty"`
 }
 
 // GetType implements MessageEntry.
