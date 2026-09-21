@@ -340,6 +340,14 @@ func OpenSession(path string) (_ *Manager, err error) {
 			// The move carries the cursor, so the last one in the file wins
 			// and everything appended to the branch it left is skipped over.
 			setLeaf(&leafID, e.Target)
+		case AsideEntry:
+			if header == nil {
+				return nil, fmt.Errorf("session: first entry must be session header at %s:%d", path, lineNo)
+			}
+			// A side question is kept and never followed: the cursor stays
+			// where the conversation left it.
+			byIDs[e.ID] = e
+			entries = append(entries, e)
 		case PlanEntry:
 			if header == nil {
 				return nil, fmt.Errorf("session: first entry must be session header at %s:%d", path, lineNo)
@@ -466,6 +474,12 @@ func decodeEntryLine(raw []byte, lineNo int) (MessageEntry, error) {
 		}
 		title.Title = normalized
 		return title, nil
+	case EntryAside:
+		var aside AsideEntry
+		if err := json.Unmarshal(raw, &aside); err != nil {
+			return nil, fmt.Errorf("session: line %d side question: %w", lineNo, err)
+		}
+		return aside, nil
 	case EntryLeaf:
 		var move LeafEntry
 		if err := json.Unmarshal(raw, &move); err != nil {
