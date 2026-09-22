@@ -36,3 +36,7 @@ updated_at: "2026-09-22T22:18:01.889334Z"
 1. go test ./internal/provider
 2. golangci-lint run ./internal/provider
 3. живой повторный RefreshSubscriptionModels показывает gpt-6-sol/gpt-6-luna
+
+## Result
+
+PR #54: бамп codexModelsClientVersion 0.153.1→0.156.0, живая проверка (тот же аккаунт/токен): 0.153.1 → 7 моделей без gpt-6-sol/gpt-6-luna; 0.156.0 → 9. go test ./internal/provider и golangci-lint run ./internal/provider — чисто.
