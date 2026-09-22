@@ -14,9 +14,13 @@ import (
 )
 
 const (
-	// The backend gates models by Codex client compatibility. This value tracks
-	// the official Codex CLI schema this decoder implements, not CozyPhi's app version.
-	codexModelsClientVersion = "0.153.1"
+	// The backend gates models by Codex client compatibility: /models hides
+	// any model whose minimal_client_version exceeds the requested one (codex
+	// sends its own CLI version; verified live 2026-09-22: 0.153.1 omitted
+	// gpt-6-sol/gpt-6-luna with mcv 0.155.0, 0.156.0 returned them). This value
+	// tracks the official Codex CLI release whose response schema this decoder
+	// implements, not CozyPhi's app version; bump it when models go missing.
+	codexModelsClientVersion = "0.156.0"
 	codexModelsCacheTTL      = 5 * time.Minute
 	codexModelsTimeout       = 5 * time.Second
 	maxCodexModelsBytes      = 16 << 20
