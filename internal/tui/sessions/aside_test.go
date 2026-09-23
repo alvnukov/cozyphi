@@ -124,7 +124,7 @@ func TestSlashBtwRefusalsAreShown(t *testing.T) {
 	t.Cleanup(ctrl.Close)
 	runTurn(t, e, "first", 2)
 
-	for _, line := range []string{"/btw", "/btw @", "/btw @nothing-like-this why?"} {
+	for _, line := range []string{"/btw @", "/btw @nothing-like-this why?"} {
 		require.True(t, e.commands.DispatchSlash(line, e.commandContext()), line)
 		history := e.toast.History()
 		require.NotEmpty(t, history, line)
@@ -133,6 +133,27 @@ func TestSlashBtwRefusalsAreShown(t *testing.T) {
 	}
 	assert.Len(t, bodies(), 1, "only the turn reached the model")
 	assert.Len(t, e.transcript.Snapshot().Messages, 2, "no refusal drew a row")
+}
+
+func TestBareSlashAndPaletteBtwEnterCurrentContextMode(t *testing.T) {
+	server, _ := replyingSSEServer(t)
+	defer server.Close()
+	e, ctrl := newQueueEditor(t, server.URL, t.TempDir())
+	t.Cleanup(ctrl.Close)
+
+	require.True(t, e.commands.DispatchSlash("/btw", e.commandContext()))
+	require.Equal(t, "⏵⏵ btw", e.composer.Chat.AgentLabel.Text)
+	e.composer.LeaveAside()
+
+	for _, item := range e.commands.BuildPalette(e.commandContext()) {
+		if item.ID == "btw" {
+			require.Equal(t, "Ctrl+T", item.Shortcut)
+			item.Run()
+			require.Equal(t, "⏵⏵ btw", e.composer.Chat.AgentLabel.Text)
+			return
+		}
+	}
+	t.Fatal("btw command missing from palette")
 }
 
 // Esc stops a side question the way it stops a reply: the row says the answer

@@ -63,6 +63,7 @@ func (c *ComposerPane) ToggleVoice() {
 	}
 	if c.voiceState == voice.StateIdle {
 		c.HideCompleters()
+		c.LeaveAside()
 		c.voice.VoiceStart()
 		return
 	}

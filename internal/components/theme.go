@@ -19,6 +19,7 @@ type Theme struct {
 	Accent      xui.Style // links / "Show more"
 	Warning     xui.Style // inline highlights / palette title
 	Violet      xui.Style // useplan mode accent
+	Aside       xui.Style // one-shot side questions outside agent context
 	Destructive xui.Style
 	Border      xui.Style
 	ToolName    xui.Style
@@ -107,13 +108,14 @@ func OpencodeTheme() Theme {
 		Accent:      xui.Style{Fg: xui.RGBColor(0xfa, 0xb2, 0x83), Underline: true}, // primary — links
 		Warning:     xui.Style{Fg: xui.RGBColor(0xf5, 0xa7, 0x42)},                  // warning
 		Violet:      xui.Style{Fg: xui.RGBColor(0x9d, 0x7c, 0xd8)},                  // darkAccent
-		Destructive: xui.Style{Fg: xui.RGBColor(0xe0, 0x6c, 0x75)},                  // error
-		Border:      xui.Style{Fg: xui.RGBColor(0x48, 0x48, 0x48)},                  // border
-		ToolName:    xui.Style{Fg: xui.RGBColor(0x5c, 0x9c, 0xf5)},                  // secondary
-		SelectionBg: xui.Style{Bg: xui.RGBColor(0xfa, 0xb2, 0x83)},                  // primary bar
-		SelectionFg: xui.Style{Fg: xui.RGBColor(0x0a, 0x0a, 0x0a), Bold: true},      // selectedForeground → background
-		Keybind:     xui.Style{Fg: xui.RGBColor(0x5c, 0x9c, 0xf5), Bold: true},      // secondary
-		Command:     xui.Style{Fg: xui.RGBColor(0x5c, 0x9c, 0xf5)},                  // secondary
+		Aside:       xui.Style{Fg: xui.RGBColor(0x60, 0xcb, 0xc0)},
+		Destructive: xui.Style{Fg: xui.RGBColor(0xe0, 0x6c, 0x75)},             // error
+		Border:      xui.Style{Fg: xui.RGBColor(0x48, 0x48, 0x48)},             // border
+		ToolName:    xui.Style{Fg: xui.RGBColor(0x5c, 0x9c, 0xf5)},             // secondary
+		SelectionBg: xui.Style{Bg: xui.RGBColor(0xfa, 0xb2, 0x83)},             // primary bar
+		SelectionFg: xui.Style{Fg: xui.RGBColor(0x0a, 0x0a, 0x0a), Bold: true}, // selectedForeground → background
+		Keybind:     xui.Style{Fg: xui.RGBColor(0x5c, 0x9c, 0xf5), Bold: true}, // secondary
+		Command:     xui.Style{Fg: xui.RGBColor(0x5c, 0x9c, 0xf5)},             // secondary
 		// Soft blue picker bar — deliberately distinct from the palette's
 		// primary yellow; the block highlight is a dark olive tint.
 		PickerSelectionBg:    xui.Style{Bg: xui.RGBColor(0x3a, 0x5a, 0x7a)},
@@ -174,6 +176,7 @@ func VSLightTheme() Theme {
 		Accent:      xui.Style{Fg: xui.RGBColor(0x00, 0x78, 0xD4), Underline: true},
 		Warning:     xui.Style{Fg: xui.RGBColor(0x8A, 0x5A, 0x00)},
 		Violet:      xui.Style{Fg: xui.RGBColor(0x68, 0x21, 0x7A)},
+		Aside:       xui.Style{Fg: xui.RGBColor(0x00, 0x78, 0x78)},
 		Destructive: xui.Style{Fg: xui.RGBColor(0xA4, 0x26, 0x2C)},
 		Border:      xui.Style{Fg: xui.RGBColor(0xBF, 0xBF, 0xBF)},
 		ToolName:    xui.Style{Fg: xui.RGBColor(0x04, 0x51, 0xA5)},
@@ -238,6 +241,7 @@ func ClaudeLightTheme() Theme {
 		Accent:      xui.Style{Fg: xui.RGBColor(0xA8, 0x4B, 0x28), Underline: true}, // terracotta, deepened for AA
 		Warning:     xui.Style{Fg: xui.RGBColor(0x9A, 0x5B, 0x0C)},
 		Violet:      xui.Style{Fg: xui.RGBColor(0x6B, 0x4F, 0xBB)},
+		Aside:       xui.Style{Fg: xui.RGBColor(0x13, 0x75, 0x74)},
 		Destructive: xui.Style{Fg: xui.RGBColor(0xB4, 0x23, 0x18)},
 		Border:      xui.Style{Fg: xui.RGBColor(0xD3, 0xD0, 0xC4)},
 		ToolName:    xui.Style{Fg: xui.RGBColor(0x2F, 0x63, 0xA8)},
@@ -380,6 +384,7 @@ func DarkTheme() Theme {
 		Accent:      xui.Style{Fg: xui.RGBColor(0xc4, 0x8a, 0xd9), Underline: true},
 		Warning:     xui.Style{Fg: xui.RGBColor(0xe5, 0xc0, 0x7b)},
 		Violet:      xui.Style{Fg: xui.RGBColor(0xc4, 0x8a, 0xd9)},
+		Aside:       xui.Style{Fg: xui.RGBColor(0x75, 0xce, 0xc2)},
 		Destructive: xui.Style{Fg: xui.RGBColor(0xe0, 0x6c, 0x75)},
 		Border:      xui.Style{Fg: xui.RGBColor(0x58, 0x58, 0x58)},
 		ToolName:    xui.Style{Fg: xui.RGBColor(0x7d, 0xc3, 0xff)},
@@ -403,6 +408,7 @@ func DarculaTheme() Theme {
 		Accent:      xui.Style{Fg: xui.RGBColor(0x58, 0x9d, 0xf6), Underline: true},
 		Warning:     xui.Style{Fg: xui.RGBColor(0xcc, 0x78, 0x32)},
 		Violet:      xui.Style{Fg: xui.RGBColor(0x9d, 0x7c, 0xd8)},
+		Aside:       xui.Style{Fg: xui.RGBColor(0x70, 0xcf, 0xc0)},
 		Destructive: xui.Style{Fg: xui.RGBColor(0xff, 0x6b, 0x68)},
 		Border:      xui.Style{Fg: xui.RGBColor(0x55, 0x55, 0x55)},
 		ToolName:    xui.Style{Fg: xui.RGBColor(0x68, 0x97, 0xbb)},
@@ -426,6 +432,7 @@ func PinkTheme() Theme {
 		Accent:      xui.Style{Fg: xui.RGBColor(0xff, 0x9e, 0xc8), Underline: true},
 		Warning:     xui.Style{Fg: xui.RGBColor(0xff, 0xb8, 0x9a)},
 		Violet:      xui.Style{Fg: xui.RGBColor(0xc0, 0x9b, 0xe8)},
+		Aside:       xui.Style{Fg: xui.RGBColor(0x80, 0xdf, 0xce)},
 		Destructive: xui.Style{Fg: xui.RGBColor(0xf0, 0x6a, 0x8a)},
 		Border:      xui.Style{Fg: xui.RGBColor(0x8a, 0x5a, 0x70)},
 		ToolName:    xui.Style{Fg: xui.RGBColor(0xf0, 0xa8, 0xd0)},
@@ -449,6 +456,7 @@ func TerminalTheme() Theme {
 		Accent:      xui.Style{Fg: xui.IndexedColor(5), Underline: true},
 		Warning:     xui.Style{Fg: xui.IndexedColor(3)},
 		Violet:      xui.Style{Fg: xui.IndexedColor(5)},
+		Aside:       xui.Style{Fg: xui.IndexedColor(6)},
 		Destructive: xui.Style{Fg: xui.IndexedColor(1)},
 		Border:      xui.Style{Fg: xui.IndexedColor(8)},
 		ToolName:    xui.Style{Fg: xui.IndexedColor(4)},

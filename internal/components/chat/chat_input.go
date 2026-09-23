@@ -38,7 +38,8 @@ type ChatInput struct {
 	MaxBodyRows int // default 12; height grows with content up to this
 
 	// AgentLabel is the posture lead ("⏵⏵ build") in the meta row; its style
-	// also colors the left ┃ bar and the ╹ tail.
+	// also colors the left ┃ bar and the ╹ tail. It is clickable only when
+	// OnLeadClick is set.
 	AgentLabel layout.BorderLabel
 	// ModelName and EffortLabel are separately clickable controls in the meta
 	// row. ModelLabel remains the passive legacy fallback when ModelName is empty.
@@ -48,6 +49,10 @@ type ChatInput struct {
 	ModelStateLabel string // pending/effective selection, projected by the owning View
 	// SessionLabel identifies the destination independently of model and posture.
 	SessionLabel string
+	// OnLeadClick activates the painted posture lead; nil keeps it passive.
+	OnLeadClick func()
+	// LeadTooltip is evaluated at hover time so rebinding the shortcut updates it.
+	LeadTooltip func() string
 	// Picker callbacks receive the click in local, painted composer coordinates.
 	OnModelPick  func(components.Point)
 	OnEffortPick func(components.Point)
@@ -143,7 +148,8 @@ type ChatInput struct {
 	rows       []visRow
 	rowsScroll int
 
-	// modelHit and effortHit are rebuilt from the clipped text on every Draw.
+	// Lead, model and effort hits are rebuilt from clipped text on every Draw.
+	leadHit   metaHit
 	modelHit  metaHit
 	effortHit metaHit
 
@@ -330,6 +336,8 @@ func (c *ChatInput) clampCursor() {
 // control, so the app redraws only when the highlighted region changes.
 func (c *ChatInput) HoverRegion(x, y int) int {
 	switch {
+	case c.OnLeadClick != nil && c.leadHit.contains(x, y):
+		return 3
 	case c.OnModelPick != nil && c.modelHit.contains(x, y):
 		return 1
 	case c.OnEffortPick != nil && c.effortHit.contains(x, y):
@@ -339,8 +347,8 @@ func (c *ChatInput) HoverRegion(x, y int) int {
 	}
 }
 
-// PointerShape offers the hand over a rendered model/effort control and keeps
-// the text beam over the editable body and passive legacy label.
+// PointerShape offers the hand over a rendered lead/model/effort control and
+// keeps the text beam over the editable body and passive labels.
 func (c *ChatInput) PointerShape(x, y int) string {
 	if c.HoverRegion(x, y) != 0 {
 		return components.ShapePointer
@@ -348,11 +356,24 @@ func (c *ChatInput) PointerShape(x, y int) string {
 	return components.ShapeText
 }
 
+// HoverTooltip explains the optional lead control without adding a composer row.
+func (c *ChatInput) HoverTooltip(x, y int) (string, bool) {
+	if c.OnLeadClick != nil && c.leadHit.contains(x, y) {
+		if c.LeadTooltip != nil {
+			return c.LeadTooltip(), true
+		}
+		return "Ask a side question — answer stays out of context", true
+	}
+	return "", false
+}
+
 func (c *ChatInput) handleMetaClick(ctx *components.EventContext, e xui.MouseEvent) bool {
 	if e.Action != xui.MousePress || e.Button != xui.MouseLeft {
 		return false
 	}
 	switch {
+	case c.OnLeadClick != nil && c.leadHit.contains(e.X, e.Y):
+		c.OnLeadClick()
 	case c.OnModelPick != nil && c.modelHit.contains(e.X, e.Y):
 		c.OnModelPick(components.Point{X: e.X, Y: e.Y})
 	case c.OnEffortPick != nil && c.effortHit.contains(e.X, e.Y):
@@ -1087,7 +1108,7 @@ func tintCells(s *components.Surface, y, fromX, toX, w int, th components.Theme)
 func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 	// Hit areas belong to the exact clipped frame being painted. Clear first so
 	// search mode and zero-width draws cannot retain clickable stale geometry.
-	c.modelHit, c.effortHit = metaHit{}, metaHit{}
+	c.leadHit, c.modelHit, c.effortHit = metaHit{}, metaHit{}, metaHit{}
 
 	w := ctx.Max.Width
 	if w <= 0 {
@@ -1353,7 +1374,11 @@ func (c *ChatInput) paintMetaRow(
 		primaryRemaining -= width
 	}
 	if c.AgentLabel.Text != "" {
+		hitX := x
 		width := paint(c.AgentLabel.Text, lead, primaryRemaining)
+		if width > 0 {
+			c.leadHit = metaHit{x0: hitX, x1: hitX + width, y: y}
+		}
 		primaryRemaining -= width
 	}
 
@@ -1393,6 +1418,8 @@ func (c *ChatInput) paintMetaRow(
 
 	if components.Hovering(ctx, c) {
 		switch {
+		case c.OnLeadClick != nil && c.leadHit.contains(ctx.Hover.X, ctx.Hover.Y):
+			paintMetaHover(s, c.leadHit, th.BackgroundPanel)
 		case c.OnModelPick != nil && c.modelHit.contains(ctx.Hover.X, ctx.Hover.Y):
 			paintMetaHover(s, c.modelHit, th.BackgroundPanel)
 		case c.OnEffortPick != nil && c.effortHit.contains(ctx.Hover.X, ctx.Hover.Y):

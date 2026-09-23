@@ -13,7 +13,10 @@ context on the answer and without steering the next turn with it.
 ## First side question
 
 1. Have a conversation with at least one message in it.
-2. Type `/btw` followed by the question, and press Enter:
+2. Type `/btw` followed by the question and press Enter, or press Ctrl+T,
+   click the composer lead, select `btw` in the command palette, or enter bare
+   `/btw` to open the one-shot question composer. Type the question and press
+   Enter. Esc leaves the mode and keeps the draft.
 
    ```text
    /btw what did we decide about the retry limit?
@@ -88,8 +91,12 @@ For now the answer is drawn as an ordinary reply marked `btw:`, and a session
 you resume does not show it again: it is in the file, not in the replay. A row
 of its own, drawn in the feed where it was asked, is the next step.
 
-The `btw` button on a message does not ask yet. It shows the `/btw @<id>` line
-to type for that message.
+The `btw` button on a message opens the one-shot question composer at that
+message's id. The composer lead shows `btw @<id>` until you ask or leave the
+mode. Enter sends a side question, not a normal prompt; after a successful
+send the composer returns to normal. If the question is refused, the draft and
+anchor remain so you can retry. Voice dialog, shell commands, images and
+pending skills cannot be mixed with side questions.
 
 ## Log format
 

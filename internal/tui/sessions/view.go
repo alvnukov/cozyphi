@@ -498,6 +498,7 @@ func NewView(
 		e,
 		e,
 	)
+	e.composer.SetAsideSubmit(e.AskAside)
 
 	e.ctxpane = ctxpane.New(
 		theme,
@@ -2076,15 +2077,23 @@ func (e *View) RunCompact() {
 	}
 }
 
-// AsideAbout answers the side-question button on a message. The composer
-// has no mode for typing the question yet, so the click says how to ask it
-// from the keyboard, naming the anchor so a click that landed on the wrong
-// row is visible at once. AskAside in aside.go does the asking.
+// AsideAbout starts a side question about this message without putting the
+// question or its answer in the next turn's context.
 func (e *View) AsideAbout(entryID string) {
-	if e == nil || entryID == "" {
+	if e == nil || entryID == "" || e.composer == nil {
 		return
 	}
-	e.toast.Show("Ask about this message with /btw @"+entryID+" <question>", toast.ToastWarning, 5*time.Second)
+	if e.ctrl != nil && e.ctrl.RunActive() {
+		e.toast.Show("Wait for the current turn before asking a side question", toast.ToastWarning, 4*time.Second)
+		return
+	}
+	if !e.composer.EnterAside(entryID) {
+		e.toast.Show(
+			"Cannot enter btw mode while voice, shell, media or skills are active",
+			toast.ToastWarning,
+			4*time.Second,
+		)
+	}
 }
 
 // SubmitPrompt publishes a user prompt onto the bus.

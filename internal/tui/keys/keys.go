@@ -225,6 +225,7 @@ var catalog = []Group{
 			{Keys: []string{"/"}, Desc: "open the slash-command picker"},
 			{Keys: []string{"@"}, Desc: "open the file mention picker"},
 			{Cmd: CmdVoice, Desc: "voice dialog on/off"},
+			{Cmd: CmdAside, Desc: "one-shot side question (btw); question and answer stay out of the next turn"},
 			{Cmd: CmdHistorySearch, Desc: "reverse-i-search the prompt history; again steps older"},
 			{Cmd: CmdHistorySearchFwd, Desc: "step to the newer match, while searching"},
 		},
