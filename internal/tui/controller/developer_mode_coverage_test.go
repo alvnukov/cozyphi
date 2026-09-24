@@ -271,6 +271,7 @@ var envCoverage = coverageTable{
 		"COZYPHI_API_KEY":    {diag.CategoryModel, diag.KeyModelCredential},
 		"COZYPHI_MODEL":      {diag.CategoryModel, diag.KeyModelName},
 		"COZYPHI_SKILL_PATH": {diag.CategoryContext, diag.KeyContextSkills},
+		"COZYPHI_PLUGINS":    {diag.CategoryContext, diag.KeyContextSkills},
 		"COZYPHI_DEBUG":      {diag.CategoryDiagnostics, diag.KeyLoggingState},
 		"COZYPHI_DEBUG_FILE": {diag.CategoryDiagnostics, diag.KeyLoggingDestination},
 		// Presence only: which subsystem log is redirected, never where to.
