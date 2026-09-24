@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Added: Claude Code plugins. Skills and `SessionStart`/`SessionEnd` hooks of
+  plugins enabled in Claude Code (`~/.claude`) or listed under `plugins.paths`
+  in config.yaml load automatically; plugin skills are named `<plugin>:<skill>`.
+  `COZYPHI_PLUGINS=off` disables them. See `doc/plugins.md`.
+- Changed: `session_start` hooks also run with reason `compact` after every
+  successful compaction and after a successful context trim, so a plugin
+  bootstrap (or any other `session_start` side effect) survives both. See
+  `doc/plugins.md`.
 - Fixed: typing no longer lags behind on a loaded machine. Every keystroke and
   every wheel scroll used to repaint the whole screen, about 10 KB at 120x40;
   a terminal that drained its pty slowly then fell further behind with every

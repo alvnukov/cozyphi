@@ -1,6 +1,6 @@
 # Claude Code plugins
 
-Status: design (2026-09-24). Task: `obsidian-tasks/claude-plugins.md`.
+Status: implemented (2026-09-24). Task: `obsidian-tasks/claude-plugins.md`.
 
 CozyPhi loads the skills and session hooks of Claude Code plugins, so a
 plugin installed once through Claude Code (`/plugin install`) works in both
@@ -153,9 +153,19 @@ A second adapter behind the existing `hooks.Hook` seam, next to
 `CommandHook`, in `internal/hooks/claude.go`:
 
 ```go
-// name is the plugin Name; vars holds CLAUDE_PLUGIN_ROOT, CLAUDE_PLUGIN_DATA
-// and CLAUDE_PROJECT_DIR. hooks does not import internal/plugin.
-func ParseClaudeHooks(file, name string, vars map[string]string) ([]Entry, []Warning)
+// Discover reads user and project hook manifests plus each enabled plugin's
+// hooks.json (already resolved to files and Vars by internal/plugin), and
+// returns every runnable entry plus every warning. hooks does not import
+// internal/plugin: a plugin's hook files reach it only as PluginHooks.
+func Discover(userDir, projectDir string, plugins ...PluginHooks) ([]Discovered, []Warning, error)
+
+// PluginHooks describes one plugin's hook files in the terms hooks needs.
+type PluginHooks struct {
+    Name  string            // plugin name: the hook-name namespace and the source label
+    Files []string          // absolute hooks.json paths
+    Vars  map[string]string // CLAUDE_PLUGIN_ROOT, CLAUDE_PLUGIN_DATA, CLAUDE_PROJECT_DIR
+}
+
 type ClaudeHook struct { /* implements Hook; only Session does work */ }
 ```
 
@@ -218,19 +228,36 @@ type ClaudeHook struct { /* implements Hook; only Session does work */ }
 - The reminder stays in model history, so it survives resume; TUI replay and
   session titles strip it like every other reminder. `superpowers` does not
   match `resume`, so a resumed session is not bootstrapped twice.
-- **Compaction.** After a successful `runCompaction` (overflow recovery and
-  manual `/compact`), the engine runs `hooks.SessionStart` with reason
-  `compact` and queues the returned context. Toast and status from that run
-  are logged only: the engine has no UI channel. Trade-off: existing cozyphi
-  `session_start` hooks now also see `compact`; this extends their contract
-  and is documented and noted in the changelog, in exchange for one lifecycle
-  and one contract.
+- **Compaction.** After a successful `runCompaction` (overflow recovery,
+  manual `/compact`, and the compaction the model requests through the
+  `context` tool), the engine runs `hooks.SessionStart` with reason `compact`
+  and queues the returned context. A successful user trim of the context
+  (`Engine.TrimContextFrom`, the `/context` browser's trim action) does the
+  same: dropping the first user message drops a plugin bootstrap with it, so
+  a successful trim also re-fires `session_start` with reason `compact`, in
+  the primary engine only. Unlike compaction, the trim refire runs in the
+  background (`go engine.refireSessionStart(ctx)`) because trim is a UI
+  action and waiting for a hook (up to 60 s) would freeze the screen; its
+  context lands at the first prompt or tool-result boundary after the hook
+  finishes, same as any other queued context. Toast and status from either
+  refire are logged only: the engine has no UI channel. Trade-off: existing
+  cozyphi `session_start` hooks now also see `compact`; this extends their
+  contract and is documented and noted in the changelog, in exchange for one
+  lifecycle and one contract.
 - **Sub-agents.** An engine with `ParentID != ""` neither queues session
   context nor fires `compact`. Children get the skill catalog but no
   bootstrap, as in the opencode adapter.
 - **Headless.** Lifecycle hooks fire only from the TUI controller today; no
   new entry point is added. Headless runs see plugin skills but receive no
   bootstrap.
+- **Known limitation: cancelled compaction.** `runCompaction` runs the
+  `compact` refire synchronously on the compaction's own `ctx`. Cancelling
+  (Esc) while that hook run is still in flight cancels the hook too: the run
+  returns no context (`ClaudeHook.run` reports "hook … cancelled" and
+  `refireSessionStart`'s empty-context guard then queues nothing), so that
+  refire's context is dropped. The plugin's `session_start` hook is
+  stateless, though, so the bootstrap is not lost for good — it comes back at
+  the next successful compaction, which runs with a fresh, uncancelled `ctx`.
 
 ## Tool mapping note
 
@@ -285,3 +312,57 @@ Tests live beside the code and use public interfaces only.
   `internal/tui/controller/controller.go`, `internal/hooks` (types, manager
   merge, list output), `cmd/` assembly.
 - Docs: this file, `doc/hooks.md`, `doc/project-layout.md`, `CHANGELOG.md`.
+
+## Decisions made during implementation
+
+- Plugin discovery runs in `project.LoadConfig`, not `cmd`, which yields
+  `Config.Skills` and `Config.PluginHooks`. `/hooks reload` re-reads
+  `hooks.json` but not the plugin set, which a restart refreshes.
+- Among install entries, one whose `projectPath` is the project root wins.
+  Otherwise the first entry without `projectPath` wins, and other projects'
+  entries never count. A plugin name must match `^[A-Za-z0-9][A-Za-z0-9._-]*$`,
+  and manifest paths stay inside the plugin root.
+- `skills.Sources.Load` returns the partial list together with the joined
+  error. Callers fail only when nothing loaded.
+- Context is accepted from `hookSpecificOutput.additionalContext`,
+  `additionalContext` or `additional_context`. `QueueSessionContext` replaces
+  rather than appends.
+- Only engines built with `EngineOpts.LifecycleHooks` (controller primaries)
+  accept context or re-fire on compaction. A child controller still runs the
+  hook, but its engine ignores the result.
+- In the shell form, placeholders reach the command through the environment
+  (bash expands them), not through text substitution of `command`. This is
+  injection-safe: a path containing quotes or `$()` cannot rewrite the
+  command that runs. Only `args` are substituted textually, which keeps the
+  same guarantee for the exec form.
+- The first line of stderr is redacted before it reaches the debug log.
+  Runtime hook failures (non-zero exit, timeout, cancellation) also surface
+  as warnings in `/hooks list`, via `hooks.Manager.Failures()`, in addition to
+  the debug log — a plugin hook never blocks a session, so without this its
+  failure would reach the debug log only. A later successful run clears the
+  warning. `exec.ErrWaitDelay` after a clean exit counts as success.
+- The 16 KiB plugin context cap is separate from the 4 KiB `MaxContextBytes`
+  cap of hook manifests.
+- `session_start` runs synchronously, bounded by the hook timeout (30 s by
+  default, 60 s max). Headless runs get plugin skills but no session hooks.
+- The harness diag view drops the `plugin:` origin: `observedOrigins` in
+  `internal/hooks/observe.go` maps discovery's source labels onto
+  `diag.HookOrigin`'s closed vocabulary (`user`, `project`), and a
+  `plugin:<Name>` source falls into its `default: continue` — present in
+  `hooks list` but invisible to that diagnostic view.
+- The executor setter is renamed to `SetReminderDrain`, because it now
+  carries session context as well.
+- Skill bodies are expanded at load. The file the model `read`s stays raw.
+- A compact refire that returns no context leaves an undelivered
+  startup/resume bootstrap in place; it does not clear it.
+  `refireSessionStart` only calls `QueueSessionContext` when the hook
+  actually returned non-empty context, so a `compact` run with nothing to add
+  — a plugin with no `SessionStart` hook, or one whose matcher does not match
+  `compact` — never overwrites context still waiting for delivery.
+- Plugin discovery warnings (unsupported components such as `commands/`) show
+  in `/hooks list` even with `COZYPHI_HOOKS=off`: that switch empties
+  `hooks.Discover`'s own result, but `Controller.ListHooks` still adds
+  `cfg.PluginWarnings()`, which `project.LoadConfig` collected independently
+  of hook discovery. `COZYPHI_PLUGINS=off` is the switch that disables plugin
+  discovery itself. `/hooks reload` counts only `hooks.json` warnings, since
+  `ReloadHooks` does not consult `cfg.PluginWarnings()`.
