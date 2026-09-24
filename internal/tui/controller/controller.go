@@ -750,7 +750,7 @@ func (c *Controller) ReloadHooks() (loaded int, warns []hooks.Warning, err error
 	if proj == nil {
 		return 0, nil, errors.New("project not available")
 	}
-	mgr, facts, warns, err := hooks.LoadObserved(proj.Global().HooksDir(), proj.HooksDir())
+	mgr, facts, warns, err := hooks.LoadObserved(proj.Global().HooksDir(), proj.HooksDir(), pluginHooks(proj)...)
 	if err != nil {
 		return 0, warns, err
 	}
@@ -762,7 +762,8 @@ func (c *Controller) ReloadHooks() (loaded int, warns []hooks.Warning, err error
 	return facts.Count(), warns, nil
 }
 
-// ListHooks returns the current on-disk discovery (does not swap the manager).
+// ListHooks returns the current on-disk discovery (does not swap the manager),
+// with plugin discovery's warnings and the live plugin hooks' failures.
 func (c *Controller) ListHooks() ([]hooks.Discovered, []hooks.Warning, error) {
 	if c == nil {
 		return nil, nil, errors.New("controller not initialized")
@@ -771,7 +772,25 @@ func (c *Controller) ListHooks() ([]hooks.Discovered, []hooks.Warning, error) {
 	if proj == nil {
 		return nil, nil, errors.New("project not available")
 	}
-	return hooks.Discover(proj.Global().HooksDir(), proj.HooksDir())
+	found, warns, err := hooks.Discover(proj.Global().HooksDir(), proj.HooksDir(), pluginHooks(proj)...)
+	if cfg := proj.Config(); cfg != nil {
+		for _, w := range cfg.PluginWarnings() {
+			warns = append(warns, hooks.Warning{Path: w.Plugin, Message: w.Msg})
+		}
+	}
+	// A plugin hook that failed at runtime never stopped the session, so the
+	// live manager's record is the only place the user learns it broke.
+	warns = append(warns, c.Hooks().Failures()...)
+	return found, warns, err
+}
+
+// pluginHooks returns the enabled plugins' hook files. Plugin discovery ran
+// at LoadConfig; /hooks reload re-reads their hooks.json, not the plugin set.
+func pluginHooks(proj *project.Project) []hooks.PluginHooks {
+	if proj == nil || proj.Config() == nil {
+		return nil
+	}
+	return proj.Config().PluginHooks
 }
 
 // MCPServers returns the sorted configured MCP server names (nil when the
@@ -1779,7 +1798,8 @@ func (c *Controller) publishPlan(plan session.Plan) {
 	}
 }
 
-// loadHooksManager discovers ~/.cozyphi/hooks and <cwd>/.cozyphi/hooks.
+// loadHooksManager discovers ~/.cozyphi/hooks, <cwd>/.cozyphi/hooks and the
+// enabled plugins' hooks.json files.
 // Load errors are non-fatal (fail-open: no hooks). Child engines stay nil until spawn.
 //
 // The load's own record comes back with the manager. A failed load still
@@ -1789,7 +1809,7 @@ func loadHooksManager(proj *project.Project) (*hooks.Manager, hooks.LoadFacts) {
 	if proj == nil {
 		return nil, hooks.LoadFacts{}
 	}
-	mgr, facts, warns, err := hooks.LoadObserved(proj.Global().HooksDir(), proj.HooksDir())
+	mgr, facts, warns, err := hooks.LoadObserved(proj.Global().HooksDir(), proj.HooksDir(), pluginHooks(proj)...)
 	if err != nil {
 		debuglog.Logf("hooks: load failed: %v", err)
 		return nil, facts
