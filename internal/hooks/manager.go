@@ -335,6 +335,8 @@ type SessionOutcome struct {
 	Toast     string
 	Status    string
 	StatusSet bool
+	// Context joins every hook's SessionResult.Context in entry order.
+	Context string
 }
 
 // SessionBeforeSwitch runs session_before_switch entries serially. First Deny wins.
@@ -465,6 +467,12 @@ func mergeSessionUI(out *SessionOutcome, res SessionResult) {
 	if res.StatusSet {
 		out.Status = res.Status
 		out.StatusSet = true
+	}
+	if res.Context != "" {
+		if out.Context != "" {
+			out.Context += "\n\n"
+		}
+		out.Context += res.Context
 	}
 }
 

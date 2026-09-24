@@ -36,13 +36,17 @@ func (w Warning) String() string {
 type Discovered struct {
 	Manifest Manifest
 	RunPath  string // absolute path to the executable
-	Source   string // SourceUser or SourceProject
+	Source   string // SourceUser, SourceProject, or SourcePluginPrefix + plugin name
 
 	// Shadowed lists the sources whose definition of this name was replaced
 	// by this one, in precedence order. A hook defined in both directories
 	// keeps only the later whole entry, and this is the record that the
 	// earlier one existed — the merge is otherwise unobservable afterwards.
 	Shadowed []string
+
+	// claude is set for a Claude Code plugin hook; EntryFromDiscovered runs
+	// it instead of a CommandHook.
+	claude *ClaudeHook
 }
 
 // HooksDisabled reports whether COZYPHI_HOOKS=off.
@@ -51,7 +55,9 @@ func HooksDisabled() bool {
 	return strings.EqualFold(v, "off")
 }
 
-// Discover loads plugin.json from userDir then projectDir.
+// Discover loads plugin.json from userDir then projectDir, then appends the
+// hooks of each Claude Code plugin in order. Plugin hooks never shadow a
+// user or project hook: their names live under "plugin:<Name>/".
 // Same hook Name: project replaces user (whole-entry shadow).
 // Missing directories are fine. Parse errors become Warnings; only unexpected
 // I/O on a present directory returns err.
@@ -60,7 +66,7 @@ func HooksDisabled() bool {
 // Relative run paths resolve against the directory that contains plugin.json.
 //
 // When COZYPHI_HOOKS=off, returns empty slices without reading disk.
-func Discover(userDir, projectDir string) ([]Discovered, []Warning, error) {
+func Discover(userDir, projectDir string, plugins ...PluginHooks) ([]Discovered, []Warning, error) {
 	if HooksDisabled() {
 		return nil, nil, nil
 	}
@@ -103,6 +109,11 @@ func Discover(userDir, projectDir string) ([]Discovered, []Warning, error) {
 		}
 		return out[i].Source < out[j].Source
 	})
+	for _, p := range plugins {
+		found, warns := parseClaudeHooks(p)
+		out = append(out, found...)
+		warnings = append(warnings, warns...)
+	}
 	return out, warnings, nil
 }
 

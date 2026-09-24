@@ -79,12 +79,22 @@ type SessionEvent struct {
 	Kind              Kind   // session_* or KindPostTurn
 	SessionID         string // current session (before_switch: the one being left)
 	Cwd               string
-	Reason            string // startup | new | resume | quit
+	Reason            string // startup | new | resume | compact | quit
 	PreviousSessionID string // start after switch: the session just left
 	TargetSessionID   string // before_switch resume: destination id
 	MessageID         string // post_turn: completed assistant message id
 	Usage             SessionUsage
 }
+
+// Session lifecycle reasons, as SessionEvent.Reason carries them. compact is
+// sent to session_start after a successful compaction.
+const (
+	ReasonStartup = "startup"
+	ReasonNew     = "new"
+	ReasonResume  = "resume"
+	ReasonCompact = "compact"
+	ReasonQuit    = "quit"
+)
 
 type SessionUsage struct {
 	PromptTokens     int
@@ -101,6 +111,10 @@ type SessionResult struct {
 
 	Status    string
 	StatusSet bool
+
+	// Context is model-facing text a session_start hook contributes; the
+	// engine delivers it once as a system reminder.
+	Context string
 }
 
 // PreResult is returned from PreTool.

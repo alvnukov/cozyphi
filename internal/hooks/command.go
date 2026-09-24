@@ -48,6 +48,11 @@ func NewCommandHook(d Discovered) *CommandHook {
 // EntryFromDiscovered wraps a discovered hook as a Manager Entry
 // (Kind / FailClosed / Async come from the manifest).
 func EntryFromDiscovered(d Discovered) Entry {
+	if d.claude != nil {
+		// A plugin hook is never fail-closed: in fail-closed-only mode it is
+		// skipped, and a failure is logged, never a deny.
+		return Entry{Hook: d.claude, Kind: d.Manifest.Kind, Async: d.Manifest.Async}
+	}
 	return Entry{
 		Hook:       NewCommandHook(d),
 		Kind:       d.Manifest.Kind,
