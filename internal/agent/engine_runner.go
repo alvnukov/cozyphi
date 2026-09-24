@@ -290,7 +290,10 @@ func renderJobSkills(skillPath string, names []string) (string, error) {
 		"The parent equipped this job with these skills. Follow them; their SKILL.md files need no read call.",
 	)
 	for _, name := range names {
-		skill := skills.Find(catalog, name)
+		skill, err := skills.Find(catalog, name)
+		if err != nil {
+			return "", fmt.Errorf("agent: job skill: %w — re-spawn the job with one of the listed names", err)
+		}
 		if skill == nil {
 			return "", fmt.Errorf(
 				"agent: job skill %q is not installed in %s — re-spawn the job with a skill that exists, or skills: []",

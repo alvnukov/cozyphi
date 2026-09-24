@@ -34,7 +34,10 @@ func resolveSpawnSkills(skillPath string, requested []string) ([]string, error) 
 		bodyBytes int
 	)
 	for _, name := range requested {
-		skill := skills.Find(catalog, name)
+		skill, err := skills.Find(catalog, name)
+		if err != nil {
+			return nil, fmt.Errorf("agent_spawn: %w", err)
+		}
 		if skill == nil {
 			return nil, unknownSkillError(skillPath, catalog, name)
 		}

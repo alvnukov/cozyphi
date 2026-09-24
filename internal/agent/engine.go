@@ -1393,7 +1393,7 @@ func pendingSkillsInstruction(skillPath string, names []string) string {
 	targets := make([]string, 0, len(names))
 	if err == nil {
 		for _, name := range names {
-			if s := skills.Find(list, name); s != nil && s.SkillFilePath != "" {
+			if s, _ := skills.Find(list, name); s != nil && s.SkillFilePath != "" {
 				targets = append(targets, s.SkillFilePath)
 				continue
 			}

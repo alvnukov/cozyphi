@@ -2,6 +2,7 @@ package skills
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -172,56 +173,54 @@ func ToPromptMarkdown(skills []*Skill) string {
 	return sb.String()
 }
 
-// Find returns the skill matching name by exact name, case-insensitive name,
-// or directory basename. Returns nil if none match.
-func Find(list []*Skill, name string) *Skill {
+// Find resolves a skill by name: exact, then case-insensitive, then a bare
+// name — the part after "<namespace>:" or the skill's directory name — that
+// matches exactly one skill. A bare name shared by several skills is an
+// error naming them; no match is nil, nil.
+func Find(list []*Skill, name string) (*Skill, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return nil
+		return nil, nil
 	}
 	for _, s := range list {
 		if s.Name == name {
-			return s
+			return s, nil
 		}
 	}
 	for _, s := range list {
 		if strings.EqualFold(s.Name, name) {
-			return s
+			return s, nil
 		}
 	}
+	var candidates []*Skill
 	for _, s := range list {
-		if strings.EqualFold(filepath.Base(s.Path), name) {
-			return s
+		if strings.EqualFold(bareName(s.Name), name) || strings.EqualFold(filepath.Base(s.Path), name) {
+			candidates = append(candidates, s)
 		}
 	}
-	return nil
+	switch len(candidates) {
+	case 0:
+		return nil, nil
+	case 1:
+		return candidates[0], nil
+	}
+	full := make([]string, 0, len(candidates))
+	for _, s := range candidates {
+		full = append(full, s.Name)
+	}
+	return nil, fmt.Errorf("skill %q is ambiguous — use one of: %s", name, strings.Join(full, ", "))
 }
 
-// LoadSkills walks skillDir looking for SKILL.md files, parses each one, and
-// returns the list of skills. If skillDir does not exist, it returns nil, nil.
-// Skills that fail to parse are skipped so one bad file cannot hide the rest.
-func LoadSkills(skillDir string) ([]*Skill, error) {
-	if _, err := os.Stat(skillDir); os.IsNotExist(err) {
-		return nil, nil
+// bareName strips a plugin namespace: "superpowers:tdd" → "tdd".
+func bareName(name string) string {
+	if _, bare, ok := strings.Cut(name, ":"); ok {
+		return bare
 	}
+	return name
+}
 
-	var skills []*Skill
-	err := filepath.WalkDir(skillDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() || d.Name() != SkillFileName {
-			return nil
-		}
-		skill, err := Parse(path)
-		if err != nil {
-			return nil // skip invalid skill files
-		}
-		skills = append(skills, skill)
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return skills, nil
+// LoadSkills reads one unnamespaced directory. It is kept until every
+// caller carries Sources (see the Task 5 refactor).
+func LoadSkills(skillDir string) ([]*Skill, error) {
+	return Sources{{Dir: skillDir}}.Load()
 }

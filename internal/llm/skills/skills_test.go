@@ -74,11 +74,19 @@ func TestFind(t *testing.T) {
 		{Name: "Example Skill", Path: "/skills/example-skill"},
 		{Name: "building-plugins", Path: "/skills/building-plugins"},
 	}
-	assert.Equal(t, "Example Skill", Find(list, "Example Skill").Name)
-	assert.Equal(t, "Example Skill", Find(list, "example skill").Name)
-	assert.Equal(t, "Example Skill", Find(list, "example-skill").Name)
-	assert.Nil(t, Find(list, "missing"))
-	assert.Nil(t, Find(nil, "x"))
+	for _, name := range []string{"Example Skill", "example skill", "example-skill"} {
+		got, err := Find(list, name)
+		assert.NoError(t, err)
+		if assert.NotNil(t, got, name) {
+			assert.Equal(t, "Example Skill", got.Name)
+		}
+	}
+	got, err := Find(list, "missing")
+	assert.NoError(t, err)
+	assert.Nil(t, got)
+	got, err = Find(nil, "x")
+	assert.NoError(t, err)
+	assert.Nil(t, got)
 }
 
 func TestLoadSkills_NonExistentDir(t *testing.T) {

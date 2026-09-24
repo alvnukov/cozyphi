@@ -320,7 +320,11 @@ func (engine *Engine) queuePlanSkills(names []string) {
 	queued := make([]planSkillPreload, 0, len(names))
 	for _, name := range names {
 		preload := planSkillPreload{name: name}
-		if skill := skills.Find(catalog, name); skill != nil && skill.Body != "" {
+		skill, err := skills.Find(catalog, name)
+		if err != nil {
+			debuglog.Logf("plan: %v", err)
+		}
+		if skill != nil && skill.Body != "" {
 			preload.name = skill.Name
 			preload.body = skill.Body
 		} else {
