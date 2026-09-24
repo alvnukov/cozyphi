@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/alvnukov/cozyphi/internal/components/mention"
+	"github.com/alvnukov/cozyphi/internal/components/palette"
 	"github.com/alvnukov/cozyphi/internal/components/toast"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
 
 // asideAnchorPrefix marks the first argument of /btw as the message the
@@ -33,12 +35,26 @@ func (e *View) configureAside() {
 			return e.asideItems(strings.TrimPrefix(partial, asideAnchorPrefix))
 		},
 		Run: func(ctx commands.CommandContext) error {
+			if len(ctx.Args) == 0 {
+				if !e.composer.EnterAside("") {
+					return errors.New("cannot enter btw mode while voice, shell, media or skills are active")
+				}
+				return nil
+			}
 			anchor, question, err := parseAsideArgs(ctx.Args)
 			if err != nil {
 				return err
 			}
 			e.AskAside(anchor, question)
 			return nil
+		},
+		PaletteRoot: func(commands.CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID: "btw", Noun: "side question", Verb: "ask",
+				Keywords: []string{"btw", "aside", "context"},
+				Shortcut: keys.Label(keys.CmdAside),
+				Run:      func() { e.composer.EnterAside("") },
+			}
 		},
 	})
 }
@@ -83,11 +99,13 @@ func (e *View) asideItems(partial string) []mention.Item {
 // AskAside asks a side question about the context up to the entry, or about
 // all of it when the entry is empty. The answer streams into the feed and is
 // kept in the session file, and the model never sees either again.
-func (e *View) AskAside(entryID, question string) {
+func (e *View) AskAside(entryID, question string) bool {
 	if e == nil || e.ctrl == nil {
-		return
+		return false
 	}
 	if err := e.ctrl.Aside(question, entryID); err != nil {
 		e.toast.Show("Cannot ask on the side: "+err.Error(), toast.ToastWarning, 4*time.Second)
+		return false
 	}
+	return true
 }

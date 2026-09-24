@@ -32,6 +32,7 @@ const (
 	CmdCopyLast        Command = "copy-last"
 	CmdVerbose         Command = "transcript-verbose"
 	CmdVoice           Command = "voice"
+	CmdAside           Command = "aside"
 	CmdSessionNext     Command = "session-next"
 	CmdSessionPrev     Command = "session-prev"
 	CmdSessionBack     Command = "session-back"
@@ -46,7 +47,7 @@ const (
 var commands = []Command{
 	CmdHelp, CmdPalette, CmdSettings, CmdEffort, CmdKeymap, CmdPlanEditor, CmdPlanFocus,
 	CmdSidebarToggle, CmdPlanApprove, CmdPlanDetails, CmdWatches, CmdBackgroundShell, CmdCopyLast, CmdVerbose,
-	CmdVoice, CmdHistorySearch, CmdHistorySearchFwd,
+	CmdVoice, CmdAside, CmdHistorySearch, CmdHistorySearchFwd,
 	CmdSessionNext, CmdSessionPrev, CmdSessionBack,
 }
 
@@ -68,6 +69,7 @@ var defaultBinds = map[Command]string{
 	CmdCopyLast:        "Ctrl+Shift+C, Cmd+C",
 	CmdVerbose:         "Ctrl+E",
 	CmdVoice:           "Ctrl+G",
+	CmdAside:           "Ctrl+T",
 	CmdSessionNext:     "Ctrl+F10",
 	CmdSessionPrev:     "Shift+F10",
 	CmdSessionBack:     "Alt+F10",

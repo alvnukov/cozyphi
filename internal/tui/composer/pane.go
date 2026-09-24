@@ -113,6 +113,11 @@ type ComposerPane struct {
 	releasesSeen bool
 	// voiceSubmitPending records an Enter waiting for the queue to drain.
 	voiceSubmitPending bool
+	// A side question has its own one-shot submit path; the regular prompt
+	// bus never receives its text or anchor.
+	asideActive bool
+	asideAnchor string
+	asideSubmit func(anchor, question string) bool
 	// now is the clock the Space rule reads; a seam so tests need no sleeps.
 	now func() time.Time
 }
@@ -172,6 +177,10 @@ func (c *ComposerPane) Wire(
 
 	c.palette.FocusReturn = &c.Chat
 	c.Chat.OnSubmit = func(text string) {
+		if c.asideActive {
+			c.submitAside(text)
+			return
+		}
 		c.history.Append(text)
 		if c.bus != nil {
 			c.bus.Publish(controller.SubmitMsg{Text: text, Media: c.attachedMedia})
@@ -182,6 +191,9 @@ func (c *ComposerPane) Wire(
 		c.applyHints()
 	}
 	c.Chat.OnChange = func(text string) {
+		if c.asideActive && strings.HasPrefix(strings.TrimSpace(text), "!") {
+			c.LeaveAside()
+		}
 		c.SyncBashBorder(text)
 		if c.bus != nil {
 			c.bus.RequestRefresh()
@@ -200,6 +212,7 @@ func (c *ComposerPane) AttachMedia(media llm.Media) {
 	if c == nil {
 		return
 	}
+	c.LeaveAside()
 	c.attachedMedia = []llm.Media{media}
 	c.hintsBase = []components.Span{{Text: "📷 " + media.MediaType}}
 	c.applyHints()
@@ -353,6 +366,9 @@ func (c *ComposerPane) SetBashBorderActive(active bool) {
 	if c == nil {
 		return
 	}
+	if active {
+		c.LeaveAside()
+	}
 	c.bashActive = active
 	c.applyPosture()
 }
@@ -367,6 +383,7 @@ func (c *ComposerPane) FocusChat() {
 // AddPendingSkill attaches a skill badge to the composer.
 func (c *ComposerPane) AddPendingSkill(name string) {
 	if c != nil {
+		c.LeaveAside()
 		c.Chat.AddPendingSkill(name)
 	}
 }
@@ -398,6 +415,13 @@ func (c *ComposerPane) applyPosture() {
 	if c.bashActive {
 		style = c.theme.ToolName
 		placeholder = shellPlaceholder
+	} else if c.asideActive {
+		text = "⏵⏵ btw"
+		if c.asideAnchor != "" {
+			text += " @" + c.asideAnchor
+		}
+		style = c.theme.Aside
+		placeholder = asidePlaceholder
 	}
 	c.Chat.AgentLabel = layout.BorderLabel{Text: text, Style: style}
 	c.placeholderBase = placeholder
@@ -581,6 +605,26 @@ func (c *ComposerPane) PaletteOverlay(ctx components.DrawContext) (components.Su
 	}, true
 }
 
+// handleModeChord keeps the voice/search and aside shortcuts together so the
+// root event ladder only needs one mode-key decision.
+func (c *ComposerPane) handleModeChord(ctx *components.EventContext, ev xui.KeyEvent) bool {
+	switch {
+	case keys.Is(ev, keys.CmdVoice):
+		// Ctrl+G aborts reverse-i-search before it can start voice capture.
+		if c.Chat.SearchActive() {
+			c.Chat.SearchAbort()
+		} else {
+			c.ToggleVoice()
+		}
+	case keys.Is(ev, keys.CmdAside) && !c.palette.Open:
+		c.ToggleAside()
+	default:
+		return false
+	}
+	ctx.ConsumeAndRedraw()
+	return true
+}
+
 // Handle dispatches keyboard/mouse input to the composer area.
 func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 	if c == nil {
@@ -638,6 +682,11 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 				return
 			}
 			if c.escapeVoice() {
+				ctx.ConsumeAndRedraw()
+				return
+			}
+			if c.asideActive {
+				c.LeaveAside()
 				ctx.ConsumeAndRedraw()
 				return
 			}
@@ -746,18 +795,8 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			ctx.ConsumeAndRedraw()
 			return
 		}
-		// The voice chord resolves through the keys table for the same reason
-		// the palette one does: a keybinds override has to reach it. While a
-		// reverse-i-search is active the same chord is its abort (readline's
-		// Ctrl+G), so the search gets it first.
-		if keys.Is(ev, keys.CmdVoice) {
-			if c.Chat.SearchActive() {
-				c.Chat.SearchAbort()
-				ctx.ConsumeAndRedraw()
-				return
-			}
-			c.ToggleVoice()
-			ctx.ConsumeAndRedraw()
+		// Mode chords resolve through the keys table so overrides reach them.
+		if c.handleModeChord(ctx, ev) {
 			return
 		}
 		// Ctrl+V attaches a clipboard image (mirrors opencode's prompt.paste

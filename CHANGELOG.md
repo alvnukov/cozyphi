@@ -18,7 +18,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   ever shown to the model again, and the cursor does not move. Tools do not run
   for a side question: a tool call ends the answer with a note naming the tool.
   A question is refused while a reply or a queued prompt is running, and a
-  cancelled or failed answer is not written down. See `doc/aside.md`.
+  cancelled or failed answer is not written down. The feed's `btw` button now
+  opens a one-shot question composer anchored to that message; Ctrl+T, the
+  clickable composer lead, bare `/btw` and the palette open it at the current
+  context. Enter asks, while Esc leaves the mode and keeps the draft. See
+  `doc/aside.md`.
 - Added: the `fork` button works. It copies the conversation up to the message
   it sits on into a session of its own and opens it as another tab, and
   `/fork [<id>]` does the same from the keyboard, with no id meaning the whole
