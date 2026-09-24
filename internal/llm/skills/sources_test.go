@@ -104,8 +104,6 @@ func TestSourcesReturnPartialListWithError(t *testing.T) {
 func TestSourcesString(t *testing.T) {
 	require.Equal(t, "(no skill directories)", Sources{}.String())
 	require.Equal(t, "/a, /b", Sources{{Dir: "/a"}, {}, {Dir: "/b"}}.String())
-	require.False(t, Sources{{Dir: "/a"}}.Namespaced())
-	require.True(t, Sources{{Dir: "/a"}, {Dir: "/b", Namespace: "p"}}.Namespaced())
 }
 
 func TestFindPrefersExactThenRefusesAmbiguousBareName(t *testing.T) {

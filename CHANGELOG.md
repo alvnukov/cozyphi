@@ -14,6 +14,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   plugins enabled in Claude Code (`~/.claude`) or listed under `plugins.paths`
   in config.yaml load automatically; plugin skills are named `<plugin>:<skill>`.
   `COZYPHI_PLUGINS=off` disables them. See `doc/plugins.md`.
+- Changed: `skill_path` must name a directory. A path to a single file is now
+  reported as an error instead of silently loading that one skill; point it at
+  the skill's directory instead.
 - Changed: `session_start` hooks also run with reason `compact` after every
   successful compaction and after a successful context trim, so a plugin
   bootstrap (or any other `session_start` side effect) survives both. See

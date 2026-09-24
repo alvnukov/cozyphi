@@ -261,10 +261,12 @@ type ClaudeHook struct { /* implements Hook; only Session does work */ }
 
 ## Tool mapping note
 
-When at least one plugin source is loaded, the skills block of the system
-prompt gains a short note: plugin skills are written for Claude Code, and
-their tool names map as follows. `${CLAUDE_PLUGIN_ROOT}` is the plugin root —
-the directory above the skill's `skills/` folder.
+When at least one loaded skill came from a plugin source, the skills block of
+the system prompt gains a short note: plugin skills are written for Claude
+Code, and their tool names map as follows where the engine has that tool; a
+step that needs one it lacks is skipped or done with the tools it does have.
+`${CLAUDE_PLUGIN_ROOT}` is the plugin root — the directory above the skill's
+`skills/` folder.
 
 | Claude Code | cozyphi |
 | --- | --- |
@@ -317,7 +319,14 @@ Tests live beside the code and use public interfaces only.
 
 - Plugin discovery runs in `project.LoadConfig`, not `cmd`, which yields
   `Config.Skills` and `Config.PluginHooks`. `/hooks reload` re-reads
-  `hooks.json` but not the plugin set, which a restart refreshes.
+  `hooks.json` but not the plugin set, which a restart refreshes. Saving
+  settings also calls `RefreshProjectConfig` (`controller.go`,
+  `sessions/view.go`), which re-runs `LoadConfig` and so rediscovers plugins
+  without a restart: `/hooks list` warnings and the next `/hooks reload`
+  reflect the new set right after a save. What stays on the old set until an
+  explicit `/hooks reload` or a new session is the already-running engine's
+  skill sources (baked into `llm.ModelConfig.Skills` at construction) and the
+  controller's already-swapped-in `hooksManager`.
 - Among install entries, one whose `projectPath` is the project root wins.
   Otherwise the first entry without `projectPath` wins, and other projects'
   entries never count. A plugin name must match `^[A-Za-z0-9][A-Za-z0-9._-]*$`,

@@ -335,7 +335,10 @@ func (h *ClaudeHook) runError(parent, ctx context.Context, err error, stderr []b
 		return fmt.Errorf("hook %s cancelled: %w", h.name, parent.Err())
 	}
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return fmt.Errorf("hook %s timed out after %s — raise its timeout (max %s) or fix the script",
+		return fmt.Errorf(
+			"hook %s timed out after %s (max %s)"+
+				" — report it to the plugin's author, or disable the plugin"+
+				" (COZYPHI_PLUGINS=off or plugins.enabled: false)",
 			h.name, h.timeout, maxTimeout)
 	}
 	const advice = " — check the hook in the plugin's hooks.json or disable the plugin"

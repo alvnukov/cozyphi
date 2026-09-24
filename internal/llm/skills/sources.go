@@ -72,12 +72,6 @@ func (ss Sources) String() string {
 	return strings.Join(dirs, ", ")
 }
 
-// Namespaced reports whether any source is a plugin's, which is when the
-// prompt needs the Claude Code tool-name mapping.
-func (ss Sources) Namespaced() bool {
-	return slices.ContainsFunc(ss, func(src Source) bool { return src.Namespace != "" })
-}
-
 func (src Source) load() ([]*Skill, error) {
 	if src.Dir == "" {
 		return nil, nil

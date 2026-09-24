@@ -237,7 +237,8 @@ func TestClaudeHookTimeout(t *testing.T) {
 	_, err := pluginHook(t, p).Session(t.Context(),
 		SessionEvent{Kind: KindSessionStart, Reason: ReasonStartup, Cwd: "/tmp"})
 	require.ErrorContains(t, err, "timed out after 1s")
-	require.ErrorContains(t, err, "raise its timeout")
+	require.ErrorContains(t, err, "report it to the plugin's author")
+	require.ErrorContains(t, err, "COZYPHI_PLUGINS=off")
 	require.Less(t, time.Since(began), 4*time.Second)
 }
 
