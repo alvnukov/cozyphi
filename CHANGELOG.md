@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Fixed: text containing compound emoji — ZWJ sequences like the family
+  emoji, skin-tone modifiers, flag pairs and VS16 emoji presentation — now
+  measures as the width of the glyphs a terminal actually draws. Widths were
+  summed per rune, so fenced code blocks in the transcript drew their right
+  border at columns that drifted from the text on every line with an emoji,
+  and the language label counted bytes instead of cells.
 - Fixed: typing no longer lags behind on a loaded machine. Every keystroke and
   every wheel scroll used to repaint the whole screen, about 10 KB at 120x40;
   a terminal that drained its pty slowly then fell further behind with every

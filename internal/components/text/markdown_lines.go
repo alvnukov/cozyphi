@@ -208,7 +208,7 @@ func (r *linesRenderer) renderCodeBox(code, lang string) {
 	}
 	boxInner := contentW
 	if lang != "" {
-		boxInner = max(boxInner, len(lang)+3)
+		boxInner = max(boxInner, xui.StringWidth(lang, r.method)+3)
 	}
 	boxInner = max(boxInner, 1)
 
@@ -232,7 +232,7 @@ func (r *linesRenderer) boxBorderLine(left, right string, boxInner int, lang str
 		b.WriteString("─ ")
 		b.WriteString(lang)
 		b.WriteString(" ")
-		inner -= len(lang) + 3
+		inner -= xui.StringWidth(lang, r.method) + 3
 	}
 	if inner > 0 {
 		b.WriteString(strings.Repeat("─", inner))
