@@ -1487,13 +1487,6 @@ func (e *View) DrainNow() {
 	e.drainBus()
 }
 
-// RequestRefresh schedules an immediate frame (composer input change path).
-func (e *View) RequestRefresh() {
-	if e.vx != nil {
-		e.vx.QueueRefresh()
-	}
-}
-
 // SetClipboardReader replaces the composer's system clipboard image read so a
 // pasted text event is not preempted by whatever image the host clipboard holds.
 func (e *View) SetClipboardReader(read func() (clipboard.Image, bool, error)) {

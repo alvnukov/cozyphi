@@ -27,12 +27,11 @@ type BusyChecker interface {
 	RecallQueued() (string, []llm.Media, []string, bool)
 }
 
-// SubmitBus is the bus/frame surface ComposerPane submits and schedules through.
+// SubmitBus is the bus surface ComposerPane submits through.
 // The Editor implements it so the composer never imports the editor.
 type SubmitBus interface {
 	Publish(controller.Msg)
 	DrainNow()
-	RequestRefresh()
 }
 
 // Focuser moves focus between the editor root and inner composer widgets.

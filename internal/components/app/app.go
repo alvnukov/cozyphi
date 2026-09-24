@@ -135,8 +135,7 @@ func (a *App) Run(root components.Widget) error {
 }
 
 // coalesceWheel merges back-to-back wheel events into one with a summed Wheel
-// count so a fast trackpad flick triggers a single redraw instead of dozens of
-// partial paints (which leave CJK/ASCII ghost columns on the TTY).
+// count so a fast trackpad flick triggers a single redraw instead of dozens.
 func (a *App) coalesceWheel(ev xui.Event) xui.Event {
 	m, ok := ev.(xui.MouseEvent)
 	if !ok || (m.Button != xui.MouseWheelUp && m.Button != xui.MouseWheelDown) {
@@ -179,8 +178,6 @@ func (a *App) coalesceWheel(ev xui.Event) xui.Event {
 		m.Button = xui.MouseNone
 		m.Action = xui.MouseMotion
 	}
-	// Full refresh heals any prior TTY desync before the scrolled frame paints.
-	a.vx.QueueRefresh()
 	return m
 }
 
