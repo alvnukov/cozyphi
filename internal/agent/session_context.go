@@ -1,6 +1,12 @@
 package agent
 
-import "strings"
+import (
+	"context"
+	"strings"
+
+	"github.com/alvnukov/cozyphi/internal/debuglog"
+	"github.com/alvnukov/cozyphi/internal/hooks"
+)
 
 // QueueSessionContext parks text a session_start hook returned. It reaches
 // the model once, wrapped as a system reminder, at the next composed prompt
@@ -37,4 +43,28 @@ func (engine *Engine) drainSessionContext() string {
 // session context first, then compaction advice.
 func (engine *Engine) drainBoundaryReminders() string {
 	return prependReminder(engine.drainSessionContext(), engine.drainCompactAdvice())
+}
+
+// refireSessionStart runs session_start with reason compact after a
+// successful compaction, so a plugin bootstrap summarized away is delivered
+// again. The engine has no UI channel: toast and status are logged only.
+func (engine *Engine) refireSessionStart(ctx context.Context) {
+	// SessionID and SessionCwd take engine.mu themselves, so they are read
+	// before the lock below rather than under it.
+	sessionID, cwd := engine.SessionID(), engine.SessionCwd()
+	engine.mu.RLock()
+	mgr, lifecycle := engine.hooks, engine.lifecycle
+	engine.mu.RUnlock()
+	if !lifecycle || mgr == nil {
+		return
+	}
+	out := mgr.SessionStart(ctx, hooks.SessionEvent{
+		SessionID: sessionID,
+		Cwd:       cwd,
+		Reason:    hooks.ReasonCompact,
+	})
+	if out.Toast != "" || out.StatusSet {
+		debuglog.Logf("hooks: compact session_start toast=%q status=%q (not shown: no UI here)", out.Toast, out.Status)
+	}
+	engine.QueueSessionContext(out.Context)
 }
