@@ -176,8 +176,8 @@ type ClaudeHook struct { /* implements Hook; only Session does work */ }
 - **Assembly.** Where the controller builds entries from `hooks.Discover`,
   plugin entries are appended. The merge is additive: a plugin hook never
   shadows a user hook by name. Entry names read
-  `plugin:<Name>/<Event>#<n>`; `/hooks list` shows the source as
-  `plugin:<Name>`. `COZYPHI_HOOKS=off` and fail-closed-only mode apply to
+  `plugin:<Name>/<Event>#<n>`; the **hooks → list** palette command (`Ctrl+K`)
+  shows the source as `plugin:<Name>`. `COZYPHI_HOOKS=off` and fail-closed-only mode apply to
   plugin hooks too.
 - **Events.** `SessionStart` maps to `session_start`, `SessionEnd` to
   `session_shutdown`. Every other event is skipped with an "unsupported event"
@@ -287,7 +287,7 @@ step that needs one it lacks is skipped or done with the tools it does have.
   unknown `installed_plugins.json` version, a missing path, an invalid
   matcher and a failing hook each become a warning naming the file and the
   fix.
-- Warnings appear in `/hooks list` and in the debug log (`COZYPHI_DEBUG`).
+- Warnings appear in **hooks → list** and in the debug log (`COZYPHI_DEBUG`).
 - At startup the debug log records each loaded plugin with its skill and
   hook counts.
 
@@ -322,13 +322,13 @@ Tests live beside the code and use public interfaces only.
 ## Decisions made during implementation
 
 - Plugin discovery runs in `project.LoadConfig`, not `cmd`, which yields
-  `Config.Skills` and `Config.PluginHooks`. `/hooks reload` re-reads
+  `Config.Skills` and `Config.PluginHooks`. **hooks → reload** re-reads
   `hooks.json` but not the plugin set, which a restart refreshes. Saving
   settings also calls `RefreshProjectConfig` (`controller.go`,
   `sessions/view.go`), which re-runs `LoadConfig` and so rediscovers plugins
-  without a restart: `/hooks list` warnings and the next `/hooks reload`
+  without a restart: **hooks → list** warnings and the next **hooks → reload**
   reflect the new set right after a save. What stays on the old set until an
-  explicit `/hooks reload` or a new session is the already-running engine's
+  explicit **hooks → reload** or a new session is the already-running engine's
   skill sources (baked into `llm.ModelConfig.Skills` at construction) and the
   controller's already-swapped-in `hooksManager`.
 - Among install entries, one whose `projectPath` is the project root wins.
@@ -350,7 +350,7 @@ Tests live beside the code and use public interfaces only.
   same guarantee for the exec form.
 - The first line of stderr is redacted before it reaches the debug log.
   Runtime hook failures (non-zero exit, timeout, cancellation) also surface
-  as warnings in `/hooks list`, via `hooks.Manager.Failures()`, in addition to
+  as warnings in **hooks → list**, via `hooks.Manager.Failures()`, in addition to
   the debug log — a plugin hook never blocks a session, so without this its
   failure would reach the debug log only. A later successful run clears the
   warning. `exec.ErrWaitDelay` after a clean exit counts as success.
@@ -380,9 +380,9 @@ Tests live beside the code and use public interfaces only.
   — a plugin with no `SessionStart` hook, or one whose matcher does not match
   `compact` — never overwrites context still waiting for delivery.
 - Plugin discovery warnings (unsupported components such as `commands/`) show
-  in `/hooks list` even with `COZYPHI_HOOKS=off`: that switch empties
+  in **hooks → list** even with `COZYPHI_HOOKS=off`: that switch empties
   `hooks.Discover`'s own result, but `Controller.ListHooks` still adds
   `cfg.PluginWarnings()`, which `project.LoadConfig` collected independently
   of hook discovery. `COZYPHI_PLUGINS=off` is the switch that disables plugin
-  discovery itself. `/hooks reload` counts only `hooks.json` warnings, since
+  discovery itself. **hooks → reload** counts only `hooks.json` warnings, since
   `ReloadHooks` does not consult `cfg.PluginWarnings()`.

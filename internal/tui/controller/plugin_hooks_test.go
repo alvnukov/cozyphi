@@ -67,8 +67,9 @@ func TestListHooksShowsPluginHooksAndWarnings(t *testing.T) {
 	require.Equal(t, 1, loaded)
 }
 
-// A plugin hook that failed at runtime is reported by /hooks list: the session
-// carried on without it, so the list is where the user learns it broke.
+// A plugin hook that failed at runtime is reported by the hooks → list palette
+// command: the session carried on without it, so the list is where the user
+// learns it broke.
 func TestListHooksReportsPluginHookRuntimeFailures(t *testing.T) {
 	proj, cwd := pluginWorkspace(t,
 		`{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo broken >&2; exit 1"}]}]}}`)

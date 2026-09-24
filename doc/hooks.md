@@ -382,10 +382,10 @@ plugin's `hooks/hooks.json` is skipped with an "unsupported event" warning.
   cancelled is non-blocking: it never denies or stops the session. The first
   line of stderr is redacted and written to the debug log
   (`COZYPHI_DEBUG=1`), and the failure also appears as a warning in
-  `/hooks list`, via `hooks.Manager.Failures()`, until that hook next runs
+  **hooks → list**, via `hooks.Manager.Failures()`, until that hook next runs
   successfully.
 - **Names.** A plugin hook entry is named `plugin:<Name>/<Event>#<n>` (`<n>`
-  counts entries of that event within one plugin); `/hooks list` shows its
+  counts entries of that event within one plugin); **hooks → list** shows its
   source as `plugin:<Name>`. Plugin entries are additive: they are appended
   to what `hooks.Discover` finds and never shadow a hook manifest by name.
   `COZYPHI_HOOKS=off` and fail-closed-only mode (readonly permission mode)

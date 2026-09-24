@@ -798,7 +798,8 @@ func (c *Controller) ListHooks() ([]hooks.Discovered, []hooks.Warning, error) {
 }
 
 // pluginHooks returns the enabled plugins' hook files. Plugin discovery ran
-// at LoadConfig; /hooks reload re-reads their hooks.json, not the plugin set.
+// at LoadConfig; the hooks → reload palette command re-reads their
+// hooks.json, not the plugin set.
 func pluginHooks(proj *project.Project) []hooks.PluginHooks {
 	if proj == nil || proj.Config() == nil {
 		return nil

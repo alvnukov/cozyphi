@@ -409,7 +409,8 @@ func (c *Config) discoverPlugins(projectRoot string) {
 	}
 }
 
-// PluginWarnings returns what plugin discovery skipped and why, for /hooks list.
+// PluginWarnings returns what plugin discovery skipped and why, for the
+// hooks → list palette command.
 func (c *Config) PluginWarnings() []plugin.Warning {
 	if c == nil {
 		return nil

@@ -204,8 +204,8 @@ func TestDiscoverWarnsOnUnsupportedComponentsAndManifestPaths(t *testing.T) {
 	}
 }
 
-// A warning reaches /hooks list, where the user reads it without the code:
-// each one names the fix after " — ", not only the problem.
+// A warning reaches the hooks → list palette command, where the user reads it
+// without the code: each one names the fix after " — ", not only the problem.
 func TestDiscoverWarningsSayWhatToDo(t *testing.T) {
 	claude := t.TempDir()
 	writeJSON(t, filepath.Join(claude, "plugins", "installed_plugins.json"),
