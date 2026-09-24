@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/template"
 
@@ -212,17 +213,11 @@ func skillsBlock(sources skills.Sources) (string, int) {
 	return execTmpl(skillsPrompt, skillsData{Catalog: catalog, Plugins: anyPluginSkill(list)}), len(list)
 }
 
-// anyPluginSkill reports whether a loaded skill came from a namespaced
-// (plugin) source, by its `<plugin>:<name>` convention — a plugin `Source`
-// that contributed no skill must not turn on the Claude Code tool-mapping
-// note.
+// anyPluginSkill reports whether a loaded skill belongs to a plugin — a
+// plugin `Source` that contributed no skill must not turn on the Claude Code
+// tool-mapping note, and neither may a user skill whose name holds a colon.
 func anyPluginSkill(list []*skills.Skill) bool {
-	for _, sk := range list {
-		if strings.Contains(sk.Name, ":") {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(list, func(sk *skills.Skill) bool { return sk.Namespace != "" })
 }
 
 func mcpBlock(serverNames []string) string {

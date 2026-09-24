@@ -85,9 +85,27 @@ func TestSourcesDeduplicateTheSameFile(t *testing.T) {
 	link := filepath.Join(t.TempDir(), "alias")
 	require.NoError(t, os.Symlink(dir, link))
 
-	list, err := Sources{{Dir: dir}, {Dir: link, Namespace: "p"}}.Load()
+	list, err := Sources{{Dir: link, Namespace: "p"}, {Dir: dir, Namespace: "q"}}.Load()
 	require.NoError(t, err)
-	require.Equal(t, []string{"one"}, names(list), "the first source to reach a file owns it")
+	require.Equal(t, []string{"p:one"}, names(list), "the first plugin to reach a file owns it")
+}
+
+// skill_path pointed at a plugin's own skills directory (the pre-plugin
+// workaround) must not strip the plugin's identity: the file is the plugin's,
+// so it keeps the plugin name and placeholder values, in skill_path's slot.
+func TestSourcesPluginOwnsAFileSkillPathAlsoReaches(t *testing.T) {
+	dir := t.TempDir()
+	writeSkill(t, dir, "brainstorming", "brainstorming", "root ${CLAUDE_PLUGIN_ROOT}")
+	writeSkill(t, t.TempDir(), "mine", "mine", "")
+
+	list, err := Sources{
+		{Dir: dir},
+		{Dir: dir, Namespace: "superpowers", Vars: map[string]string{"CLAUDE_PLUGIN_ROOT": "/plug"}},
+	}.Load()
+	require.NoError(t, err)
+	require.Equal(t, []string{"superpowers:brainstorming"}, names(list))
+	require.Equal(t, "superpowers", list[0].Namespace)
+	require.Equal(t, "root /plug", list[0].Body)
 }
 
 func TestSourcesReturnPartialListWithError(t *testing.T) {

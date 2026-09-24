@@ -143,6 +143,10 @@ func Find(list []*Skill, name string) (*Skill, error) // was: returns *Skill
   tool-mapping note (below) tells it what the placeholders mean.
 - The scanner follows directory symlinks, guarded against cycles by resolved
   real path. The existing walk of `skill_path` is otherwise unchanged.
+- A `SKILL.md` reached by two sources, by resolved real path, is listed once,
+  in the first source's slot. A plugin's copy outranks `skill_path`'s, so a
+  `skill_path` aimed at a plugin's own skills directory keeps the plugin's
+  name and `Vars`; between two plugins, the first keeps it.
 - Only `name` and `description` frontmatter are required; unknown keys are
   ignored, as today.
 - Sub-agents receive the same catalog as their parent.
@@ -366,6 +370,9 @@ Tests live beside the code and use public interfaces only.
 - The executor setter is renamed to `SetReminderDrain`, because it now
   carries session context as well.
 - Skill bodies are expanded at load. The file the model `read`s stays raw.
+- `Skill.Namespace` records the owning plugin (empty for `skill_path`). The
+  Claude Code tool-mapping note keys on it, not on a `:` in the name, so a
+  user skill named `team:s` does not turn the note on.
 - A compact refire that returns no context leaves an undelivered
   startup/resume bootstrap in place; it does not clear it.
   `refireSessionStart` only calls `QueueSessionContext` when the hook

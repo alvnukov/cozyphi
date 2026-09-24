@@ -29,14 +29,17 @@ type Source struct {
 type Sources []Source
 
 // Load reads every source in order. A file reached twice (a symlink, or two
-// sources sharing a tree) belongs to the first source that reached it. A
-// source that fails contributes its error and nothing else: the returned
-// list holds every skill the other sources produced.
+// sources sharing a tree) is listed once, in the slot of the first source
+// that reached it. A plugin's copy outranks skill_path's: a skill_path aimed
+// at a plugin's own skills directory must not strip the plugin name and
+// placeholder values the file is written against. Between two plugins, the
+// first keeps it. A source that fails contributes its error and nothing
+// else: the returned list holds every skill the other sources produced.
 func (ss Sources) Load() ([]*Skill, error) {
 	var (
 		out  []*Skill
 		errs []error
-		seen = make(map[string]bool)
+		seen = make(map[string]int)
 	)
 	for _, src := range ss {
 		found, err := src.load()
@@ -48,10 +51,13 @@ func (ss Sources) Load() ([]*Skill, error) {
 			if real, err := filepath.EvalSymlinks(key); err == nil {
 				key = real
 			}
-			if seen[key] {
+			if i, ok := seen[key]; ok {
+				if out[i].Namespace == "" && skill.Namespace != "" {
+					out[i] = skill
+				}
 				continue
 			}
-			seen[key] = true
+			seen[key] = len(out)
 			out = append(out, skill)
 		}
 	}
@@ -99,6 +105,7 @@ func (src Source) load() ([]*Skill, error) {
 func (src Source) adopt(skill *Skill) {
 	if src.Namespace != "" {
 		skill.Name = src.Namespace + ":" + cmp.Or(skill.Name, filepath.Base(skill.Path))
+		skill.Namespace = src.Namespace
 	}
 	skill.Body = expandVars(skill.Body, src.Vars)
 }

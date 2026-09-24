@@ -239,15 +239,14 @@ func TestSkillsBlockMapsClaudeToolsOnlyForPlugins(t *testing.T) {
 	require.False(t, facts.SkillDir)
 }
 
-// TestSkillsBlockMapsClaudeToolsOnlyWhenAPluginSkillLoaded pins M3: a
-// namespaced source that contributed no skill (empty directory, no
-// SKILL.md) must not turn on the Claude Code tool-mapping note by itself —
-// only a namespaced source that actually loaded a skill does.
+// The Claude Code tool-mapping note follows the skills that loaded, not the
+// sources: a plugin directory with no SKILL.md adds nothing, and a user skill
+// whose own name holds a colon is still the user's.
 func TestSkillsBlockMapsClaudeToolsOnlyWhenAPluginSkillLoaded(t *testing.T) {
 	user, emptyPlugin := t.TempDir(), t.TempDir()
 	path := filepath.Join(user, "s", "SKILL.md")
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
-	require.NoError(t, os.WriteFile(path, []byte("---\nname: s\ndescription: d\n---\n"), 0o600))
+	require.NoError(t, os.WriteFile(path, []byte("---\nname: team:s\ndescription: d\n---\n"), 0o600))
 
 	text, facts := BuildWithFacts(Options{Skills: skills.Sources{{Dir: user}, {Dir: emptyPlugin, Namespace: "p"}}})
 	require.Equal(t, 1, facts.Skills)

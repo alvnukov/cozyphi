@@ -30,6 +30,8 @@ type Skill struct {
 	Body          string
 	Path          string
 	SkillFilePath string
+	// Namespace is the plugin that owns the skill; empty for skill_path.
+	Namespace string
 }
 
 // Parse parses a single SKILL.md file, extracting YAML frontmatter and body.
