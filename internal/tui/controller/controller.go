@@ -291,7 +291,17 @@ func newController(
 	c.startJobProgress()
 	c.startWatchEvents()
 	c.startShellTaskEvents()
-	c.emitSessionStart(eng, hooks.ReasonStartup, "")
+	// A non-empty resumePath means this controller opened an existing
+	// transcript instead of a fresh one: cmd's --resume/--continue
+	// (create(resumePath, ...)) and fork-to-tab (openFork -> openTab ->
+	// create(path)) both land here. Either way it is a resume of a session
+	// that already ran its startup bootstrap, so a plugin's SessionStart
+	// hook must not re-run it — mirror switchSession's "resume" reason.
+	reason := hooks.ReasonStartup
+	if resumePath != "" {
+		reason = hooks.ReasonResume
+	}
+	c.emitSessionStart(eng, reason, "")
 	return c, nil
 }
 

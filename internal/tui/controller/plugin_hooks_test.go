@@ -1,15 +1,18 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/hooks"
+	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/project"
 )
 
@@ -89,4 +92,41 @@ func TestListHooksReportsPluginHookRuntimeFailures(t *testing.T) {
 	}
 	require.Contains(t, strings.Join(text, "\n"), "plugin:demo/SessionStart#1: ")
 	require.Contains(t, strings.Join(text, "\n"), "exited 1: broken")
+}
+
+// TestSessionStartReasonOnLaunchResume pins I1: newController is the single
+// construction path for both cmd's --resume/--continue (create(resumePath))
+// and fork-to-tab (openFork -> openTab -> create(path)), so a non-empty
+// resumePath at launch must report resume, not startup — a launch-time
+// resume must not re-run a plugin's SessionStart bootstrap.
+func TestSessionStartReasonOnLaunchResume(t *testing.T) {
+	c1 := newReadyController(t)
+	c1.ownsRuntime = false // keep the runtime alive for the resuming controller below
+	t.Cleanup(func() { require.NoError(t, c1.runtime.Close()) })
+	sessionFile := c1.engine.SessionFile()
+	// Fresh sessions flush lazily; write something so the file exists to resume.
+	require.NoError(t, c1.engine.Session().Append(llm.Message{Role: llm.RoleAssistant, Content: "boot"}))
+	c1.Close()
+	<-c1.closeDone
+
+	var (
+		mu      sync.Mutex
+		reasons []string
+	)
+	c1.workspace.hooks = hooks.NewManager(hooks.Entry{Kind: hooks.KindSessionStart, Hook: hooks.FuncHook{
+		Sess: func(_ context.Context, ev hooks.SessionEvent) (hooks.SessionResult, error) {
+			mu.Lock()
+			reasons = append(reasons, ev.Reason)
+			mu.Unlock()
+			return hooks.SessionResult{}, nil
+		},
+	}})
+
+	c2, err := c1.runtime.NewSession(NewBus(nil), c1.workspace, sessionFile, nil)
+	require.NoError(t, err)
+	t.Cleanup(c2.Close)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, []string{hooks.ReasonResume}, reasons)
 }

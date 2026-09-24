@@ -234,6 +234,8 @@ The TUI runs at most one hook command at a time (like `!` bash). Reload drops in
 
 `async: true` is allowed on `session_start` and `session_shutdown` (fire-and-forget). `fail_closed` is allowed only on `session_before_switch`. `match` is ignored.
 
+`resume` also covers a session opened at launch with `--resume`/`--continue` and a fork opened into a new tab — both start from an existing transcript, so neither re-runs the `startup` bootstrap.
+
 `compact` fires `session_start` again after every successful compaction —
 automatic overflow recovery, manual `/compact`, the compaction the model
 requests through the `context` tool, and a successful user trim of the
