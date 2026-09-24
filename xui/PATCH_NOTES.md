@@ -45,9 +45,12 @@ Local divergences from upstream v0.1.3:
    Upstream hides this only when every frame repaints the whole screen.
    Follows ultraviolet's `repaintLine` / `putCellLR`. (`writeRow`,
    `mayDrift` in `render/render.go`; tests in `render/drift_test.go`.)
+9. `xui`: `NewWithTTY` builds a XUI on a caller-supplied `term.TTY`, and
+   `New` is `OpenTTY` plus `NewWithTTY`. Upstream only opens the real
+   terminal, so no test could see the bytes a frame writes. (`xui.go`.)
 
 To re-sync with upstream: copy the new version over this directory, then
 re-apply the patches above (1–2 and 8 are confined to `render/` and the
-`Render` and `Close` methods in `xui.go`; 4 lives in `term/tty_unix.go`;
-5–7 live in `input/parser.go` and `input/event.go`; tests live next to
-them).
+`Render` and `Close` methods in `xui.go`, 9 to `New` / `NewWithTTY`; 4 lives
+in `term/tty_unix.go`; 5–7 live in `input/parser.go` and `input/event.go`;
+tests live next to them).

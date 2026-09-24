@@ -42,6 +42,13 @@ func New(opts Options) (*XUI, error) {
 	if err != nil {
 		return nil, err
 	}
+	return NewWithTTY(tty, opts)
+}
+
+// NewWithTTY creates a XUI instance on an already open TTY and puts it in raw
+// mode; the XUI owns tty from here on and closes it on failure or Close. A
+// test hands it a fake terminal to see exactly what a frame writes.
+func NewWithTTY(tty term.TTY, opts Options) (*XUI, error) {
 	if err := tty.MakeRaw(); err != nil {
 		_ = tty.Close()
 		return nil, fmt.Errorf("xui: make raw: %w", err)
