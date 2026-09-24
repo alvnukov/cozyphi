@@ -3,6 +3,7 @@ package hooks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,13 +84,15 @@ func TestClaudeHookJSONContextSurvivesBackgroundChild(t *testing.T) {
 }
 
 func TestClaudeHookAcceptsEveryContextSpelling(t *testing.T) {
-	for _, body := range []string{`{"additionalContext":"X"}`, `{"additional_context":"X"}`, `plain X`} {
+	for _, body := range []string{
+		`{"hookSpecificOutput":{"additionalContext":"X"}}`, `{"additionalContext":"X"}`, `{"additional_context":"X"}`, `X`,
+	} {
 		cmd := "printf '%s' '" + body + "'"
 		mgr := pluginManager(
 			t,
 			claudePlugin(t, "demo", oneHook(t, "SessionStart", "*", map[string]any{"command": cmd})),
 		)
-		require.Contains(t, startWith(mgr, ReasonStartup).Context, "X", body)
+		require.Equal(t, "X", startWith(mgr, ReasonStartup).Context, body)
 	}
 }
 
@@ -133,14 +136,29 @@ func TestClaudeSessionEndMapsQuitReason(t *testing.T) {
 
 func TestClaudeHookEnvironmentIsSanitizedAndRooted(t *testing.T) {
 	t.Setenv("DEMO_API_KEY", "leak")
+	t.Setenv(EnvClaudePluginRoot, "/outer/claude/plugin") // cozyphi itself running inside Claude Code
 	p := claudePlugin(t, "demo", oneHook(t, "SessionStart", "", map[string]any{
-		"command": `echo "key=${DEMO_API_KEY:-unset} root=$CLAUDE_PLUGIN_ROOT pwd=$(pwd -P)"`,
+		"command": `echo "key=${DEMO_API_KEY:-unset} root=$CLAUDE_PLUGIN_ROOT pwd=$(pwd -P) ` +
+			`roots=$(env | grep -c '^CLAUDE_PLUGIN_ROOT=')"`,
 	}))
 	project, err := filepath.EvalSymlinks(p.Vars[EnvClaudeProjectDir])
 	require.NoError(t, err)
 
 	got := startWith(pluginManager(t, p), ReasonStartup).Context
-	require.Equal(t, "key=unset root="+p.Vars[EnvClaudePluginRoot]+" pwd="+project, got)
+	require.Equal(t, "key=unset root="+p.Vars[EnvClaudePluginRoot]+" pwd="+project+" roots=1", got)
+}
+
+func TestClaudeHookDropsInheritedClaudeVarsAndSensitiveVars(t *testing.T) {
+	t.Setenv(EnvClaudePluginData, "/outer/claude/data")
+	p := claudePlugin(t, "demo", oneHook(t, "SessionStart", "", map[string]any{
+		"command": `echo "data=${CLAUDE_PLUGIN_DATA:-unset} token=${DEMO_TOKEN:-unset}"`,
+	}))
+	delete(p.Vars, EnvClaudePluginData)
+	p.Vars["DEMO_TOKEN"] = "leak"
+
+	got := startWith(pluginManager(t, p), ReasonStartup).Context
+	require.Equal(t, "data=unset token=unset", got,
+		"an outer Claude Code plugin's data dir must not leak in, and a sensitive var is never set")
 }
 
 func TestClaudeHookArgsRunWithoutShell(t *testing.T) {
@@ -167,6 +185,50 @@ func TestClaudeHookFailureIsNonBlockingAndRedacted(t *testing.T) {
 	out := startWith(pluginManager(t, p), ReasonStartup)
 	require.False(t, out.Denied, "exit 2 never blocks a session")
 	require.Empty(t, out.Context)
+}
+
+func TestClaudeHookExitWithoutStderrEndsCleanly(t *testing.T) {
+	p := claudePlugin(t, "demo", oneHook(t, "SessionStart", "", map[string]any{"command": "exit 3"}))
+	_, err := pluginHook(t, p).Session(t.Context(),
+		SessionEvent{Kind: KindSessionStart, Reason: ReasonStartup, Cwd: "/tmp"})
+	require.ErrorContains(t, err, "hook plugin:demo/SessionStart#1 exited 3 — ")
+	require.NotContains(t, err.Error(), "exited 3:")
+}
+
+func TestClaudeHookCancellationIsNotATimeout(t *testing.T) {
+	p := claudePlugin(t, "demo", oneHook(t, "SessionStart", "", map[string]any{"command": "sleep 5"}))
+	hook := pluginHook(t, p)
+	cancelled, cancel := context.WithCancel(t.Context())
+	time.AfterFunc(200*time.Millisecond, cancel)
+	expired, stop := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer stop()
+
+	for name, ctx := range map[string]context.Context{"cancelled": cancelled, "parent deadline": expired} {
+		began := time.Now()
+		_, err := hook.Session(ctx, SessionEvent{Kind: KindSessionStart, Reason: ReasonStartup, Cwd: "/tmp"})
+		require.ErrorContains(t, err, "cancelled", name)
+		require.NotContains(t, err.Error(), "exited", name)
+		require.NotContains(t, err.Error(), "timed out", name)
+		require.Less(t, time.Since(began), 4*time.Second, name)
+	}
+}
+
+func TestClaudeHookTimeoutIsCapped(t *testing.T) {
+	t.Setenv(EnvHooks, "")
+	for declared, want := range map[float64]time.Duration{
+		0: 30 * time.Second, -1: 30 * time.Second, 1.5: 1500 * time.Millisecond,
+		60: 60 * time.Second, 600: 60 * time.Second,
+	} {
+		p := claudePlugin(
+			t,
+			"demo",
+			oneHook(t, "SessionStart", "", map[string]any{"command": "true", "timeout": declared}),
+		)
+		found, _, err := Discover("", "", p)
+		require.NoError(t, err)
+		require.Len(t, found, 1)
+		require.Equal(t, want, found[0].Manifest.Timeout, "timeout %v", declared)
+	}
 }
 
 func TestClaudeHookTimeout(t *testing.T) {
@@ -219,7 +281,8 @@ func TestClaudeHooksWarnAndSkipWhatCozyphiCannotRun(t *testing.T) {
 	all := strings.Join(text, "\n")
 	for _, want := range []string{
 		"event PreToolUse is not supported", "not a valid regular expression", `hook type "prompt"`,
-		`hook shell "powershell"`, "empty command", "${user_config.*}",
+		`hook shell "powershell"`, "empty command",
+		"${user_config.*}, which cozyphi does not provide; skipped — disable the plugin or remove the reference",
 	} {
 		require.Contains(t, all, want)
 	}
@@ -267,4 +330,59 @@ func TestClaudeHooksHonourHooksOff(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, found)
 	require.Empty(t, warns)
+}
+
+func TestClaudeHooksSkippedInFailClosedOnlyMode(t *testing.T) {
+	mgr := pluginManager(
+		t,
+		claudePlugin(t, "demo", oneHook(t, "SessionStart", "", map[string]any{"command": "echo hit"})),
+	)
+	require.Equal(t, "hit", startWith(mgr, ReasonStartup).Context)
+	require.Empty(t, startWith(mgr.FailClosedOnly(), ReasonStartup).Context, "a plugin hook is never fail-closed")
+}
+
+func TestManagerFailuresReportThePluginHookLastRun(t *testing.T) {
+	p := claudePlugin(t, "demo", oneHook(t, "SessionStart", "startup|clear", map[string]any{
+		"command": `if [ -f "$CLAUDE_PLUGIN_DATA/ok" ]; then echo fine; else echo broken >&2; exit 1; fi`,
+	}))
+	mgr := pluginManager(t, p)
+	require.Empty(t, mgr.Failures(), "nothing has run yet")
+
+	startWith(mgr, ReasonStartup)
+	fails := mgr.Failures()
+	require.Len(t, fails, 1)
+	require.Equal(t, "plugin:demo/SessionStart#1", fails[0].Path)
+	require.Contains(t, fails[0].Message, "exited 1: broken")
+	require.Contains(t, fails[0].Message, "disable the plugin")
+	require.Equal(t, fails, mgr.FailClosedOnly().Failures(), "a fail-closed-only view shares the record")
+
+	startWith(mgr, ReasonResume)
+	require.Len(t, mgr.Failures(), 1, "a run the matcher skipped is not a success")
+
+	require.NoError(t, os.WriteFile(filepath.Join(p.Vars[EnvClaudePluginData], "ok"), nil, 0o600))
+	require.Equal(t, "fine", startWith(mgr, ReasonNew).Context)
+	require.Empty(t, mgr.Failures(), "a later success clears the record")
+}
+
+func TestManagerFailuresRecordAsyncPluginHooks(t *testing.T) {
+	mgr := pluginManager(t, claudePlugin(t, "demo", oneHook(t, "SessionEnd", "", map[string]any{
+		"command": "exit 4", "async": true,
+	})))
+	mgr.SessionShutdown(t.Context(), SessionEvent{SessionID: "s1", Cwd: "/tmp", Reason: ReasonQuit})
+	require.Eventually(t, func() bool { return len(mgr.Failures()) == 1 }, 5*time.Second, 10*time.Millisecond)
+	require.Contains(t, mgr.Failures()[0].Message, "exited 4")
+}
+
+func TestManagerFailuresIgnoreHooksThatAreNotPlugins(t *testing.T) {
+	var none *Manager
+	require.Nil(t, none.Failures())
+
+	mgr := NewManager(Entry{Kind: KindSessionStart, Hook: FuncHook{
+		HookName: "plugin:fake/SessionStart#1",
+		Sess: func(context.Context, SessionEvent) (SessionResult, error) {
+			return SessionResult{}, errors.New("boom")
+		},
+	}})
+	startWith(mgr, ReasonStartup)
+	require.Empty(t, mgr.Failures(), "only a Claude Code plugin hook records its failures")
 }

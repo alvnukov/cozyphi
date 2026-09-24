@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -155,7 +156,8 @@ func claudeCommandProblem(hc claudeHookCommand) string {
 	case strings.TrimSpace(hc.Command) == "":
 		return "hook has an empty command; skipped — set command in hooks.json"
 	case userConfig(hc.Command) || slices.ContainsFunc(hc.Args, userConfig):
-		return "hook references ${user_config.*}, which cozyphi does not provide; skipped"
+		return "hook references ${user_config.*}, which cozyphi does not provide; skipped" +
+			" — disable the plugin or remove the reference"
 	}
 	return ""
 }
@@ -190,6 +192,11 @@ type ClaudeHook struct {
 	args    []string
 	timeout time.Duration
 	vars    map[string]string
+
+	// mu guards failure: sync runs happen in parallel goroutines and async
+	// ones in a detached goroutine, while Manager.Failures reads it.
+	mu      sync.Mutex
+	failure error // the latest run's error; nil after a successful run
 }
 
 // Name returns "plugin:<Name>/<Event>#<n>".
@@ -225,7 +232,27 @@ func (h *ClaudeHook) Session(ctx context.Context, ev SessionEvent) (SessionResul
 	if h.matcher != nil && !h.matcher.MatchString(source) {
 		return allow, nil
 	}
-	return h.run(ctx, ev, source)
+	res, err := h.run(ctx, ev, source)
+	h.record(ctx, err)
+	return res, err
+}
+
+// record keeps the outcome of a run for Manager.Failures. Only a run that
+// happened reaches it — a matcher skip is not a success — and a run the
+// caller cancelled says nothing about the plugin, so it leaves the record.
+func (h *ClaudeHook) record(ctx context.Context, err error) {
+	if err != nil && ctx.Err() != nil {
+		return
+	}
+	h.mu.Lock()
+	h.failure = err
+	h.mu.Unlock()
+}
+
+func (h *ClaudeHook) lastFailure() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.failure
 }
 
 // claudeSource maps a cozyphi reason to SessionStart.source or
@@ -265,7 +292,7 @@ type claudeWireIn struct {
 	Reason        string `json:"reason,omitempty"`
 }
 
-func (h *ClaudeHook) run(ctx context.Context, ev SessionEvent, source string) (SessionResult, error) {
+func (h *ClaudeHook) run(parent context.Context, ev SessionEvent, source string) (SessionResult, error) {
 	in := claudeWireIn{SessionID: ev.SessionID, Cwd: ev.Cwd, HookEventName: "SessionEnd", Reason: source}
 	if h.kind == KindSessionStart {
 		in = claudeWireIn{SessionID: ev.SessionID, Cwd: ev.Cwd, HookEventName: "SessionStart", Source: source}
@@ -280,7 +307,7 @@ func (h *ClaudeHook) run(ctx context.Context, ev SessionEvent, source string) (S
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, h.timeout)
+	ctx, cancel := context.WithTimeout(parent, h.timeout)
 	defer cancel()
 	cmd := h.newCmd(ctx)
 	cmd.Dir = cmp.Or(h.vars[EnvClaudeProjectDir], ev.Cwd)
@@ -293,19 +320,33 @@ func (h *ClaudeHook) run(ctx context.Context, ev SessionEvent, source string) (S
 	// WaitDelay stops waiting for them one second later.
 	cmd.WaitDelay = time.Second
 
-	err = cmd.Run()
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return SessionResult{}, fmt.Errorf("hook %s timed out after %s — raise its timeout (max %s) or fix the script",
-			h.name, h.timeout, maxTimeout)
-	}
-	if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
-		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
-			return SessionResult{}, fmt.Errorf("hook %s exited %d: %s",
-				h.name, ee.ExitCode(), redact.Redact(firstLine(string(stderr.Bytes()))))
-		}
-		return SessionResult{}, fmt.Errorf("hook %s: %w", h.name, err)
+	if err := cmd.Run(); err != nil && !errors.Is(err, exec.ErrWaitDelay) {
+		return SessionResult{}, h.runError(parent, ctx, err, stderr.Bytes())
 	}
 	return claudeResult(stdout.Bytes()), nil
+}
+
+// runError names why a run failed. The caller giving up is neither the
+// hook's own timeout nor an exit code, and saying so keeps a slow session
+// close from blaming the plugin. Only the first stderr line is kept, and it
+// is redacted because a script may echo a secret.
+func (h *ClaudeHook) runError(parent, ctx context.Context, err error, stderr []byte) error {
+	if parent.Err() != nil {
+		return fmt.Errorf("hook %s cancelled: %w", h.name, parent.Err())
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf("hook %s timed out after %s — raise its timeout (max %s) or fix the script",
+			h.name, h.timeout, maxTimeout)
+	}
+	const advice = " — check the hook in the plugin's hooks.json or disable the plugin"
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
+		msg := fmt.Sprintf("hook %s exited %d", h.name, ee.ExitCode())
+		if line := redact.Redact(firstLine(string(stderr))); line != "" {
+			msg += ": " + line
+		}
+		return errors.New(msg + advice)
+	}
+	return fmt.Errorf("hook %s: %w"+advice, h.name, err)
 }
 
 // newCmd runs args as exec with placeholders substituted, or the command
@@ -325,15 +366,30 @@ func (h *ClaudeHook) newCmd(ctx context.Context) *exec.Cmd {
 	return exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: the user enabled this plugin
 }
 
+// claudeEnvKeys are the placeholders a plugin hook reads. cozyphi may itself
+// run inside Claude Code, and an inherited copy would point at that session's
+// plugin, so the parent's copies never reach a hook.
+var claudeEnvKeys = []string{EnvClaudePluginRoot, EnvClaudePluginData, EnvClaudeProjectDir}
+
 func (h *ClaudeHook) env(ev SessionEvent) []string {
-	env := sanitizeEnv(environ(), hookEnv{
+	parent := sanitizeEnv(environ(), hookEnv{
 		Event:      string(h.kind),
 		SessionID:  ev.SessionID,
 		Cwd:        ev.Cwd,
 		ProjectDir: cmp.Or(h.vars[EnvClaudeProjectDir], ev.Cwd),
 	})
+	env := slices.DeleteFunc(parent, func(kv string) bool {
+		key, _, _ := strings.Cut(kv, "=")
+		_, replaced := h.vars[key]
+		return replaced || slices.Contains(claudeEnvKeys, key)
+	})
 	for _, k := range slices.Sorted(maps.Keys(h.vars)) {
-		env = append(env, k+"="+h.vars[k]) // later duplicates win in os/exec
+		// The same rule sanitizeEnv applies to the parent: a secret-shaped
+		// key never reaches a hook, whoever supplied it.
+		if isSensitiveEnvKey(k) {
+			continue
+		}
+		env = append(env, k+"="+h.vars[k])
 	}
 	return env
 }
