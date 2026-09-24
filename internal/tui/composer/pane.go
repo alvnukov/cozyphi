@@ -190,14 +190,12 @@ func (c *ComposerPane) Wire(
 		c.hintsBase = nil
 		c.applyHints()
 	}
+	// The key event that changed the text already redraws its frame.
 	c.Chat.OnChange = func(text string) {
 		if c.asideActive && strings.HasPrefix(strings.TrimSpace(text), "!") {
 			c.LeaveAside()
 		}
 		c.SyncBashBorder(text)
-		if c.bus != nil {
-			c.bus.RequestRefresh()
-		}
 	}
 	c.Chat.OnMentionChange = c.onMentionChange
 	c.Chat.OnSlashChange = c.onSlashChange

@@ -15,6 +15,14 @@ const (
 	SeqSyncSet   = CSI + "?2026h"
 	SeqSyncReset = CSI + "?2026l"
 
+	// DECAWM: a painted frame turns autowrap off so a glyph the terminal
+	// draws wider than the model cannot push a cell onto the next row.
+	SeqAutowrapSet   = CSI + "?7h"
+	SeqAutowrapReset = CSI + "?7l"
+
+	// EL 0: erase from the cursor to the end of the line.
+	SeqEraseLineRight = CSI + "K"
+
 	SeqAltEnter = CSI + "?1049h"
 	SeqAltExit  = CSI + "?1049l"
 
@@ -58,15 +66,18 @@ const (
 	osc = OSC
 	st  = ST
 
-	seqSGRReset    = SeqSGRReset
-	seqHideCursor  = SeqHideCursor
-	seqShowCursor  = SeqShowCursor
-	seqClearScreen = SeqClearScreen
-	seqHome        = SeqHome
-	seqSyncSet     = SeqSyncSet
-	seqSyncReset   = SeqSyncReset
-	seqAltEnter    = SeqAltEnter
-	seqAltExit     = SeqAltExit
-	seqFGReset     = SeqFGReset
-	seqBGReset     = SeqBGReset
+	seqSGRReset       = SeqSGRReset
+	seqHideCursor     = SeqHideCursor
+	seqShowCursor     = SeqShowCursor
+	seqClearScreen    = SeqClearScreen
+	seqHome           = SeqHome
+	seqSyncSet        = SeqSyncSet
+	seqSyncReset      = SeqSyncReset
+	seqAutowrapSet    = SeqAutowrapSet
+	seqAutowrapReset  = SeqAutowrapReset
+	seqEraseLineRight = SeqEraseLineRight
+	seqAltEnter       = SeqAltEnter
+	seqAltExit        = SeqAltExit
+	seqFGReset        = SeqFGReset
+	seqBGReset        = SeqBGReset
 )

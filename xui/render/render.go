@@ -68,6 +68,9 @@ func (r *Renderer) ResetState() {
 // Frames with no dirty cells and an unchanged cursor write zero bytes.
 // Cursor-only frames emit just the cursor update (no SGR reset, no
 // hide/show cycle); hide/show bracketing happens only on frames that paint.
+//
+// dirty lists cells row by row, as Screen.Diff does; a run of cells that
+// starts at column 0 is taken to be the whole row.
 func (r *Renderer) RenderDiff(
 	w io.Writer,
 	dirty []cell.DirtyCell,
@@ -96,10 +99,18 @@ func (r *Renderer) RenderDiff(
 		if !r.toldValid || r.toldVisible {
 			r.buf.WriteString(seqHideCursor)
 		}
+		r.buf.WriteString(seqAutowrapReset)
 
-		for _, d := range dirty {
-			r.writeCell(&r.buf, d.X, d.Y, d.Cell)
+		for i := 0; i < len(dirty); {
+			j := i + 1
+			for j < len(dirty) && dirty[j].Y == dirty[i].Y {
+				j++
+			}
+			r.writeRow(&r.buf, dirty[i:j])
+			i = j
 		}
+
+		r.buf.WriteString(seqAutowrapSet)
 
 		if cursorVisible {
 			r.moveTo(&r.buf, cursorX, cursorY)
@@ -140,6 +151,46 @@ func (r *Renderer) RenderDiff(
 	r.toldShape = cursorShape
 	r.toldValid = true
 	return n, nil
+}
+
+// writeRow writes one row's run of dirty cells. A whole row holding a glyph
+// the terminal may measure differently from the model is erased first: if
+// the terminal draws that glyph narrower, the rest of the row lands shifted
+// left and would leave the old frame's last columns on screen. Blanks after
+// the last visible cell of an erased row are already on screen and skipped.
+func (r *Renderer) writeRow(buf *bytes.Buffer, run []cell.DirtyCell) {
+	if run[0].X == 0 && mayDrift(run) {
+		r.moveTo(buf, 0, run[0].Y)
+		buf.WriteString(seqSGRReset)
+		buf.WriteString(seqEraseLineRight)
+		r.currentStyle = cell.Style{}
+		r.styleValid = true
+		for len(run) > 0 && isBlank(run[len(run)-1].Cell) {
+			run = run[:len(run)-1]
+		}
+	}
+	for _, d := range run {
+		r.writeCell(buf, d.X, d.Y, d.Cell)
+	}
+}
+
+// mayDrift reports whether a run holds a non-ASCII glyph. Only ASCII has a
+// width every terminal agrees on; beyond it the model and the terminal can
+// disagree (emoji, ambiguous-width symbols, a newer Unicode table).
+func mayDrift(run []cell.DirtyCell) bool {
+	for _, d := range run {
+		for i := 0; i < len(d.Cell.Char); i++ {
+			if d.Cell.Char[i] >= 0x80 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isBlank reports whether c looks exactly like a cell erased with the reset pen.
+func isBlank(c cell.Cell) bool {
+	return (c.Char == "" || c.Char == " ") && !c.Trail && c.Hyperlink.Empty() && c.Style.Equal(cell.Style{})
 }
 
 func (r *Renderer) writeCell(buf *bytes.Buffer, x, y int, c cell.Cell) {
@@ -340,5 +391,5 @@ func EnterAltScreenSeq() string {
 
 // ExitAltScreenSeq returns the alt-screen exit sequence.
 func ExitAltScreenSeq() string {
-	return seqSGRReset + seqShowCursor + seqAltExit
+	return seqSGRReset + seqAutowrapSet + seqShowCursor + seqAltExit
 }

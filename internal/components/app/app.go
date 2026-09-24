@@ -22,6 +22,10 @@ import (
 // monopolize the UI goroutine on long replies.
 const minFrame = time.Second / 20
 
+// maxTypingBatch bounds how many queued key and paste events share one
+// terminal frame, so a burst of typed-in text still shows progress.
+const maxTypingBatch = 64
+
 // App is the vxfw-style application runtime.
 type App struct {
 	vx            *xui.XUI
@@ -107,36 +111,95 @@ func (a *App) Run(root components.Widget) error {
 	a.redraw = false
 
 	for {
-		var ev xui.Event
-		if a.pending != nil {
-			ev = a.pending
-			a.pending = nil
-		} else {
-			select {
-			case ev = <-a.loop.Events():
-			case <-a.sched.Due():
-				a.redraw = true
-				ev = nil
-			}
-		}
-		if ev != nil {
-			ev = a.coalesceWheel(ev)
-			if a.handleEvent(ev) {
-				return nil
-			}
-		}
-		if a.redraw {
-			if err := a.paint(); err != nil {
-				return err
-			}
-			a.redraw = false
+		if quit, err := a.step(); quit || err != nil {
+			return err
 		}
 	}
 }
 
+// step waits for one event or scheduler wake, handles it together with the
+// events queued behind it that may share its frame, and paints that frame.
+func (a *App) step() (quit bool, err error) {
+	var ev xui.Event
+	if a.pending != nil {
+		ev = a.pending
+		a.pending = nil
+	} else {
+		select {
+		case ev = <-a.loop.Events():
+		case <-a.sched.Due():
+			a.redraw = true
+			ev = nil
+		}
+	}
+	if ev != nil {
+		ev = a.coalesceWheel(ev)
+		if a.handleEvent(ev) {
+			return true, nil
+		}
+		if quit, err := a.coalesceTyping(ev); quit || err != nil {
+			return quit, err
+		}
+	}
+	if a.redraw {
+		if err := a.paint(); err != nil {
+			return false, err
+		}
+		a.redraw = false
+	}
+	return false, nil
+}
+
+// coalesceTyping handles the key and paste events already queued behind a
+// typing event before their shared frame goes to the terminal. A terminal
+// that drains its pty slowly (a loaded machine) keeps the frame write
+// blocked while keys pile up; writing one frame per key then falls further
+// behind with every key, while one frame for the batch catches up. Each
+// event still sees the layout its predecessor produced: the frame is
+// composed between events, only the terminal write is shared. A non-typing
+// event ends the batch and goes back to the pending slot — mouse hit tests
+// need the frame that is actually on screen.
+func (a *App) coalesceTyping(ev xui.Event) (quit bool, err error) {
+	if !isTyping(ev) {
+		return false, nil
+	}
+	composed := false
+	for range maxTypingBatch - 1 {
+		next, ok := a.loop.TryEvent()
+		if !ok {
+			break
+		}
+		if !isTyping(next) {
+			a.pending = next
+			break
+		}
+		if a.redraw {
+			if err := a.compose(); err != nil {
+				return false, err
+			}
+			a.redraw = false
+			composed = true
+		}
+		if a.handleEvent(next) {
+			return true, nil
+		}
+	}
+	if composed {
+		a.redraw = true
+	}
+	return false, nil
+}
+
+func isTyping(ev xui.Event) bool {
+	switch ev.(type) {
+	case xui.KeyEvent, xui.PasteEvent:
+		return true
+	}
+	return false
+}
+
 // coalesceWheel merges back-to-back wheel events into one with a summed Wheel
-// count so a fast trackpad flick triggers a single redraw instead of dozens of
-// partial paints (which leave CJK/ASCII ghost columns on the TTY).
+// count so a fast trackpad flick triggers a single redraw instead of dozens.
 func (a *App) coalesceWheel(ev xui.Event) xui.Event {
 	m, ok := ev.(xui.MouseEvent)
 	if !ok || (m.Button != xui.MouseWheelUp && m.Button != xui.MouseWheelDown) {
@@ -179,8 +242,6 @@ func (a *App) coalesceWheel(ev xui.Event) xui.Event {
 		m.Button = xui.MouseNone
 		m.Action = xui.MouseMotion
 	}
-	// Full refresh heals any prior TTY desync before the scrolled frame paints.
-	a.vx.QueueRefresh()
 	return m
 }
 
@@ -358,7 +419,18 @@ func (a *App) paint() error {
 	return nil
 }
 
+// draw composes the frame and writes what changed to the terminal.
 func (a *App) draw() error {
+	if err := a.compose(); err != nil {
+		return err
+	}
+	return a.vx.Render()
+}
+
+// compose draws the widget tree into the screen's back buffer without
+// writing it to the terminal. Draw-time layout (hit regions, scroll
+// extents, wrapped rows) is fresh afterwards.
+func (a *App) compose() error {
 	cols, rows := a.vx.Screen().Size()
 	wake := time.Time{}
 	ctx := components.DrawContext{
@@ -397,7 +469,7 @@ func (a *App) draw() error {
 	} else {
 		a.vx.Screen().ClearCursor()
 	}
-	return a.vx.Render()
+	return nil
 }
 
 // revealTooltip reconciles the dwell with the freshly drawn frame — its
