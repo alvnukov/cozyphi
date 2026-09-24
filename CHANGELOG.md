@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Fixed: typing no longer lags behind on a loaded machine. Every keystroke and
+  every wheel scroll used to repaint the whole screen, about 10 KB at 120x40;
+  a terminal that drained its pty slowly then fell further behind with every
+  key. A key now writes only the rows it changed, around 300 bytes, and keys
+  that queue up while a frame is being written share the next frame. Rows with
+  emoji or other non-ASCII glyphs are erased before they are repainted and
+  frames are written with autowrap off, so a terminal that measures a glyph
+  differently from cozyphi no longer leaves stray characters on the next row.
 - Fixed: ChatGPT subscription model discovery no longer hides new OpenAI models.
   The Codex `/models` endpoint filters by `client_version`; the pinned 0.153.1
   omitted models requiring 0.155.0 (gpt-6-sol, gpt-6-luna). The compatibility
