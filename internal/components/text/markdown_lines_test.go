@@ -148,6 +148,33 @@ func TestLinesEmpty(t *testing.T) {
 	assert.Nil(t, RenderMarkdownLines("", components.DefaultTheme(), 40, xui.WidthUnicode))
 }
 
+// TestLinesCodeBoxMeasuresGraphemes: emoji in code measure as the glyph they
+// draw — one cluster, two cells — so the box hugs the widest drawn line
+// instead of the widest rune sum, and borders stay aligned with content.
+func TestLinesCodeBoxMeasuresGraphemes(t *testing.T) {
+	th := components.DefaultTheme()
+	lines := RenderMarkdownLines("```\nab\n👩\u200d👩\u200d👧\n```", th, 40, xui.WidthUnicode)
+	assert.Equal(t, []string{
+		"╭────╮",
+		"│ ab │",
+		"│ 👩\u200d👩\u200d👧 │",
+		"╰────╯",
+	}, lineStrings(lines))
+}
+
+// TestLinesCodeBoxLangLabelWidth: the language label is measured in display
+// width, not bytes, so a CJK label doesn't leave the top border shorter than
+// the bottom one.
+func TestLinesCodeBoxLangLabelWidth(t *testing.T) {
+	th := components.DefaultTheme()
+	lines := RenderMarkdownLines("```日本語\nx\n```", th, 40, xui.WidthUnicode)
+	assert.Equal(t, []string{
+		"╭─ 日本語 ──╮",
+		"│ x         │",
+		"╰───────────╯",
+	}, lineStrings(lines))
+}
+
 // TestLinesPreview prints a realistic answer for eyeballing; run with -v.
 func TestLinesPreview(t *testing.T) {
 	src := "## Что хорошо\n\n- **Инварианта в одном месте.** Executor.runOne — единственная точка,\n  где соблюдается Pre → Gate → Run → Post, обойти gate изнутри нельзя.\n- Seam'ы настоящие: `Gate = чистый Check + колбэк Ask`, минимум два адаптера.\n\n```go\nfunc (e *Engine) Loop(ctx context.Context) error {\n\treturn e.executor.Run(ctx, msg)\n}\n```\n\n> Движок отдаёт iter.Seq2, контроллер редуцирует это в Msg на шину.\n\n1. первый пункт списка с достаточно длинным текстом для переноса\n2. второй пункт\n"

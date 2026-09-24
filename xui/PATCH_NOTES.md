@@ -48,9 +48,16 @@ Local divergences from upstream v0.1.3:
 9. `xui`: `NewWithTTY` builds a XUI on a caller-supplied `term.TTY`, and
    `New` is `OpenTTY` plus `NewWithTTY`. Upstream only opens the real
    terminal, so no test could see the bytes a frame writes. (`xui.go`.)
+10. `cell`: display width is measured over Unicode grapheme clusters via
+   `rivo/uniseg` (`StringWidth`, `FirstGrapheme` in `cell/gwidth.go`; tests
+   in `cell/gwidth_test.go`). Upstream's per-rune table split ZWJ emoji,
+   flags and skin-tone sequences and missed VS16 emoji presentation, so the
+   width model disagreed with what terminals draw at the very glyphs item 8
+   works around. Re-syncing brings back a per-rune table and must also drop
+   the new `rivo/uniseg` requirement from `go.mod`.
 
 To re-sync with upstream: copy the new version over this directory, then
 re-apply the patches above (1–2 and 8 are confined to `render/` and the
 `Render` and `Close` methods in `xui.go`, 9 to `New` / `NewWithTTY`; 4 lives
 in `term/tty_unix.go`; 5–7 live in `input/parser.go` and `input/event.go`;
-tests live next to them).
+10 lives in `cell/gwidth.go`; tests live next to them).
