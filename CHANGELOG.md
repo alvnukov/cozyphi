@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Fixed: background watch output can no longer close its `<watch>` or
+  `<system-reminder>` wrapper early, including when replaying a transcript.
 - Changed: `session_start` hooks now see reason `resume`, not `startup`, when
   a session is opened with `--resume`/`--continue` or forked into a tab, so a
   plugin bootstrap is not re-run on a launch-time resume.

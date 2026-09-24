@@ -29,7 +29,7 @@ func (engine *Engine) QueueSessionContext(text string) {
 	}
 	// text is a hook's output, not markup: an embedded close tag must not be
 	// able to forge the wrapper's end and smuggle a fake trailer past it.
-	text = strings.ReplaceAll(text, reminderClose, `<\/system-reminder>`)
+	text = escapeReminderClose(text)
 	engine.sessionContext = reminderOpen + "\n" + text + "\n" + reminderClose
 }
 
