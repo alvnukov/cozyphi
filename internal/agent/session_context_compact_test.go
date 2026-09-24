@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,9 +18,11 @@ import (
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
+const bootSentinel = "COMPACT-BOOT-SENTINEL"
+
 // bootHookedEngine builds an engine whose session_start hook counts its runs
-// and answers every compact refire with COMPACT-BOOT-SENTINEL.
-func bootHookedEngine(t *testing.T, url string, lifecycle bool, parentID string) (*Engine, *atomic.Int32) {
+// and answers every compact refire with reply.
+func bootHookedEngine(t *testing.T, url string, lifecycle bool, parentID, reply string) (*Engine, *atomic.Int32) {
 	t.Helper()
 	engine, err := NewEngine(EngineOpts{
 		Model:          llm.ModelConfig{Name: "fake", BaseURL: url, APIKey: "x", ContextWindow: 100000},
@@ -38,7 +41,7 @@ func bootHookedEngine(t *testing.T, url string, lifecycle bool, parentID string)
 				assert.Equal(t, hooks.ReasonCompact, ev.Reason)
 				assert.Equal(t, engine.SessionID(), ev.SessionID)
 				assert.Equal(t, engine.SessionCwd(), ev.Cwd)
-				return hooks.SessionResult{Context: "COMPACT-BOOT-SENTINEL"}, nil
+				return hooks.SessionResult{Context: reply}, nil
 			},
 		},
 	}))
@@ -48,7 +51,7 @@ func bootHookedEngine(t *testing.T, url string, lifecycle bool, parentID string)
 func compactingEngine(t *testing.T, lifecycle bool, parentID string) (*Engine, *atomic.Int32, func() []string) {
 	t.Helper()
 	server, _, bodies := fakeContextServer(t, "SUMMARY", func(int32) string { return sseTextChunk() })
-	engine, calls := bootHookedEngine(t, server.URL, lifecycle, parentID)
+	engine, calls := bootHookedEngine(t, server.URL, lifecycle, parentID, bootSentinel)
 	seedTwoTurnHistory(t, engine)
 	return engine, calls, bodies
 }
@@ -61,13 +64,13 @@ func TestCompactionRefiresSessionStartAndDeliversOnce(t *testing.T) {
 	drainLoop(t, engine, "after compact")
 	drainLoop(t, engine, "and again")
 	all := bodies()
-	require.Equal(t, 1, strings.Count(all[len(all)-2], "COMPACT-BOOT-SENTINEL"))
-	require.Equal(t, 1, strings.Count(all[len(all)-1], "COMPACT-BOOT-SENTINEL"))
+	require.Equal(t, 1, strings.Count(all[len(all)-2], bootSentinel))
+	require.Equal(t, 1, strings.Count(all[len(all)-1], bootSentinel))
 }
 
 func TestOverflowCompactionRefiresSessionStart(t *testing.T) {
 	server, _, bodies := overflowContextServer(t, "SUMMARY-OF-OVERFLOW-HISTORY")
-	engine, calls := bootHookedEngine(t, server.URL, true, "")
+	engine, calls := bootHookedEngine(t, server.URL, true, "", bootSentinel)
 	seedLargeHistory(t, engine, 40)
 
 	drainLoop(t, engine, "overflowing turn")
@@ -75,7 +78,7 @@ func TestOverflowCompactionRefiresSessionStart(t *testing.T) {
 
 	drainLoop(t, engine, "next turn")
 	all := bodies()
-	require.Equal(t, 1, strings.Count(all[len(all)-1], "COMPACT-BOOT-SENTINEL"))
+	require.Equal(t, 1, strings.Count(all[len(all)-1], bootSentinel))
 }
 
 func TestUnsuccessfulCompactionRunsNoHook(t *testing.T) {
@@ -87,7 +90,7 @@ func TestUnsuccessfulCompactionRunsNoHook(t *testing.T) {
 	t.Cleanup(failing.Close)
 
 	t.Run("summary request fails", func(t *testing.T) {
-		engine, calls := bootHookedEngine(t, failing.URL, true, "")
+		engine, calls := bootHookedEngine(t, failing.URL, true, "", bootSentinel)
 		seedTwoTurnHistory(t, engine)
 		require.Error(t, engine.CompactNow(t.Context(), func(session.Event) bool { return true }))
 		require.Zero(t, calls.Load())
@@ -118,4 +121,46 @@ func TestChildCompactionRunsNoHook(t *testing.T) {
 	engine, calls, _ := compactingEngine(t, true, "parent-session")
 	require.NoError(t, engine.CompactNow(t.Context(), func(session.Event) bool { return true }))
 	require.Zero(t, calls.Load())
+}
+
+func TestEmptyRefireKeepsPendingContext(t *testing.T) {
+	server, _, bodies := fakeContextServer(t, "SUMMARY", func(int32) string { return sseTextChunk() })
+	engine, calls := bootHookedEngine(t, server.URL, true, "", "")
+	seedTwoTurnHistory(t, engine)
+
+	engine.QueueSessionContext("RESUME-SENTINEL")
+	require.NoError(t, engine.CompactNow(t.Context(), func(session.Event) bool { return true }))
+	require.EqualValues(t, 1, calls.Load())
+
+	drainLoop(t, engine, "after compact")
+	all := bodies()
+	require.Equal(t, 1, strings.Count(all[len(all)-1], "RESUME-SENTINEL"),
+		"a refire with nothing to add leaves the pending bootstrap alone")
+}
+
+// queuedSessionContext peeks at the parked reminder without draining it.
+func queuedSessionContext(engine *Engine) string {
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
+	return engine.sessionContext
+}
+
+func TestTrimRefiresSessionStart(t *testing.T) {
+	engine, calls, bodies := compactingEngine(t, true, "")
+	keep := engine.ContextReport().Items[2].EntryID
+
+	require.NoError(t, engine.TrimContextFrom(t.Context(), keep))
+	// The refire runs in the background: trimming is a UI action.
+	require.Eventually(t, func() bool { return queuedSessionContext(engine) != "" }, 5*time.Second, 5*time.Millisecond)
+	require.EqualValues(t, 1, calls.Load())
+
+	drainLoop(t, engine, "after trim")
+	all := bodies()
+	require.Equal(t, 1, strings.Count(all[len(all)-1], bootSentinel))
+}
+
+func TestFailedTrimRunsNoHook(t *testing.T) {
+	engine, calls, _ := compactingEngine(t, true, "")
+	require.Error(t, engine.TrimContextFrom(t.Context(), "no-such-entry"))
+	require.Never(t, func() bool { return calls.Load() > 0 }, 100*time.Millisecond, 5*time.Millisecond)
 }

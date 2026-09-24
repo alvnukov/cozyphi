@@ -2074,7 +2074,7 @@ func (c *Controller) TrimContextFrom(entryID string) error {
 	if c.closing || c.streamRunning {
 		return errors.New("cannot trim while a reply or queued prompt is running")
 	}
-	return c.engine.TrimContextFrom(entryID)
+	return c.engine.TrimContextFrom(c.hookContext(), entryID)
 }
 
 // DropContextEntries deletes the given entries from the model's context
@@ -2958,11 +2958,7 @@ func (c *Controller) emitSessionStart(eng *agent.Engine, reason, previousID stri
 	if mgr == nil {
 		return
 	}
-	ctx := context.Background()
-	if c.runtime != nil {
-		ctx = c.runtime.constructionCtx
-	}
-	out := mgr.SessionStart(ctx, hooks.SessionEvent{
+	out := mgr.SessionStart(c.hookContext(), hooks.SessionEvent{
 		SessionID:         eng.SessionID(),
 		Cwd:               c.cwd,
 		Reason:            reason,
@@ -2971,6 +2967,15 @@ func (c *Controller) emitSessionStart(eng *agent.Engine, reason, previousID stri
 	})
 	c.publishSessionEffects(out)
 	eng.QueueSessionContext(out.Context)
+}
+
+// hookContext is the context session_start hooks run under: the runtime's,
+// so closing cozyphi cancels a hook that is still running.
+func (c *Controller) hookContext() context.Context {
+	if c.runtime != nil {
+		return c.runtime.constructionCtx
+	}
+	return context.Background()
 }
 
 // sessionUsage returns the token usage of the last completed turn observed by

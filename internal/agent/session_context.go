@@ -46,8 +46,9 @@ func (engine *Engine) drainBoundaryReminders() string {
 }
 
 // refireSessionStart runs session_start with reason compact after a
-// successful compaction, so a plugin bootstrap summarized away is delivered
-// again. The engine has no UI channel: toast and status are logged only.
+// successful compaction or trim, so a plugin bootstrap that left the context
+// is delivered again. The engine has no UI channel: toast and status are
+// logged only.
 func (engine *Engine) refireSessionStart(ctx context.Context) {
 	// SessionID and SessionCwd take engine.mu themselves, so they are read
 	// before the lock below rather than under it.
@@ -65,6 +66,11 @@ func (engine *Engine) refireSessionStart(ctx context.Context) {
 	})
 	if out.Toast != "" || out.StatusSet {
 		debuglog.Logf("hooks: compact session_start toast=%q status=%q (not shown: no UI here)", out.Toast, out.Status)
+	}
+	// Nothing to add for compact is not an empty session: a bootstrap from
+	// startup or resume still waiting for delivery stays valid.
+	if strings.TrimSpace(out.Context) == "" {
+		return
 	}
 	engine.QueueSessionContext(out.Context)
 }

@@ -44,7 +44,7 @@ func TestEngineTrimContextFromRemovesEarlierEntriesFromView(t *testing.T) {
 	))
 	keep := engine.ContextReport().Items[1].EntryID
 
-	require.NoError(t, engine.TrimContextFrom(keep))
+	require.NoError(t, engine.TrimContextFrom(t.Context(), keep))
 
 	view := engine.ContextReport()
 	require.Len(t, view.Items, 2)
@@ -56,5 +56,5 @@ func TestEngineTrimContextFromRemovesEarlierEntriesFromView(t *testing.T) {
 	msgs := engine.session.BuildContext()
 	require.Len(t, msgs, 2)
 
-	require.Error(t, engine.TrimContextFrom("nope"))
+	require.Error(t, engine.TrimContextFrom(t.Context(), "nope"))
 }
