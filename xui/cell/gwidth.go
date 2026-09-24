@@ -16,13 +16,18 @@ const (
 // clusters — the units a terminal actually renders. A hand-rolled per-rune
 // table cannot do this: it counts a ZWJ family emoji as 8 cells, a flag pair
 // as two broken halves, and misses emoji presentation via VS16.
-func StringWidth(s string, method WidthMethod) int {
-	_ = method
+func StringWidth(s string, _ WidthMethod) int {
 	w := 0
 	state := -1
 	for s != "" {
 		var cw int
 		_, s, cw, state = uniseg.FirstGraphemeClusterInString(s, state)
+		if cw < 1 {
+			// The painter draws every cluster into a real cell (FirstGrapheme
+			// clamps the same way), so a lone combining mark or control rune
+			// must measure 1 or box borders drift one short.
+			cw = 1
+		}
 		w += cw
 	}
 	return w

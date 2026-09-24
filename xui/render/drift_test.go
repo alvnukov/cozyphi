@@ -20,8 +20,9 @@ func row(y int, text string) []cell.DirtyCell {
 }
 
 // A painted frame must never let a write wrap onto the next row: when the
-// terminal draws a glyph wider than the model measured (✅ is two columns in
-// a Unicode 9 terminal, one in the model), the row's last cell would
+// terminal draws a glyph at a width the model did not measure (some
+// terminals render ambiguous-width or unjoined emoji clusters wider or
+// narrower), the row's last cell would
 // otherwise land in column 0 of the row below — a row this frame did not
 // repaint, so the ghost stays.
 func TestRenderDiffPaintsWithAutowrapOff(t *testing.T) {
