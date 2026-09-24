@@ -1,7 +1,7 @@
 ---
 id: watch-reminder-unescaped-close-tag
-title: 'WatchReminder не экранирует </system-reminder> в выводе watch-команды'
-status: todo
+title: WatchReminder не экранирует </system-reminder> в выводе watch-команды
+status: done
 priority: medium
 model_level: low
 task_type: bug
@@ -15,7 +15,7 @@ acceptance_criteria:
 verification_plan:
     - go test ./internal/agent/ -run Watch
 created_at: "2026-09-24T18:00:00Z"
-updated_at: "2026-09-24T18:00:00Z"
+updated_at: "2026-09-24T18:58:47.538862Z"
 ---
 
 ## Body
@@ -25,3 +25,5 @@ updated_at: "2026-09-24T18:00:00Z"
 **Откуда.** Найдено при финальном ревью ветки `feature/claude-plugins`. Там тот же дефект исправлен для контекста плагинов (`QueueSessionContext` заменяет `</system-reminder>` на `<\/system-reminder>`). Дефект в watch.go был до этой ветки, и в её скоуп он не вошёл.
 
 **Как чинить.** Вынести экранирование в одно место, которым пользуются и `QueueSessionContext`, и `WatchReminder`. Проверить, нужно ли то же для `</watch>` внутри события.
+
+**Сделано (2026-09-24).** WatchReminder экранирует закрывающие теги `</watch>` и `</system-reminder>` в выводе команды; QueueSessionContext использует ту же функцию экранирования. Регрессионный тест проверяет обе рамки и повторное чтение транскрипта. Проверено `go test ./internal/agent/`, `go vet ./internal/agent/`, scoped fmt и lint (0 issues).

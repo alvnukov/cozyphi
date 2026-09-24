@@ -15,6 +15,11 @@ const (
 	reminderClose = "</system-reminder>"
 )
 
+// escapeReminderClose keeps untrusted text inside its system-reminder wrapper.
+func escapeReminderClose(text string) string {
+	return strings.ReplaceAll(text, reminderClose, `<\/system-reminder>`)
+}
+
 // WatchReminder renders background watch events for the model. It is the same
 // shape memory recall uses — a <system-reminder> that says where the text came
 // from and what it is not — because the risk is the same: text that arrived on
@@ -36,7 +41,8 @@ func WatchReminder(events []watch.Event) string {
 
 	shown := min(len(events), watch.MaxPerDelivery)
 	for _, ev := range events[:shown] {
-		fmt.Fprintf(&sb, "\n<watch id=%q label=%q>\n%s\n</watch>\n", ev.ID, ev.Label, strings.TrimSpace(ev.Text))
+		text := strings.ReplaceAll(strings.TrimSpace(ev.Text), "</watch>", `<\/watch>`)
+		fmt.Fprintf(&sb, "\n<watch id=%q label=%q>\n%s\n</watch>\n", ev.ID, ev.Label, escapeReminderClose(text))
 	}
 	if rest := len(events) - shown; rest > 0 {
 		fmt.Fprintf(&sb, "\nAnd %d more events while you were busy — `watch` (action=log) has them.\n", rest)
