@@ -34,8 +34,20 @@ Local divergences from upstream v0.1.3:
    letters, so Ctrl+] used to arrive as Ctrl+} on a legacy terminal while the
    kitty protocol reported it as `]`, and a binding could match only one of
    the two. (`parseOne` in `input/parser.go`; test in `parser_test.go`.)
+8. `render`: a frame that paints cells turns autowrap off (DECAWM `?7l`)
+   for its writes and back on before the sync reset; `ExitAltScreenSeq` and
+   the non-alt-screen `Close` path turn it on again. A whole row that holds a
+   non-ASCII glyph is erased (`CSI K` with the reset pen) before it is
+   repainted, and its trailing blanks are skipped. When the terminal draws a
+   glyph wider than xui's width model (✅, ⚡), upstream's row repaint shifts
+   the row's tail and autowrap spills the last cell into column 0 of the next
+   row; when it draws one narrower, the old frame's last columns survive.
+   Upstream hides this only when every frame repaints the whole screen.
+   Follows ultraviolet's `repaintLine` / `putCellLR`. (`writeRow`,
+   `mayDrift` in `render/render.go`; tests in `render/drift_test.go`.)
 
 To re-sync with upstream: copy the new version over this directory, then
-re-apply the patches above (1–2 are confined to `render/render.go` and the
-`Render` method in `xui.go`; 4 lives in `term/tty_unix.go`; 5–7 live in
-`input/parser.go` and `input/event.go`; tests live next to them).
+re-apply the patches above (1–2 and 8 are confined to `render/` and the
+`Render` and `Close` methods in `xui.go`; 4 lives in `term/tty_unix.go`;
+5–7 live in `input/parser.go` and `input/event.go`; tests live next to
+them).

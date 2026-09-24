@@ -88,6 +88,7 @@ func (vx *XUI) Close() error {
 		vx.altScreen = false
 	} else {
 		b.WriteString(render.SeqSGRReset)
+		b.WriteString(render.SeqAutowrapSet)
 		b.WriteString(render.SeqShowCursor)
 	}
 	_, _ = vx.tty.Write([]byte(b.String()))
