@@ -9,8 +9,8 @@ import (
 // Load discovers hooks under userDir and projectDir and builds a Manager.
 // Discovery warnings are returned; only unexpected I/O fails with err.
 // When COZYPHI_HOOKS=off, returns an empty Manager and no warnings.
-func Load(userDir, projectDir string) (*Manager, []Warning, error) {
-	mgr, _, warns, err := LoadObserved(userDir, projectDir)
+func Load(userDir, projectDir string, plugins ...PluginHooks) (*Manager, []Warning, error) {
+	mgr, _, warns, err := LoadObserved(userDir, projectDir, plugins...)
 	return mgr, warns, err
 }
 
@@ -19,8 +19,8 @@ func Load(userDir, projectDir string) (*Manager, []Warning, error) {
 // definition it replaced and how many problems the load met survive nowhere
 // else — and a caller that wants the harness view to answer those must carry
 // the record alongside the manager it built.
-func LoadObserved(userDir, projectDir string) (*Manager, LoadFacts, []Warning, error) {
-	found, warns, err := Discover(userDir, projectDir)
+func LoadObserved(userDir, projectDir string, plugins ...PluginHooks) (*Manager, LoadFacts, []Warning, error) {
+	found, warns, err := Discover(userDir, projectDir, plugins...)
 	facts := ObserveLoad(userDir, projectDir, found, warns, err)
 	if err != nil {
 		return nil, facts, warns, err

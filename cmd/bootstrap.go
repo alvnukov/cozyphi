@@ -197,8 +197,8 @@ func (b *runBootstrap) requireModel() (llm.ModelConfig, error) {
 		if m.Name == "" {
 			continue
 		}
-		if m.SkillPath == "" {
-			m.SkillPath = b.Config.SkillPath
+		if m.Skills == nil {
+			m.Skills = b.Config.Skills
 		}
 		return m, nil
 	}
@@ -213,8 +213,8 @@ func (b *runBootstrap) requireModel() (llm.ModelConfig, error) {
 func (b *runBootstrap) findModel(name string) (llm.ModelConfig, bool) {
 	for _, cfg := range b.models() {
 		if cfg.Name == name {
-			if cfg.SkillPath == "" {
-				cfg.SkillPath = b.Config.SkillPath
+			if cfg.Skills == nil {
+				cfg.Skills = b.Config.Skills
 			}
 			return cfg, true
 		}

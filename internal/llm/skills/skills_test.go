@@ -74,22 +74,30 @@ func TestFind(t *testing.T) {
 		{Name: "Example Skill", Path: "/skills/example-skill"},
 		{Name: "building-plugins", Path: "/skills/building-plugins"},
 	}
-	assert.Equal(t, "Example Skill", Find(list, "Example Skill").Name)
-	assert.Equal(t, "Example Skill", Find(list, "example skill").Name)
-	assert.Equal(t, "Example Skill", Find(list, "example-skill").Name)
-	assert.Nil(t, Find(list, "missing"))
-	assert.Nil(t, Find(nil, "x"))
+	for _, name := range []string{"Example Skill", "example skill", "example-skill"} {
+		got, err := Find(list, name)
+		assert.NoError(t, err)
+		if assert.NotNil(t, got, name) {
+			assert.Equal(t, "Example Skill", got.Name)
+		}
+	}
+	got, err := Find(list, "missing")
+	assert.NoError(t, err)
+	assert.Nil(t, got)
+	got, err = Find(nil, "x")
+	assert.NoError(t, err)
+	assert.Nil(t, got)
 }
 
 func TestLoadSkills_NonExistentDir(t *testing.T) {
-	skills, err := LoadSkills("/non/existent/directory")
+	skills, err := Sources{{Dir: "/non/existent/directory"}}.Load()
 	assert.NoError(t, err)
 	assert.Nil(t, skills)
 }
 
 func TestLoadSkills_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
-	skills, err := LoadSkills(dir)
+	skills, err := Sources{{Dir: dir}}.Load()
 	assert.NoError(t, err)
 	assert.Nil(t, skills)
 }
@@ -109,7 +117,7 @@ Follow these instructions when the task matches.
 	err = os.WriteFile(filepath.Join(skillDir, SkillFileName), []byte(content), 0o644)
 	assert.NoError(t, err)
 
-	skills, err := LoadSkills(dir)
+	skills, err := Sources{{Dir: dir}}.Load()
 	assert.NoError(t, err)
 	assert.Len(t, skills, 1)
 	assert.Equal(t, "My Skill", skills[0].Name)
@@ -128,7 +136,7 @@ func TestLoadSkills_MultipleSkills(t *testing.T) {
 	assert.NoError(t, os.WriteFile(sk1, []byte("---\nname: A\n---\nbody a"), 0o644))
 	assert.NoError(t, os.WriteFile(sk2, []byte("---\nname: B\n---\nbody b"), 0o644))
 
-	skills, err := LoadSkills(dir)
+	skills, err := Sources{{Dir: dir}}.Load()
 	assert.NoError(t, err)
 	assert.Len(t, skills, 2)
 }
@@ -140,7 +148,7 @@ func TestLoadSkills_SkipsNonSkillFiles(t *testing.T) {
 	assert.NoError(t, os.WriteFile(filepath.Join(skillDir, SkillFileName), []byte("---\nname: OK\n---\nbody"), 0o644))
 	assert.NoError(t, os.WriteFile(filepath.Join(dir, "readme.md"), []byte("not a skill"), 0o644))
 
-	skills, err := LoadSkills(dir)
+	skills, err := Sources{{Dir: dir}}.Load()
 	assert.NoError(t, err)
 	assert.Len(t, skills, 1)
 }
@@ -173,7 +181,7 @@ func TestLoadSkills_SkipsInvalidSkill(t *testing.T) {
 	assert.NoError(t, os.WriteFile(filepath.Join(okDir, SkillFileName), []byte("---\nname: OK\n---\nbody"), 0o644))
 	assert.NoError(t, os.WriteFile(filepath.Join(badDir, SkillFileName), []byte("not a skill"), 0o644))
 
-	list, err := LoadSkills(dir)
+	list, err := Sources{{Dir: dir}}.Load()
 	assert.NoError(t, err)
 	assert.Len(t, list, 1)
 	assert.Equal(t, "OK", list[0].Name)

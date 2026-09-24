@@ -291,7 +291,17 @@ func newController(
 	c.startJobProgress()
 	c.startWatchEvents()
 	c.startShellTaskEvents()
-	c.emitSessionStart("startup", eng.SessionID(), "")
+	// A non-empty resumePath means this controller opened an existing
+	// transcript instead of a fresh one: cmd's --resume/--continue
+	// (create(resumePath, ...)) and fork-to-tab (openFork -> openTab ->
+	// create(path)) both land here. Either way it is a resume of a session
+	// that already ran its startup bootstrap, so a plugin's SessionStart
+	// hook must not re-run it — mirror switchSession's "resume" reason.
+	reason := hooks.ReasonStartup
+	if resumePath != "" {
+		reason = hooks.ReasonResume
+	}
+	c.emitSessionStart(eng, reason, "")
 	return c, nil
 }
 
@@ -339,6 +349,9 @@ func (c *Controller) newEngine(
 		Diagnostics:   c.diagnostics,
 		Web:           c.webOptions(),
 		Compaction:    c.compactionPolicy(),
+		// Only the session the user sits in takes a plugin bootstrap; a
+		// child controller's engine is a sub-agent and stays off.
+		LifecycleHooks: c.childRole == "",
 	})
 }
 
@@ -750,7 +763,7 @@ func (c *Controller) ReloadHooks() (loaded int, warns []hooks.Warning, err error
 	if proj == nil {
 		return 0, nil, errors.New("project not available")
 	}
-	mgr, facts, warns, err := hooks.LoadObserved(proj.Global().HooksDir(), proj.HooksDir())
+	mgr, facts, warns, err := hooks.LoadObserved(proj.Global().HooksDir(), proj.HooksDir(), pluginHooks(proj)...)
 	if err != nil {
 		return 0, warns, err
 	}
@@ -762,7 +775,8 @@ func (c *Controller) ReloadHooks() (loaded int, warns []hooks.Warning, err error
 	return facts.Count(), warns, nil
 }
 
-// ListHooks returns the current on-disk discovery (does not swap the manager).
+// ListHooks returns the current on-disk discovery (does not swap the manager),
+// with plugin discovery's warnings and the live plugin hooks' failures.
 func (c *Controller) ListHooks() ([]hooks.Discovered, []hooks.Warning, error) {
 	if c == nil {
 		return nil, nil, errors.New("controller not initialized")
@@ -771,7 +785,26 @@ func (c *Controller) ListHooks() ([]hooks.Discovered, []hooks.Warning, error) {
 	if proj == nil {
 		return nil, nil, errors.New("project not available")
 	}
-	return hooks.Discover(proj.Global().HooksDir(), proj.HooksDir())
+	found, warns, err := hooks.Discover(proj.Global().HooksDir(), proj.HooksDir(), pluginHooks(proj)...)
+	if cfg := proj.Config(); cfg != nil {
+		for _, w := range cfg.PluginWarnings() {
+			warns = append(warns, hooks.Warning{Path: w.Plugin, Message: w.Msg})
+		}
+	}
+	// A plugin hook that failed at runtime never stopped the session, so the
+	// live manager's record is the only place the user learns it broke.
+	warns = append(warns, c.Hooks().Failures()...)
+	return found, warns, err
+}
+
+// pluginHooks returns the enabled plugins' hook files. Plugin discovery ran
+// at LoadConfig; the hooks → reload palette command re-reads their
+// hooks.json, not the plugin set.
+func pluginHooks(proj *project.Project) []hooks.PluginHooks {
+	if proj == nil || proj.Config() == nil {
+		return nil
+	}
+	return proj.Config().PluginHooks
 }
 
 // MCPServers returns the sorted configured MCP server names (nil when the
@@ -1175,7 +1208,7 @@ func (c *Controller) ModelNames() []string {
 func (c *Controller) findModel(name string) (llm.ModelConfig, bool) {
 	for _, cfg := range c.modelCatalog() {
 		if cfg.Name == name {
-			return c.skillPathOrDefault(cfg), true
+			return c.skillsOrDefault(cfg), true
 		}
 	}
 	// Legacy "name:effort" selectors predate effort being a separate choice;
@@ -1194,7 +1227,7 @@ func (c *Controller) findModel(name string) (llm.ModelConfig, bool) {
 		if !valid || !slices.Contains(cfg.ReasoningEfforts, effort) {
 			return llm.ModelConfig{}, false
 		}
-		cfg = c.skillPathOrDefault(cfg)
+		cfg = c.skillsOrDefault(cfg)
 		cfg.ReasoningEffort = effort
 		return cfg, true
 	}
@@ -1216,12 +1249,12 @@ func effortSupported(cfg llm.ModelConfig, effort llm.ReasoningEffort) bool {
 	return effort != "" && slices.Contains(cfg.ReasoningEfforts, effort)
 }
 
-// skillPathOrDefault fills a catalog model's empty skill path from the project
+// skillsOrDefault fills a catalog model's empty skill catalog from the project
 // config, so a provider or opencode pick behaves like a configured one at
 // every place it is resolved.
-func (c *Controller) skillPathOrDefault(cfg llm.ModelConfig) llm.ModelConfig {
-	if cfg.SkillPath == "" && c.proj != nil && c.proj.Config() != nil {
-		cfg.SkillPath = c.proj.Config().SkillPath
+func (c *Controller) skillsOrDefault(cfg llm.ModelConfig) llm.ModelConfig {
+	if cfg.Skills == nil && c.proj != nil && c.proj.Config() != nil {
+		cfg.Skills = c.proj.Config().Skills
 	}
 	return cfg
 }
@@ -1416,7 +1449,7 @@ func (c *Controller) applyStartupFallbackModel(resumeModel string) {
 		if cfg.Name == "" {
 			continue
 		}
-		c.modelCfg = c.skillPathOrDefault(cfg)
+		c.modelCfg = c.skillsOrDefault(cfg)
 		c.startupModelFallback = true
 		return
 	}
@@ -1779,7 +1812,8 @@ func (c *Controller) publishPlan(plan session.Plan) {
 	}
 }
 
-// loadHooksManager discovers ~/.cozyphi/hooks and <cwd>/.cozyphi/hooks.
+// loadHooksManager discovers ~/.cozyphi/hooks, <cwd>/.cozyphi/hooks and the
+// enabled plugins' hooks.json files.
 // Load errors are non-fatal (fail-open: no hooks). Child engines stay nil until spawn.
 //
 // The load's own record comes back with the manager. A failed load still
@@ -1789,7 +1823,7 @@ func loadHooksManager(proj *project.Project) (*hooks.Manager, hooks.LoadFacts) {
 	if proj == nil {
 		return nil, hooks.LoadFacts{}
 	}
-	mgr, facts, warns, err := hooks.LoadObserved(proj.Global().HooksDir(), proj.HooksDir())
+	mgr, facts, warns, err := hooks.LoadObserved(proj.Global().HooksDir(), proj.HooksDir(), pluginHooks(proj)...)
 	if err != nil {
 		debuglog.Logf("hooks: load failed: %v", err)
 		return nil, facts
@@ -2051,7 +2085,7 @@ func (c *Controller) TrimContextFrom(entryID string) error {
 	if c.closing || c.streamRunning {
 		return errors.New("cannot trim while a reply or queued prompt is running")
 	}
-	return c.engine.TrimContextFrom(entryID)
+	return c.engine.TrimContextFrom(c.hookContext(), entryID)
 }
 
 // DropContextEntries deletes the given entries from the model's context
@@ -2282,7 +2316,7 @@ func (c *Controller) switchSession(
 	c.resetUsage()
 	c.publishPlan(eng.Plan())
 	c.publish(ShellTasksChangedMsg{Tasks: c.ShellTasks()})
-	c.emitSessionStart(reason, eng.SessionID(), prevID)
+	c.emitSessionStart(eng, reason, prevID)
 	return eng, nil
 }
 
@@ -2928,23 +2962,31 @@ func (c *Controller) sessionShutdown(reason, sessionID string) {
 	c.publishSessionEffects(out)
 }
 
-func (c *Controller) emitSessionStart(reason, sessionID, previousID string) {
+// emitSessionStart runs session_start hooks for eng's session and queues the
+// context they return on that engine, so it reaches the model once.
+func (c *Controller) emitSessionStart(eng *agent.Engine, reason, previousID string) {
 	mgr := c.Hooks()
 	if mgr == nil {
 		return
 	}
-	ctx := context.Background()
-	if c.runtime != nil {
-		ctx = c.runtime.constructionCtx
-	}
-	out := mgr.SessionStart(ctx, hooks.SessionEvent{
-		SessionID:         sessionID,
+	out := mgr.SessionStart(c.hookContext(), hooks.SessionEvent{
+		SessionID:         eng.SessionID(),
 		Cwd:               c.cwd,
 		Reason:            reason,
 		PreviousSessionID: previousID,
 		Usage:             c.sessionUsage(),
 	})
 	c.publishSessionEffects(out)
+	eng.QueueSessionContext(out.Context)
+}
+
+// hookContext is the context session_start hooks run under: the runtime's,
+// so closing cozyphi cancels a hook that is still running.
+func (c *Controller) hookContext() context.Context {
+	if c.runtime != nil {
+		return c.runtime.constructionCtx
+	}
+	return context.Background()
 }
 
 // sessionUsage returns the token usage of the last completed turn observed by

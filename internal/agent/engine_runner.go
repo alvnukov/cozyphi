@@ -232,7 +232,7 @@ func (r EngineRunner) PrepareChild(meta job.Meta) (*EngineOpts, string, error) {
 	// not: they load here, from the child model's catalog, before any engine
 	// (and thus any child session) exists — a name that no longer resolves
 	// fails the job rather than silently shrinking the child's guidance.
-	skillsBlock, err := renderJobSkills(model.SkillPath, meta.Skills)
+	skillsBlock, err := renderJobSkills(model.Skills, meta.Skills)
 	if err != nil {
 		return nil, "", err
 	}
@@ -277,24 +277,27 @@ func (r EngineRunner) PrepareChild(meta job.Meta) (*EngineOpts, string, error) {
 // drainPlanSkills format, so a child reads its skills the way a plan step
 // does, spending no read call on them. An empty selection renders empty; a
 // name the catalog cannot resolve is an error naming it, never a quiet skip.
-func renderJobSkills(skillPath string, names []string) (string, error) {
+func renderJobSkills(sources skills.Sources, names []string) (string, error) {
 	if len(names) == 0 {
 		return "", nil
 	}
-	catalog, err := skills.LoadSkills(skillPath)
-	if err != nil {
-		return "", fmt.Errorf("agent: load skills for job from %s: %w", skillPath, err)
+	catalog, err := sources.Load()
+	if err != nil && len(catalog) == 0 {
+		return "", fmt.Errorf("agent: load skills for job from %s: %w", sources, err)
 	}
 	var out strings.Builder
 	out.WriteString(
 		"The parent equipped this job with these skills. Follow them; their SKILL.md files need no read call.",
 	)
 	for _, name := range names {
-		skill := skills.Find(catalog, name)
+		skill, err := skills.Find(catalog, name)
+		if err != nil {
+			return "", fmt.Errorf("agent: job skill: %w — re-spawn the job with one of the listed names", err)
+		}
 		if skill == nil {
 			return "", fmt.Errorf(
 				"agent: job skill %q is not installed in %s — re-spawn the job with a skill that exists, or skills: []",
-				name, skillPath,
+				name, sources,
 			)
 		}
 		out.WriteString("\n\n## Skill: ")

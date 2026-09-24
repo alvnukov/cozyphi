@@ -17,6 +17,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/opencode"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/provider"
@@ -179,7 +180,7 @@ func runEditEval(t *testing.T, model llm.ModelConfig, scenario editEvalScenario,
 			available = append(available, tool)
 		}
 	}
-	model.SkillPath = filepath.Join(work, "absent-skills")
+	model.Skills = skills.Sources{{Dir: filepath.Join(work, "absent-skills")}}
 	if effort := os.Getenv("COZYPHI_EDIT_EVAL_EFFORT"); effort != "" {
 		level := llm.ReasoningEffort(effort)
 		require.Contains(t, model.ReasoningEfforts, level, "effort must be supported explicitly")

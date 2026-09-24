@@ -23,7 +23,7 @@ func TestShellRetainsDraftsAndDrainsBackgroundAsk(t *testing.T) {
 	busA, busB := controller.NewBus(nil), controller.NewBus(nil)
 	makeView := func(bus *controller.Bus) *sessions.View {
 		view := sessions.NewView(application, bus, nil, nil, nil, components.DefaultTheme(),
-			t.TempDir(), "test", "", 1000, nil, nil)
+			t.TempDir(), "test", nil, 1000, nil, nil)
 		view.SetClipboardReader(func() (clipboard.Image, bool, error) { return clipboard.Image{}, false, nil })
 		return view
 	}
@@ -101,7 +101,7 @@ func TestShellRefusesExitWhileBackgroundSessionRuns(t *testing.T) {
 	busA, busB := controller.NewBus(nil), controller.NewBus(nil)
 	makeView := func(bus *controller.Bus) *sessions.View {
 		return sessions.NewView(application, bus, nil, nil, nil, components.DefaultTheme(),
-			t.TempDir(), "test", "", 1000, nil, nil)
+			t.TempDir(), "test", nil, 1000, nil, nil)
 	}
 	a, b := makeView(busA), makeView(busB)
 	_, err := registry.Open("first", a)
@@ -133,7 +133,7 @@ func TestShellCloseReportsFinishedViewsUnderExpiredContext(t *testing.T) {
 	registry := sessions.NewRegistry(12, nil)
 	for _, name := range []string{"first", "second"} {
 		view := sessions.NewView(application, controller.NewBus(nil), nil, nil, nil, components.DefaultTheme(),
-			t.TempDir(), "test", "", 1000, nil, nil)
+			t.TempDir(), "test", nil, 1000, nil, nil)
 		_, err := registry.Open(name, view)
 		require.NoError(t, err)
 	}

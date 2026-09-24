@@ -78,7 +78,7 @@ func newEditorWithSettings(t *testing.T) *View {
 		Path: proj.Global().ConfigFile(), Plan: plangate.DefaultDefaults(),
 	}}
 	return NewView(
-		nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 1000, nil, nil, store,
+		nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", nil, 1000, nil, nil, store,
 	)
 }
 
@@ -110,7 +110,7 @@ func TestViewsShareOneSettingsManager(t *testing.T) {
 		ctrl, err := controller.NewController(bus, proj, cwd, "")
 		require.NoError(t, err)
 		t.Cleanup(ctrl.Close)
-		return NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 1000, nil, nil, manager)
+		return NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", nil, 1000, nil, nil, manager)
 	}
 	first, second := newView(), newView()
 	require.Equal(t, tasks.AccessWrite, second.ctrl.TasksAccess())

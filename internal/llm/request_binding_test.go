@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 )
 
 func TestRequestBindingFingerprintTracksEffectiveRequest(t *testing.T) {
@@ -35,7 +37,7 @@ func TestRequestBindingFingerprintTracksEffectiveRequest(t *testing.T) {
 
 	nonRequestMetadata := base
 	nonRequestMetadata.ContextWindow = 256_000
-	nonRequestMetadata.SkillPath = "/different/skills"
+	nonRequestMetadata.Skills = skills.Sources{{Dir: "/different/skills"}}
 	nonRequestMetadata.ReasoningEfforts = []ReasoningEffort{ReasoningEffortLow, ReasoningEffortHigh}
 	assert.Equal(t, fingerprint, nonRequestMetadata.RequestBindingFingerprint(),
 		"catalog capabilities and local paths are not request configuration")

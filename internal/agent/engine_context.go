@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"maps"
 	"slices"
@@ -41,9 +42,20 @@ func (engine *Engine) ContextReport() ContextView {
 }
 
 // TrimContextFrom drops everything before the entry from the model's context
-// (append-only; see session.Manager.TrimContextFrom).
-func (engine *Engine) TrimContextFrom(entryID string) error {
-	return engine.sessionRef().TrimContextFrom(entryID)
+// (append-only; see session.Manager.TrimContextFrom). The first user message
+// goes with it, and a plugin bootstrap with that, so a successful trim runs
+// session_start again with reason compact, exactly like a compaction. ctx
+// bounds that hook run.
+func (engine *Engine) TrimContextFrom(ctx context.Context, entryID string) error {
+	if err := engine.sessionRef().TrimContextFrom(entryID); err != nil {
+		return err
+	}
+	// A trim is a UI action, and a hook may run until its timeout (60 s at
+	// most): waiting here would freeze the screen. The refire runs in the
+	// background instead; the queue it fills is mutex-guarded, and the hook
+	// timeout or ctx ends it.
+	go engine.refireSessionStart(ctx)
+	return nil
 }
 
 // DropContextEntries deletes the given entries from the model's context

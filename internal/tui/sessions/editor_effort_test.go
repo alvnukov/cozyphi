@@ -47,7 +47,7 @@ func newEffortEditor(t *testing.T) *View {
 	ctrl, err := controller.NewController(bus, proj, cwd, "")
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
-	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0, nil, nil)
+	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", nil, 0, nil, nil)
 	e.SetActive(true)
 	return e
 }

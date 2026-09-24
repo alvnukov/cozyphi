@@ -204,6 +204,12 @@ var layerRules = []struct {
 		deny: []string{"internal/agent", "internal/session", "internal/tools"},
 	},
 	{
+		why: "a plugin is data found on disk; discovery that reaches into the loop " +
+			"or the tools it feeds cannot be tested without them",
+		from: "internal/plugin",
+		deny: []string{"internal/agent", "internal/session", "internal/tools"},
+	},
+	{
 		why: "a transcript is a record, not a participant: session code that calls the engine " +
 			"turns replaying history into running it",
 		from: "internal/session",

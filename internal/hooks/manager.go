@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -130,6 +131,29 @@ func (m *Manager) FailClosedOnly() *Manager {
 		return nil
 	}
 	return &Manager{entries: m.entries, failClosedOnly: true}
+}
+
+// Failures reports the latest failed run of each Claude Code plugin hook,
+// sorted by hook name. A plugin hook never blocks a session, so without this
+// its failure would reach the debug log only. A later successful run clears
+// its warning. The record lives on the hooks themselves, so a FailClosedOnly
+// view reports the same failures. Nil-safe.
+func (m *Manager) Failures() []Warning {
+	if m == nil {
+		return nil
+	}
+	var out []Warning
+	for _, e := range m.entries {
+		h, ok := e.Hook.(*ClaudeHook)
+		if !ok {
+			continue
+		}
+		if err := h.lastFailure(); err != nil {
+			out = append(out, Warning{Path: h.Name(), Message: err.Error()})
+		}
+	}
+	slices.SortFunc(out, func(a, b Warning) int { return strings.Compare(a.Path, b.Path) })
+	return out
 }
 
 // PreOutcome is the aggregated PreTool decision for Executor.
@@ -335,6 +359,8 @@ type SessionOutcome struct {
 	Toast     string
 	Status    string
 	StatusSet bool
+	// Context joins every hook's SessionResult.Context in entry order.
+	Context string
 }
 
 // SessionBeforeSwitch runs session_before_switch entries serially. First Deny wins.
@@ -465,6 +491,12 @@ func mergeSessionUI(out *SessionOutcome, res SessionResult) {
 	if res.StatusSet {
 		out.Status = res.Status
 		out.StatusSet = true
+	}
+	if res.Context != "" {
+		if out.Context != "" {
+			out.Context += "\n\n"
+		}
+		out.Context += res.Context
 	}
 }
 

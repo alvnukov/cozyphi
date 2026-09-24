@@ -14,6 +14,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/palette"
 	"github.com/alvnukov/cozyphi/internal/components/toast"
 	"github.com/alvnukov/cozyphi/internal/hooks"
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 )
 
@@ -36,7 +37,7 @@ type fakeHost struct {
 	pushCmds           []palette.PaletteCommand
 	listHooks          []palette.PaletteCommand
 	listToasts         []palette.PaletteCommand
-	skillPath          string
+	skills             skills.Sources
 	addSkill           string
 	copied             bool
 	exports            int
@@ -147,7 +148,7 @@ func (f *fakeHost) SetModelEffort(name, effort string) error {
 }
 func (f *fakeHost) OpenModelPicker()                   { f.openedModelPicker++ }
 func (f *fakeHost) OpenModelEffortPicker(model string) { f.effortPickerModel = model }
-func (f *fakeHost) SkillPath() string                  { return f.skillPath }
+func (f *fakeHost) Skills() skills.Sources             { return f.skills }
 
 func (f *fakeHost) VoiceStatus() string { return f.voiceStatus }
 func (f *fakeHost) VoiceDevices() ([]string, error) {
@@ -271,7 +272,7 @@ Do the work.
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644))
 
 	var got string
-	cmd := SkillsCommand(dir, func(name string) { got = name })
+	cmd := SkillsCommand(skills.Sources{{Dir: dir}}, func(name string) { got = name })
 	assert.Equal(t, "skills", cmd.Noun)
 	assert.Equal(t, "invoke", cmd.Verb)
 	require.Len(t, cmd.Submenu, 1)
@@ -282,7 +283,7 @@ Do the work.
 }
 
 func TestSkillsCommand_Empty(t *testing.T) {
-	cmd := SkillsCommand(t.TempDir(), nil)
+	cmd := SkillsCommand(skills.Sources{{Dir: t.TempDir()}}, nil)
 	require.Len(t, cmd.Submenu, 1)
 	assert.True(t, cmd.Submenu[0].Disabled)
 }

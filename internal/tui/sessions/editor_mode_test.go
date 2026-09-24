@@ -32,7 +32,7 @@ func TestEditorModeToggleWiring(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 
-	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0, nil, nil)
+	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", nil, 0, nil, nil)
 	assert.Equal(t, "⏵⏵ useplan", e.composer.Chat.AgentLabel.Text, "startup label")
 
 	e.Update(controller.ModeToggleMsg{})

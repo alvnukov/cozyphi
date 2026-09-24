@@ -77,7 +77,7 @@ type Engine struct {
 	maxRounds       int
 	stopOnLimit     bool
 	mode            Mode
-	skillPath       string
+	skillSources    skills.Sources
 	contextWindow   int
 	contextOverride int // session-only window override; 0 = the model's own
 	// contextCeiling is the spawn-time cap a parent put on this engine's
@@ -152,6 +152,11 @@ type Engine struct {
 	// user prompt drains it and prepends it: the model, not the harness,
 	// picks the moment and calls the compact itself.
 	compactAdvice string
+	// lifecycle is LifecycleHooks for a primary engine; a child never gets it.
+	lifecycle bool
+	// sessionContext parks session_start hook context until the next prompt
+	// or tool result, whichever comes first. A newer queue replaces it.
+	sessionContext string
 
 	// compactStrikes counts tool rounds that ran over the reminder threshold
 	// without a compaction landing — one strike per round, so a runaway loop
@@ -342,6 +347,10 @@ type EngineOpts struct {
 	// directory, leaves the tool out entirely — a session with no web tool
 	// is the honest shape of a session that cannot reach the network.
 	Web WebOptions
+	// LifecycleHooks marks a controller-owned primary engine: it accepts
+	// session-start context and re-runs session_start hooks after
+	// compaction. Children and headless runs leave it off.
+	LifecycleHooks bool
 }
 
 // NewEngine wires an LLM client, tool executor, and session store.
@@ -386,7 +395,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 	engine := &Engine{
 		maxRounds:          defaultMaxToolRounds,
 		stopOnLimit:        true,
-		skillPath:          cfg.SkillPath,
+		skillSources:       cfg.Skills,
 		contextCeiling:     max(opts.ContextCeiling, 0),
 		compactionSettings: compacts,
 		modelCfg:           cfg,
@@ -414,6 +423,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		autoApprove:        opts.AutoApprove,
 		sessionNaming:      opts.SessionOpts.ParentID == "" && opts.Tools == nil,
 		planEnabled:        opts.SessionOpts.ParentID == "" && opts.Tools == nil,
+		lifecycle:          opts.LifecycleHooks && opts.SessionOpts.ParentID == "",
 		baseTools:          tools.RebuildSessionTools(opts.Tools),
 		defaultTools:       defaultTools,
 		mode:               ModeUsePlan,
@@ -541,17 +551,17 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 		out = append(out, harnesstool.Tool(harnesstool.Deps{Registry: engine.diagnostics}))
 	}
 	if engine.jobs != nil {
-		// skillPath is read as a snapshot here, under the lock rebindTools
+		// skillSources is read as a snapshot here, under the lock rebindTools
 		// holds: the closure runs at spawn time, when no lock protects the
 		// field. A model swap rebinds, so the snapshot follows the catalog.
-		skillPath := engine.skillPath
+		sources := engine.skillSources
 		deps := tools.AgentDeps{
 			Manager:      engine.jobs,
 			OwnerID:      engine.jobOwnerID,
 			ParentID:     engine.SessionID,
 			WorkDir:      engine.SessionCwd,
 			ModelForRole: engine.jobs.ModelNameForRole,
-			SkillPath:    func() string { return skillPath },
+			Skills:       func() skills.Sources { return sources },
 		}
 		if engine.jobRunner != nil {
 			// Read fields, not locking getters: binding already holds mu.
@@ -595,7 +605,7 @@ func (engine *Engine) SetModel(cfg llm.ModelConfig) error {
 func (engine *Engine) setModelLocked(cfg llm.ModelConfig) {
 	engine.modelCfg = cfg
 	engine.modelRev++
-	engine.skillPath = cfg.SkillPath
+	engine.skillSources = cfg.Skills
 	engine.contextWindow = engine.windowLocked(cfg.ContextWindow)
 	// Another model counts the same text with another tokenizer and carries
 	// another system prompt: the old calibration describes neither.
@@ -742,7 +752,7 @@ func (engine *Engine) systemPrompt() string {
 		planGrammar = engine.planRuntime.Current().AuthoringPolicy()
 	}
 	system, facts := prompt.BuildWithFacts(prompt.Options{
-		SkillPath:   engine.skillPath,
+		Skills:      engine.skillSources,
 		Agents:      engine.jobs != nil,
 		LSP:         engine.lsp != nil,
 		Watches:     engine.watches != nil,
@@ -816,7 +826,7 @@ func (engine *Engine) bindExecutor(registry tools.Registry) {
 	}
 	engine.executor.SetApprovalObserver(engine.observeWebApproval)
 	engine.executor.SetCompactGate(engine.compactGateFor)
-	engine.executor.SetCompactAdviceDrain(engine.drainCompactAdvice)
+	engine.executor.SetReminderDrain(engine.drainBoundaryReminders)
 	engine.executor.SetPlanSkillDrain(engine.drainPlanSkills)
 	if engine.session != nil {
 		engine.executor.SetMeta(engine.session.ID(), engine.session.Cwd())
@@ -1346,7 +1356,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 // loaded plain text and are prepended without asking the model to read a file.
 func (engine *Engine) composeUserPrompt(recall *memory.Recall, skillNames []string, query, text string) string {
 	content := text
-	if instr := pendingSkillsInstruction(engine.skillPath, skillNames); instr != "" {
+	if instr := pendingSkillsInstruction(engine.skillSources, skillNames); instr != "" {
 		if content == "" {
 			content = instr
 		} else {
@@ -1361,6 +1371,9 @@ func (engine *Engine) composeUserPrompt(recall *memory.Recall, skillNames []stri
 		}
 	}
 	content = prependReminder(recall.Reminder(engine.memoryQuery(query)), content)
+	// Session context (a plugin bootstrap) precedes the request it frames;
+	// compact advice stays outermost.
+	content = prependReminder(engine.drainSessionContext(), content)
 	// The compact advice rides exactly one prompt, outermost: it is
 	// operational rather than context, so it opens the turn, and replay
 	// strips it back out with every other reminder.
@@ -1372,8 +1385,8 @@ func (engine *Engine) composeUserPrompt(recall *memory.Recall, skillNames []stri
 // or unreadable directory yields nil — validation simply turns off, matching
 // how the rest of the skill surface degrades.
 func (engine *Engine) skillCatalogNames() []string {
-	list, err := skills.LoadSkills(engine.skillPath)
-	if err != nil {
+	list, err := engine.skillSources.Load()
+	if err != nil && len(list) == 0 {
 		return nil
 	}
 	names := make([]string, 0, len(list))
@@ -1385,22 +1398,18 @@ func (engine *Engine) skillCatalogNames() []string {
 
 // pendingSkillsInstruction tells the model to read SKILL.md files for the
 // selected skills (panda-style: reuse the read tool, no dedicated skill tool).
-func pendingSkillsInstruction(skillPath string, names []string) string {
+func pendingSkillsInstruction(sources skills.Sources, names []string) string {
 	if len(names) == 0 {
 		return ""
 	}
-	list, err := skills.LoadSkills(skillPath)
+	list, _ := sources.Load() // a partial list still resolves what it holds
 	targets := make([]string, 0, len(names))
-	if err == nil {
-		for _, name := range names {
-			if s := skills.Find(list, name); s != nil && s.SkillFilePath != "" {
-				targets = append(targets, s.SkillFilePath)
-				continue
-			}
-			targets = append(targets, name)
+	for _, name := range names {
+		if s, _ := skills.Find(list, name); s != nil && s.SkillFilePath != "" {
+			targets = append(targets, s.SkillFilePath)
+			continue
 		}
-	} else {
-		targets = append(targets, names...)
+		targets = append(targets, name)
 	}
 	return fmt.Sprintf(
 		skillReadInstruction+" %s. Do this immediately before responding.",

@@ -10,6 +10,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/mention"
 	"github.com/alvnukov/cozyphi/internal/components/palette"
 	"github.com/alvnukov/cozyphi/internal/components/toast"
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/usage"
 )
@@ -79,7 +80,7 @@ type Host interface {
 	// OpenModelEffortPicker opens the effort step for an already chosen
 	// model directly.
 	OpenModelEffortPicker(model string)
-	SkillPath() string
+	Skills() skills.Sources
 
 	// MCPStatuses lists the configured MCP servers with their live
 	// connection state — the /mcp dialog data source.

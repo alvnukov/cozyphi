@@ -7,6 +7,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Changed: `session_start` hooks now see reason `resume`, not `startup`, when
+  a session is opened with `--resume`/`--continue` or forked into a tab, so a
+  plugin bootstrap is not re-run on a launch-time resume.
+- Added: Claude Code plugins. Skills and `SessionStart`/`SessionEnd` hooks of
+  plugins enabled in Claude Code (`~/.claude`) or listed under `plugins.paths`
+  in config.yaml load automatically; plugin skills are named `<plugin>:<skill>`.
+  A skill that `skill_path` also reaches, such as a `skill_path` aimed at a
+  plugin's skills directory, is listed once, under the plugin's name.
+  `COZYPHI_PLUGINS=off` disables them. See `doc/plugins.md`.
+- Changed: `skill_path` must name a directory. A path to a single file is now
+  reported as an error instead of silently loading that one skill; point it at
+  the skill's directory instead.
+- Changed: `session_start` hooks also run with reason `compact` after every
+  successful compaction and after a successful context trim, so a plugin
+  bootstrap (or any other `session_start` side effect) survives both. See
+  `doc/plugins.md`.
 - Fixed: typing no longer lags behind on a loaded machine. Every keystroke and
   every wheel scroll used to repaint the whole screen, about 10 KB at 120x40;
   a terminal that drained its pty slowly then fell further behind with every

@@ -34,7 +34,8 @@
 | `internal/plangate/`     | Plan gate: capability policy, v2 projection, authoring grammar selector |
 | `internal/plantel/`      | Plan telemetry: bounded authoring-friction counters |
 | `internal/planscen/`     | Plan-authoring scenario gate (ten deterministic walks) |
-| `internal/hooks/`        | Tool-loop hooks (`plugin.json`, Manager, CommandHook) |
+| `internal/hooks/`        | Tool-loop hooks (`plugin.json`, Manager, CommandHook); `claude.go` runs Claude Code plugin `SessionStart`/`SessionEnd` hooks |
+| `internal/plugin/`       | Discovers Claude Code plugins (`installed_plugins.json`, `enabledPlugins`, `plugins.paths`) into skill sources and hook files |
 | `internal/mcp/`          | MCP config + stdio client + pool (meta-tool route) |
 | `internal/tools/webtool/` | Web tool: actions, untrusted frame, decoy tools, egress checks |
 
@@ -44,6 +45,7 @@
 | ---- | ------- |
 | [`agent-backends.md`](agent-backends.md) | Proposed Codex/Claude session interface, tool ownership, lifecycle and integration plan |
 | [`hooks.md`](hooks.md) | Hooks: concepts, authoring, protocol reference |
+| [`plugins.md`](plugins.md) | Claude Code plugins: discovery, skills catalog, plugin hooks, context delivery |
 | [`mcp.md`](mcp.md) | MCP: zero schema pollution, meta-tools, config, CLI |
 | [`tui.md`](tui.md) | TUI: package layout, aggregation, interaction flows |
 | [`lsp.md`](lsp.md) | LSP: config, operations, lifecycle, limits |

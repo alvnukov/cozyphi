@@ -33,10 +33,14 @@ emit(InProgress)
 
 ### Discovery model
 
-One **plugin** is one directory with a `plugin.json` plus its scripts. CozyPhi
-loads every such directory under the hooks root (one level only — nested
-folders are ignored). An optional `plugin.json` directly in the hooks root is
-for a single ad-hoc plugin; with more than one plugin, use subdirectories.
+One **hook manifest** is one directory with a `plugin.json` plus its scripts.
+(The file name stays `plugin.json` for compatibility; the directory it
+describes is called a hook manifest here to keep it apart from a Claude Code
+plugin — see "Claude Code plugin hooks" below, a separate, independent
+source.) CozyPhi loads every such directory under the hooks root (one level
+only — nested folders are ignored). An optional `plugin.json` directly in the
+hooks root is for a single ad-hoc hook manifest; with more than one, use
+subdirectories.
 
 ```text
 ~/.cozyphi/hooks/                    # user (lower)
@@ -56,20 +60,23 @@ for a single ad-hoc plugin; with more than one plugin, use subdirectories.
 
 | Scope | Path | Precedence |
 | --- | --- | --- |
-| User | `~/.cozyphi/hooks/<plugin>/plugin.json` (and optional `~/.cozyphi/hooks/plugin.json`) | Lower |
-| Project | `<cwd>/.cozyphi/hooks/<plugin>/plugin.json` (and optional `<cwd>/.cozyphi/hooks/plugin.json`) | Higher — same hook `name` replaces the user hook entirely |
+| User | `~/.cozyphi/hooks/<name>/plugin.json` (and optional `~/.cozyphi/hooks/plugin.json`) | Lower |
+| Project | `<cwd>/.cozyphi/hooks/<name>/plugin.json` (and optional `<cwd>/.cozyphi/hooks/plugin.json`) | Higher — same hook `name` replaces the user hook entirely |
 
 - CozyPhi creates an empty `~/.cozyphi/hooks/` on startup if needed.
 - `run` paths are relative to the directory that contains that `plugin.json`.
-- Missing `plugin.json` is fine. Parse errors produce warnings and do not block startup.
+- A missing `plugin.json` is fine. Parse errors produce warnings and do not block startup.
 - Duplicate hook names in the same scope: first definition wins (root file, then subdirs in filesystem order); later files warn and skip.
-- Set `COZYPHI_HOOKS=off` to disable discovery and execution entirely.
+- Set `COZYPHI_HOOKS=off` to disable discovery and execution entirely — for
+  hook manifests and Claude Code plugin hooks alike. (`COZYPHI_PLUGINS=off`
+  is the separate switch that stops cozyphi from finding Claude Code plugins
+  at all; see `doc/plugins.md`.)
 
 ---
 
 ## Getting started
 
-### 1. Create a project plugin
+### 1. Create a project hook manifest
 
 ```text
 .cozyphi/hooks/guard-bash/
@@ -130,9 +137,9 @@ A file is either `{"name":"plugin-id","hooks":[…]}` or a top-level `[…]` arr
 
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `name` (plugin) | string | no | directory name | Optional plugin id |
+| `name` (manifest) | string | no | directory name | Optional hook-manifest id |
 | `hooks` | array | yes* | — | Hook entries (`*` not needed for a top-level array) |
-| `name` (hook) | string | yes† | plugin `name` | Unique id; used for user/project override. †Optional only when the file has exactly one hook and the plugin has a name |
+| `name` (hook) | string | yes† | manifest `name` | Unique id; used for user/project override. †Optional only when the file has exactly one hook and the manifest has a name |
 | `event` | string | yes | — | `pre_tool`, `post_tool`, `post_turn`, `command`, `session_start`, `session_shutdown`, or `session_before_switch` |
 | `match` | string | no | `*` | Exact tool name, or `*` for all tools. Not a regex. Ignored for `command` and session events. |
 | `run` | string | yes | — | Executable path relative to `plugin.json`'s directory, or absolute. Executed directly (no shell). |
@@ -223,9 +230,22 @@ The TUI runs at most one hook command at a time (like `!` bash). Reload drops in
 | --- | --- | --- |
 | `session_before_switch` | Before `/clear` or `/resume` replaces the engine | Yes — `action: deny` or exit `2` |
 | `session_shutdown` | Leaving a session (`new` / `resume` / `quit`) | No |
-| `session_start` | After a session is ready (`startup` / `new` / `resume`) | No |
+| `session_start` | After a session is ready (`startup` / `new` / `resume`), and again after every successful compaction (`compact`) | No |
 
 `async: true` is allowed on `session_start` and `session_shutdown` (fire-and-forget). `fail_closed` is allowed only on `session_before_switch`. `match` is ignored.
+
+`resume` also covers a session opened at launch with `--resume`/`--continue` and a fork opened into a new tab — both start from an existing transcript, so neither re-runs the `startup` bootstrap.
+
+`compact` fires `session_start` again after every successful compaction —
+automatic overflow recovery, manual `/compact`, the compaction the model
+requests through the `context` tool, and a successful user trim of the
+context (the `/context` browser's trim action) — so a `session_start` hook
+that set something up (a plugin bootstrap, but any `session_start` hook sees
+it) runs again once the history it depended on has been summarized or cut.
+It fires only in the primary engine, never in a sub-agent. This is new:
+existing `session_start` hooks now see a reason they did not before, so a
+hook that switches on `reason` should treat an unrecognized value as a no-op
+rather than an error.
 
 stdin:
 
@@ -242,7 +262,7 @@ stdin:
 
 | Field | Meaning |
 | --- | --- |
-| `reason` | `startup` \| `new` \| `resume` \| `quit` |
+| `reason` | `startup` \| `new` \| `resume` \| `compact` \| `quit` — `compact` reaches `session_start` only |
 | `previous_session_id` | On `session_start` after a switch: the session just left |
 | `target_session_id` | On `session_before_switch` for resume: destination id |
 | `usage` | Token usage of the latest completed assistant turn (see below) |
@@ -302,6 +322,77 @@ In `permissions.mode: readonly`, only hooks with `fail_closed: true` run for the
 
 ---
 
+## Claude Code plugin hooks
+
+A second, independent source of session hooks: the `SessionStart` and
+`SessionEnd` hooks of Claude Code plugins enabled in Claude Code
+(`~/.claude`) or listed under `plugins.paths` in `config.yaml`. See
+`doc/plugins.md` for plugin discovery; this section covers only how their
+hooks run. They reach cozyphi through `internal/hooks/claude.go`
+(`ClaudeHook`), not through a `plugin.json` hook manifest, and only
+`SessionStart`/`SessionEnd` are supported — every other event named in a
+plugin's `hooks/hooks.json` is skipped with an "unsupported event" warning.
+
+- **Events.** `SessionStart` maps to cozyphi's `session_start`, `SessionEnd`
+  to `session_shutdown`. cozyphi's reason becomes Claude's `source`
+  (`SessionStart`) or `reason` (`SessionEnd`):
+
+  | cozyphi reason | `SessionStart.source` | `SessionEnd.reason` |
+  | --- | --- | --- |
+  | `startup` | `startup` | — |
+  | `new` | `clear` | `clear` |
+  | `resume` | `resume` | `resume` |
+  | `compact` | `compact` | — |
+  | `quit` | — | `prompt_input_exit` |
+  | anything else | not run | `other` |
+
+- **Matcher.** A hook entry's `matcher` in `hooks.json` applies to that
+  `source`/`reason` value. Empty or `*` matches everything; otherwise it is
+  anchored (`^(?:matcher)$`), so `startup|clear|compact` behaves exactly as
+  it does in Claude Code — a bare substring never fires it, and an invalid
+  expression skips that matcher group with a warning.
+- **`bash -c` versus `args`.** A hook entry with `args` runs as `exec`
+  without a shell; otherwise its `command` runs as `bash -c <command>`.
+  Either way, `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}` and
+  `${CLAUDE_PROJECT_DIR}` reach the process through the environment, not
+  through text substitution of `command` — bash expands them itself, so a
+  path holding a quote or `$()` cannot rewrite the command that runs. Only
+  `args` entries are substituted textually, which keeps the same guarantee
+  for the exec form. `DataDir` (`${CLAUDE_PLUGIN_DATA}`) is created before
+  the first run; the working directory is the project root, not the
+  directory the manifest lives in.
+- **Timeout.** 30 s by default — Claude Code's own default is 600 s, but
+  cozyphi runs `session_start` synchronously while the session opens, so it
+  stays short — capped at the existing 60 s hook maximum from `hooks.json`'s
+  `timeout` (seconds). `async: true` runs detached and its output is
+  discarded.
+- **Stdin.** One JSON object: `session_id`, `cwd`, `hook_event_name`, and
+  `source` (`SessionStart`) or `reason` (`SessionEnd`). `transcript_path` is
+  omitted: cozyphi's session file is not a Claude transcript, and a script
+  that parses it as one would break.
+- **Output parsing.** Exit 0: stdout that parses as JSON supplies context
+  from `hookSpecificOutput.additionalContext`, top-level `additionalContext`,
+  or `additional_context` (checked in that order), and a toast from
+  `systemMessage`; any other non-empty stdout is context verbatim. Context is
+  capped at 16 KiB, with the marker `"\n[plugin hook context truncated at 16
+  KiB]"` appended on truncation — a separate, larger cap than the 4 KiB
+  `context` cap of hook manifests, because a plugin bootstrap is a whole
+  skill body, not a note.
+- **Failures never block.** Any non-zero exit, a timeout, or the run being
+  cancelled is non-blocking: it never denies or stops the session. The first
+  line of stderr is redacted and written to the debug log
+  (`COZYPHI_DEBUG=1`), and the failure also appears as a warning in
+  **hooks → list**, via `hooks.Manager.Failures()`, until that hook next runs
+  successfully.
+- **Names.** A plugin hook entry is named `plugin:<Name>/<Event>#<n>` (`<n>`
+  counts entries of that event within one plugin); **hooks → list** shows its
+  source as `plugin:<Name>`. Plugin entries are additive: they are appended
+  to what `hooks.Discover` finds and never shadow a hook manifest by name.
+  `COZYPHI_HOOKS=off` and fail-closed-only mode (readonly permission mode)
+  apply to plugin hooks exactly as they do to hook manifests.
+
+---
+
 ## Protocol reference
 
 External hooks use a single JSON line on stdin and a single JSON line on stdout. Working directory is the directory that contains `plugin.json`. stdout/stderr are capped at **1 MiB** each. Aggregated model context from hooks is capped at **4 KiB**.
@@ -331,7 +422,7 @@ External hooks use a single JSON line on stdin and a single JSON line on stdout.
 | `error` | — | tool error text; empty on success | — | — |
 | `command` | — | — | hook name | — |
 | `args` | — | — | slash args after `/name` | — |
-| `reason` | — | — | — | `startup` / `new` / `resume` / `quit` |
+| `reason` | — | — | — | `startup` / `new` / `resume` / `compact` (`session_start` only) / `quit` |
 | `previous_session_id` | — | — | — | start after switch |
 | `target_session_id` | — | — | — | before_switch resume |
 | `message_id` | — | — | — | post_turn assistant id |
@@ -359,7 +450,8 @@ Injected variables:
 | Disable all hooks | `COZYPHI_HOOKS=off` |
 | Inspect load warnings | `COZYPHI_DEBUG=1` |
 | List / reload in TUI | `Ctrl+K` → **hooks → list** / **hooks → reload** |
-| Override a user hook | Declare the same hook `name` under `<cwd>/.cozyphi/hooks/<plugin>/plugin.json` |
+| Override a user hook | Declare the same hook `name` under `<cwd>/.cozyphi/hooks/<name>/plugin.json` |
+| Disable Claude Code plugin discovery | `COZYPHI_PLUGINS=off` (leaves hook manifests running; see `doc/plugins.md`) |
 
 Configuration for hooks is **not** stored in `~/.cozyphi/config.yaml` or managed via `cozyphi config`.
 
@@ -369,7 +461,7 @@ Configuration for hooks is **not** stored in `~/.cozyphi/config.yaml` or managed
 
 The following are intentionally out of scope:
 
-- Long-lived plugin host processes or bidirectional RPC
+- Long-lived hook host processes or bidirectional RPC
 - File-watch based hot reload (use palette reload or restart)
 - Registering new tools from hooks (use `tooldef.Tool`)
 - Mixing hook definitions into the main YAML config
@@ -381,6 +473,8 @@ The following are intentionally out of scope:
 | Path | Role |
 | --- | --- |
 | `internal/hooks/` | Types, Manager, discovery (`plugin.json`), CommandHook, Load |
+| `internal/hooks/claude.go` | `ClaudeHook`: parses a plugin's `hooks.json`, runs `SessionStart`/`SessionEnd` |
+| `internal/plugin/` | Discovers Claude Code plugins into skill sources and hook files (see `doc/plugins.md`) |
 | `internal/agent/executor.go` | Pre → Gate → Run → Post |
 | `internal/project` | `HooksDir()`, directory bootstrap |
 | `internal/tui` | Engine wiring; list / reload; `HookCommands` registers slash commands |

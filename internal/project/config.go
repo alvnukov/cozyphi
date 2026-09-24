@@ -1,6 +1,7 @@
 package project
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -12,10 +13,13 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/configfile"
 	"github.com/alvnukov/cozyphi/internal/diag"
+	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/plugin"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tasks"
 	"github.com/alvnukov/cozyphi/internal/voice"
@@ -35,7 +39,16 @@ type Config struct {
 	DefaultModel     string // name of the default model; "" → first entry
 	modelEnvOverride bool   // COZYPHI_MODEL pinned the default model via the environment
 	SkillPath        string
-	Permissions      permission.Policy
+	// Plugins is the plugins section with ~ expanded and the Claude Code home
+	// defaulted; LoadConfig runs discovery over it.
+	Plugins plugin.Config
+	// Skills is the skill catalog: skill_path first, then one source per
+	// enabled plugin skill directory.
+	Skills skills.Sources
+	// PluginHooks lists the enabled plugins' hook files for hooks.Discover.
+	PluginHooks    []hooks.PluginHooks
+	pluginWarnings []plugin.Warning
+	Permissions    permission.Policy
 	// Tasks names external task-registry roots the task tool may address
 	// by label, on top of the launch checkout's own registry.
 	Tasks         TasksConfig
@@ -95,8 +108,8 @@ func (c *Config) Model() llm.ModelConfig {
 		return llm.ModelConfig{}
 	}
 	m := c.defaultModel()
-	if m.SkillPath == "" {
-		m.SkillPath = c.SkillPath
+	if m.Skills == nil {
+		m.Skills = c.Skills
 	}
 	return m
 }
@@ -114,8 +127,8 @@ func (c *Config) AllModels() []llm.ModelConfig {
 	all := make([]llm.ModelConfig, len(c.Models))
 	copy(all, c.Models)
 	for i := range all {
-		if all[i].SkillPath == "" {
-			all[i].SkillPath = c.SkillPath
+		if all[i].Skills == nil {
+			all[i].Skills = c.Skills
 		}
 	}
 	return all
@@ -267,8 +280,15 @@ const defaultConfigTemplate = `# cozyphi configuration (~/.cozyphi/config.yaml).
 # Environment overrides for the default entry:
 #   COZYPHI_MODEL, COZYPHI_API_KEY, COZYPHI_BASE_URL
 #
+# Claude Code plugins: their skills and SessionStart/SessionEnd hooks.
+# plugins:
+#   enabled: true             # COZYPHI_PLUGINS=off disables them per process
+#   claude_dir: ~/.claude     # where Claude Code keeps installed_plugins.json
+#   paths:                    # local plugin roots, always enabled
+#     - ~/src/my-plugin
+#
 # The remaining sections (permissions, agents, notifications, opencode,
-# keybinds) keep their built-in defaults until written here; run
+# plugins, keybinds) keep their built-in defaults until written here; run
 # ` + "`cozyphi config`" + ` to edit this file in the browser.
 `
 
@@ -348,12 +368,54 @@ func finalizeConfig(cfg *Config, global GlobalLayout) (*Config, error) {
 	if cfg.SkillPath == "" {
 		cfg.SkillPath = global.SkillsDir()
 	}
+	home := filepath.Dir(global.Root())
+	cfg.Plugins.ClaudeDir = expandHome(cmp.Or(cfg.Plugins.ClaudeDir, global.ClaudeDir()), home)
+	for i, p := range cfg.Plugins.Paths {
+		cfg.Plugins.Paths[i] = expandHome(p, home)
+	}
+	cfg.Plugins.LocalDataDir = global.PluginDataDir()
+	cfg.Skills = skills.Sources{{Dir: cfg.SkillPath}}
 	// cozy-tools refuses to invent a cache location under the user's home:
 	// naming it is a host decision, and this is where cozyphi makes it.
 	if strings.TrimSpace(cfg.Web.Policy.CacheDir) == "" {
 		cfg.Web.Policy.CacheDir = global.WebCacheDir()
 	}
 	return cfg, nil
+}
+
+// expandHome resolves a leading ~ against home; any other path is returned as written.
+func expandHome(path, home string) string {
+	if path == "~" {
+		return home
+	}
+	if rest, ok := strings.CutPrefix(path, "~/"); ok {
+		return filepath.Join(home, rest)
+	}
+	return path
+}
+
+// discoverPlugins appends each enabled plugin's skill directories to the
+// catalog and records its hook files. It runs once per LoadConfig, where the
+// project root is known; nothing here can fail the load.
+func (c *Config) discoverPlugins(projectRoot string) {
+	found, warns := plugin.Discover(c.Plugins, projectRoot)
+	c.pluginWarnings = warns
+	c.PluginHooks = nil
+	for _, p := range found {
+		c.Skills = append(c.Skills, p.SkillSources(projectRoot)...)
+		if len(p.HookFiles) > 0 {
+			c.PluginHooks = append(c.PluginHooks, p.HookSources(projectRoot))
+		}
+	}
+}
+
+// PluginWarnings returns what plugin discovery skipped and why, for the
+// hooks → list palette command.
+func (c *Config) PluginWarnings() []plugin.Warning {
+	if c == nil {
+		return nil
+	}
+	return c.pluginWarnings
 }
 
 // LoadOpenCodeConfig reads only the optional integration setting without
@@ -378,6 +440,7 @@ func parseConfigFile(path string) (*Config, error) {
 		OpenCode:      OpenCodeConfig{Enabled: true},
 		Voice:         voice.Defaults(),
 		Web:           defaultWebConfig(),
+		Plugins:       plugin.Config{Enabled: true},
 	}
 
 	data, err := os.ReadFile(path)
@@ -409,6 +472,13 @@ func parseConfigFile(path string) (*Config, error) {
 	}
 	if raw.SkillPath != nil {
 		cfg.SkillPath = *raw.SkillPath
+	}
+	if raw.Plugins != nil {
+		if raw.Plugins.Enabled != nil {
+			cfg.Plugins.Enabled = *raw.Plugins.Enabled
+		}
+		cfg.Plugins.ClaudeDir = raw.Plugins.ClaudeDir
+		cfg.Plugins.Paths = raw.Plugins.Paths
 	}
 	if raw.Permissions != nil {
 		if err := applyPermissions(&cfg.Permissions, raw.Permissions); err != nil {
@@ -546,6 +616,15 @@ type fileConfig struct {
 	Web           *webFileConfig           `yaml:"web"`
 	Keybinds      map[string]string        `yaml:"keybinds"`
 	Tasks         *tasksFileConfig         `yaml:"tasks"`
+	Plugins       *pluginsFileConfig       `yaml:"plugins"`
+}
+
+// pluginsFileConfig mirrors the plugins YAML section. It is owner data and
+// lives only in the global config.
+type pluginsFileConfig struct {
+	Enabled   *bool    `yaml:"enabled"`
+	ClaudeDir string   `yaml:"claude_dir"`
+	Paths     []string `yaml:"paths"`
 }
 
 // tasksFileConfig mirrors the tasks YAML section: named roots of other

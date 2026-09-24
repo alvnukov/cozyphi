@@ -83,12 +83,23 @@ func (g GlobalLayout) VoiceWAVFile() string { return filepath.Join(g.VoiceDir(),
 // VoiceModelsDir returns the directory searched for speech-to-text models.
 func (g GlobalLayout) VoiceModelsDir() string { return filepath.Join(g.root, "models") }
 
+// ClaudeDir returns Claude Code's home (~/.claude). cozyphi reads its plugin
+// records and shares its memory corpus, and never writes anything else there.
+func (g GlobalLayout) ClaudeDir() string {
+	return filepath.Join(filepath.Dir(g.root), ".claude")
+}
+
 // ClaudeProjectsDir returns Claude Code's projects root (~/.claude/projects).
 // Every project it has ever opened has a directory there, and every corpus the
 // harness knows is one `memory/` inside one of them.
 func (g GlobalLayout) ClaudeProjectsDir() string {
-	return filepath.Join(filepath.Dir(g.root), ".claude", "projects")
+	return filepath.Join(g.ClaudeDir(), "projects")
 }
+
+// PluginDataDir holds the data directories of plugins listed in
+// plugins.paths (~/.cozyphi/plugins/data); Claude-installed plugins share
+// Claude Code's own data directory instead.
+func (g GlobalLayout) PluginDataDir() string { return filepath.Join(g.root, "plugins", "data") }
 
 // MemoryDir returns the canonical store for facts marked global
 // (~/.cozyphi/memory). No session reads it: it holds the copy that outlives
@@ -185,13 +196,15 @@ func (p *Project) Global() GlobalLayout { return p.global }
 // Config returns the loaded configuration, or nil before LoadConfig.
 func (p *Project) Config() *Config { return p.config.Load() }
 
-// LoadConfig reads, env-overrides and finalizes the global configuration.
-// The result is cached on the Project until the next LoadConfig call.
+// LoadConfig reads, env-overrides and finalizes the global configuration,
+// then discovers the plugins it enables for this checkout. The result is
+// cached on the Project until the next LoadConfig call.
 func (p *Project) LoadConfig() error {
 	cfg, err := loadConfig(p.global)
 	if err != nil {
 		return err
 	}
+	cfg.discoverPlugins(p.CheckoutRoot())
 	p.config.Store(cfg)
 	return nil
 }

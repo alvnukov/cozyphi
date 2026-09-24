@@ -21,7 +21,7 @@ func TestShellRejectsOversizedPasteWithoutChangingDraft(t *testing.T) {
 	application := app.NewApp(nil, components.DefaultTheme())
 	registry := sessions.NewRegistry(12, nil)
 	view := sessions.NewView(application, controller.NewBus(nil), nil, nil, nil, components.DefaultTheme(),
-		t.TempDir(), "test", "", 1000, nil, nil)
+		t.TempDir(), "test", nil, 1000, nil, nil)
 	_, err := registry.Open("first", view)
 	require.NoError(t, err)
 	shell := editor.NewEditor(application, registry)

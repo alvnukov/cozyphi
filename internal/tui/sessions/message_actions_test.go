@@ -33,7 +33,7 @@ func newActionsEditor(t *testing.T) *View {
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 
-	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0, nil, nil)
+	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", nil, 0, nil, nil)
 	e.App = app.NewApp(nil, components.DefaultTheme())
 	return e
 }

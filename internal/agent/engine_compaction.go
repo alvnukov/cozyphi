@@ -91,9 +91,11 @@ func (engine *Engine) runCompaction(
 		return err
 	}
 	// Fresh context: the next pressure crossing may advise again, and skill
-	// bodies that were summarized away must be preloaded in full again.
+	// bodies that were summarized away must be preloaded in full again. So
+	// must a plugin bootstrap: session_start runs again with reason compact.
 	engine.rearmCompactAdvice()
 	engine.forgetDeliveredPlanSkills()
+	engine.refireSessionStart(ctx)
 	if !yield(session.CompactionComplete{ID: id, Compaction: record}, nil) {
 		return errEventConsumerStopped
 	}

@@ -41,7 +41,7 @@ func familyFixture(t *testing.T) (*View, func() *View) {
 	t.Cleanup(ctrl.Close)
 
 	newView := func() *View {
-		return NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0, nil, nil)
+		return NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", nil, 0, nil, nil)
 	}
 	return newView(), newView
 }

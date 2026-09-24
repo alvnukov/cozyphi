@@ -26,7 +26,7 @@ func closeTestShell(t *testing.T) (*editor.Editor, *sessions.Registry, []string,
 	for _, name := range []string{"main", "worker", "survivor"} {
 		bus := controller.NewBus(nil)
 		view := sessions.NewView(application, bus, nil, nil, nil, components.DefaultTheme(),
-			t.TempDir(), "test", "", 1000, nil, nil)
+			t.TempDir(), "test", nil, 1000, nil, nil)
 		id, err := registry.Open(name, view)
 		require.NoError(t, err)
 		ids = append(ids, id)
