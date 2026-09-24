@@ -108,8 +108,8 @@ func (c *Config) Model() llm.ModelConfig {
 		return llm.ModelConfig{}
 	}
 	m := c.defaultModel()
-	if m.SkillPath == "" {
-		m.SkillPath = c.SkillPath
+	if m.Skills == nil {
+		m.Skills = c.Skills
 	}
 	return m
 }
@@ -127,8 +127,8 @@ func (c *Config) AllModels() []llm.ModelConfig {
 	all := make([]llm.ModelConfig, len(c.Models))
 	copy(all, c.Models)
 	for i := range all {
-		if all[i].SkillPath == "" {
-			all[i].SkillPath = c.SkillPath
+		if all[i].Skills == nil {
+			all[i].Skills = c.Skills
 		}
 	}
 	return all

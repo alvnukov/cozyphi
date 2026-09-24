@@ -109,7 +109,7 @@ func TestChildLivesInItsParentsFamilyAndCannotResurrect(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, ui.Close(context.WithoutCancel(t.Context()))) })
 			makeView := func(ctrl *controller.Controller, bus *controller.Bus) *sessions.View {
 				view := sessions.NewView(application, bus, ctrl, commands.NewBuiltinRegistry(), nil,
-					components.DefaultTheme(), cwd, ctrl.ModelLabel(), "", 1000, ctrl.ModelNames(), nil)
+					components.DefaultTheme(), cwd, ctrl.ModelLabel(), nil, 1000, ctrl.ModelNames(), nil)
 				bindFamilyScreen(ui, view)
 				return view
 			}
@@ -245,7 +245,7 @@ func TestReleasingTheSubAgentOnScreenSaysWhoseItWas(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, ui.Close(context.WithoutCancel(t.Context()))) })
 			makeView := func() *sessions.View {
 				view := sessions.NewView(application, controller.NewBus(nil), nil, nil, nil,
-					components.DefaultTheme(), t.TempDir(), "test", "", 1000, nil, nil)
+					components.DefaultTheme(), t.TempDir(), "test", nil, 1000, nil, nil)
 				bindFamilyScreen(ui, view)
 				return view
 			}

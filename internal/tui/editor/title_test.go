@@ -30,7 +30,7 @@ func TestShellTitleForegroundBackgroundSwitchResumeClear(t *testing.T) {
 		ctrl, createErr := controller.NewController(bus, proj, proj.Root(), "")
 		require.NoError(t, createErr)
 		view := sessions.NewView(application, bus, ctrl, nil, nil, components.DefaultTheme(),
-			proj.Root(), "test", "", 1000, nil, nil)
+			proj.Root(), "test", nil, 1000, nil, nil)
 		return view, ctrl
 	}
 	a, ca := makeView()

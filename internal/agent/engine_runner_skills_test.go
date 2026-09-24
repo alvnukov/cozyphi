@@ -17,6 +17,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 )
 
 // installRunnerSkill writes one SKILL.md so buildChild resolves job skills
@@ -71,7 +72,7 @@ func TestEngineRunnerPromptCarriesJobSkills(t *testing.T) {
 
 	srv, bodies := capturingSSEServer(t, "done")
 	runner := agent.EngineRunner{
-		Model: llm.ModelConfig{Name: "fake", BaseURL: srv.URL, APIKey: "x", SkillPath: skillDir},
+		Model: llm.ModelConfig{Name: "fake", BaseURL: srv.URL, APIKey: "x", Skills: skills.Sources{{Dir: skillDir}}},
 	}
 	mgr, err := job.New(job.Options{Root: t.TempDir(), Runner: runner})
 	require.NoError(t, err)
@@ -118,7 +119,7 @@ func TestEngineRunnerFailsOnUnresolvedJobSkill(t *testing.T) {
 
 	srv, bodies := capturingSSEServer(t, "unused")
 	runner := agent.EngineRunner{
-		Model: llm.ModelConfig{Name: "fake", BaseURL: srv.URL, APIKey: "x", SkillPath: skillDir},
+		Model: llm.ModelConfig{Name: "fake", BaseURL: srv.URL, APIKey: "x", Skills: skills.Sources{{Dir: skillDir}}},
 	}
 	_, err := runner.Run(t.Context(), job.RunEnv{
 		Job: job.Meta{

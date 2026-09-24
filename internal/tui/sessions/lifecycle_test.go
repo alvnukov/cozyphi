@@ -25,7 +25,7 @@ func TestViewConstructionIsInactive(t *testing.T) {
 	require.NoError(t, selected.applyEditingMode(editmode.Readline))
 	before := keys.Label(keys.CmdPalette)
 	hidden := NewView(selected.App, controller.NewBus(nil), selected.ctrl, nil, nil,
-		components.DefaultTheme(), selected.cwd, "m", "", 1000, nil, nil)
+		components.DefaultTheme(), selected.cwd, "m", nil, 1000, nil, nil)
 	require.False(t, hidden.Active())
 	require.Same(t, &selected.composer.Chat, selected.App.Focused())
 	require.Equal(t, before, keys.Label(keys.CmdPalette))

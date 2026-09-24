@@ -147,7 +147,7 @@ func newQuotaResetEditor(t *testing.T, origin string) *View {
 	ctrl, err := controller.NewController(bus, proj, cwd, "")
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
-	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "", "", 0, nil, nil)
+	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "", nil, 0, nil, nil)
 	require.NoError(t, e.SetModel("openai/gpt-5.5"))
 	return e
 }

@@ -32,7 +32,7 @@ func TestPaletteCloseDispatchTypesInSurvivor(t *testing.T) {
 	var ids []string
 	for _, name := range []string{"closing", "survivor"} {
 		view := sessions.NewView(application, controller.NewBus(nil), nil, cmds, nil,
-			components.DefaultTheme(), t.TempDir(), "test", "", 1000, nil, nil)
+			components.DefaultTheme(), t.TempDir(), "test", nil, 1000, nil, nil)
 		id, err := registry.Open(name, view)
 		require.NoError(t, err)
 		ids = append(ids, id)

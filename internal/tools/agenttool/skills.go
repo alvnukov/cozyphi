@@ -20,12 +20,12 @@ const (
 // the installed catalog — an unknown name fails closed with the catalog
 // listing, so one retry is enough to correct it. Duplicates fold
 // case-insensitively, keeping the first occurrence's order.
-func resolveSpawnSkills(skillPath string, requested []string) ([]string, error) {
-	catalog, err := skills.LoadSkills(skillPath)
-	if err != nil {
+func resolveSpawnSkills(sources skills.Sources, requested []string) ([]string, error) {
+	catalog, err := sources.Load()
+	if err != nil && len(catalog) == 0 {
 		return nil, fmt.Errorf(
 			"agent_spawn: cannot load skills from %s: %w — fix the directory, or pass skills: [] with no_skill_reason",
-			skillPath, err,
+			sources, err,
 		)
 	}
 	var (
@@ -39,7 +39,7 @@ func resolveSpawnSkills(skillPath string, requested []string) ([]string, error) 
 			return nil, fmt.Errorf("agent_spawn: %w", err)
 		}
 		if skill == nil {
-			return nil, unknownSkillError(skillPath, catalog, name)
+			return nil, unknownSkillError(sources, catalog, name)
 		}
 		key := strings.ToLower(skill.Name)
 		if _, duplicate := seen[key]; duplicate {
@@ -66,12 +66,12 @@ func resolveSpawnSkills(skillPath string, requested []string) ([]string, error) 
 
 // unknownSkillError names the miss and the way out: the catalog listing when
 // skills exist, the explicit none-installed answer when they do not.
-func unknownSkillError(skillPath string, catalog []*skills.Skill, name string) error {
+func unknownSkillError(sources skills.Sources, catalog []*skills.Skill, name string) error {
 	if len(catalog) == 0 {
 		return fmt.Errorf(
 			"agent_spawn: unknown skill %q and no skills are installed in %s — pass skills: [] with no_skill_reason explaining why",
 			name,
-			skillPath,
+			sources,
 		)
 	}
 	available := make([]string, 0, len(catalog))

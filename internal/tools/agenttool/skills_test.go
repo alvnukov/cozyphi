@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/job"
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/tools"
 )
 
@@ -32,7 +33,7 @@ func installSkill(t *testing.T, root, name, body string) {
 // skillsRegistry wires a spawn tool whose catalog is the temp dir and lets a
 // test read what the spawned jobs carried. Jobs run on their own goroutine,
 // so the captured metas sit behind a mutex.
-func skillsRegistry(t *testing.T, skillPath string) (tools.Registry, func() []job.Meta) {
+func skillsRegistry(t *testing.T, sources skills.Sources) (tools.Registry, func() []job.Meta) {
 	t.Helper()
 	var (
 		mu      sync.Mutex
@@ -50,10 +51,10 @@ func skillsRegistry(t *testing.T, skillPath string) (tools.Registry, func() []jo
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close() })
 	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
-		Manager:   mgr,
-		ParentID:  func() string { return "p" },
-		WorkDir:   func() string { return t.TempDir() },
-		SkillPath: func() string { return skillPath },
+		Manager:  mgr,
+		ParentID: func() string { return "p" },
+		WorkDir:  func() string { return t.TempDir() },
+		Skills:   func() skills.Sources { return sources },
 	}))
 	return reg, func() []job.Meta {
 		mu.Lock()
@@ -86,7 +87,7 @@ func decodeResult(t *testing.T, res tools.Result) toolResult {
 // call with no skills at all — omitted or an empty array — fails unless the
 // model states a non-blank reason, and the error says what to pass.
 func TestSpawnSkillsDecisionIsRequired(t *testing.T) {
-	reg, metas := skillsRegistry(t, "")
+	reg, metas := skillsRegistry(t, nil)
 
 	for name, args := range map[string]json.RawMessage{
 		"omitted":  mustArgs(t, map[string]any{"prompt": "p"}),
@@ -105,7 +106,7 @@ func TestSpawnSkillsDecisionIsRequired(t *testing.T) {
 // transcript row carries the reason, and the result JSON echoes both halves
 // of the decision.
 func TestSpawnEmptySkillsWithReasonSpawns(t *testing.T) {
-	reg, metas := skillsRegistry(t, t.TempDir())
+	reg, metas := skillsRegistry(t, skills.Sources{{Dir: t.TempDir()}})
 
 	args := mustArgs(t, map[string]any{
 		"prompt": "p", "description": "probe",
@@ -133,7 +134,7 @@ func TestSpawnSkillsResolveDedupeAndEcho(t *testing.T) {
 	skillDir := t.TempDir()
 	installSkill(t, skillDir, "tdd", "write the failing test first")
 	installSkill(t, skillDir, "grill", "ask until it hurts")
-	reg, metas := skillsRegistry(t, skillDir)
+	reg, metas := skillsRegistry(t, skills.Sources{{Dir: skillDir}})
 
 	args := mustArgs(t, map[string]any{
 		"prompt": "p", "description": "drill",
@@ -165,7 +166,7 @@ func TestSpawnUnknownSkillListsCatalog(t *testing.T) {
 	skillDir := t.TempDir()
 	installSkill(t, skillDir, "tdd", "write the failing test first")
 	installSkill(t, skillDir, "grill", "ask until it hurts")
-	reg, metas := skillsRegistry(t, skillDir)
+	reg, metas := skillsRegistry(t, skills.Sources{{Dir: skillDir}})
 
 	_, err := reg["agent_spawn"].Run(t.Context(), mustArgs(t, map[string]any{
 		"prompt": "p", "skills": []string{"nope"},
@@ -187,7 +188,7 @@ func TestSpawnSkillsCountLimit(t *testing.T) {
 		installSkill(t, skillDir, name, "body")
 		names = append(names, name)
 	}
-	reg, metas := skillsRegistry(t, skillDir)
+	reg, metas := skillsRegistry(t, skills.Sources{{Dir: skillDir}})
 
 	_, err := reg["agent_spawn"].Run(t.Context(), mustArgs(t, map[string]any{
 		"prompt": "p", "skills": names,
@@ -207,7 +208,7 @@ func TestSpawnSkillsBodySizeLimit(t *testing.T) {
 		installSkill(t, skillDir, name, strings.Repeat("x", 5*1024))
 		names = append(names, name)
 	}
-	reg, metas := skillsRegistry(t, skillDir)
+	reg, metas := skillsRegistry(t, skills.Sources{{Dir: skillDir}})
 
 	_, err := reg["agent_spawn"].Run(t.Context(), mustArgs(t, map[string]any{
 		"prompt": "p", "skills": names,

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools"
 )
@@ -48,10 +49,10 @@ func stepRuns(t *testing.T, engine *Engine, stepID string) []session.PlanActionR
 
 func installPlanSkill(t *testing.T, engine *Engine, name, body string) {
 	t.Helper()
-	if engine.skillPath == "" {
-		engine.skillPath = t.TempDir()
+	if len(engine.skillSources) == 0 {
+		engine.skillSources = skills.Sources{{Dir: t.TempDir()}}
 	}
-	dir := filepath.Join(engine.skillPath, name)
+	dir := filepath.Join(engine.skillSources[0].Dir, name)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(
 		filepath.Join(dir, "SKILL.md"),

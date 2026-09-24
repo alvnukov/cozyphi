@@ -11,6 +11,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/components/mention"
 	"github.com/alvnukov/cozyphi/internal/components/palette"
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/usage"
 )
 
@@ -98,7 +99,7 @@ func TestSkillsCommandRefreshesRankingAfterAppliedPrompt(t *testing.T) {
 	history, err := usage.Open("")
 	require.NoError(t, err)
 	registry := NewBuiltinRegistry(history)
-	host := &fakeHost{skillPath: dir}
+	host := &fakeHost{skills: skills.Sources{{Dir: dir}}}
 
 	cmd := findPaletteCommand(t, registry.BuildPalette(CommandContext{Host: host}), "skills")
 	require.Len(t, cmd.Submenu, 2)

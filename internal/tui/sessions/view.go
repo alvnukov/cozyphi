@@ -118,9 +118,9 @@ type View struct {
 
 	ctrl *controller.Controller
 
-	commands   *commands.CommandRegistry
-	modelNames []string
-	skillPath  string
+	commands     *commands.CommandRegistry
+	modelNames   []string
+	skillSources skills.Sources
 	// discoveredSkills caches the session's skill names; the discovery root
 	// never changes mid-session, so the plan-settings tab reads names, not
 	// directories.
@@ -194,7 +194,8 @@ func NewView(
 	registry *commands.CommandRegistry,
 	vx *xui.XUI,
 	theme components.Theme,
-	cwd, model, skillPath string,
+	cwd, model string,
+	skillSources skills.Sources,
 	contextWindow int,
 	modelNames []string,
 	hist *history.Store,
@@ -212,21 +213,21 @@ func NewView(
 		registry.RegisterModelCommand(modelNames)
 	}
 	e := &View{
-		vx:         vx,
-		App:        application,
-		theme:      theme,
-		bootTheme:  theme,
-		cwd:        cwd,
-		bus:        bus,
-		ctrl:       ctrl,
-		modelNames: append([]string(nil), modelNames...),
-		skillPath:  skillPath,
-		commands:   registry,
-		toast:      toast.Toast{Theme: theme},
-		composer:   composer.NewComposerPane(theme, model, cwd, hist),
-		footer:     footer.NewFooterChrome(theme, contextWindow),
-		footerY:    -1,
-		sidebar:    sidebar.NewSidebar(theme, contextWindow),
+		vx:           vx,
+		App:          application,
+		theme:        theme,
+		bootTheme:    theme,
+		cwd:          cwd,
+		bus:          bus,
+		ctrl:         ctrl,
+		modelNames:   append([]string(nil), modelNames...),
+		skillSources: skillSources,
+		commands:     registry,
+		toast:        toast.Toast{Theme: theme},
+		composer:     composer.NewComposerPane(theme, model, cwd, hist),
+		footer:       footer.NewFooterChrome(theme, contextWindow),
+		footerY:      -1,
+		sidebar:      sidebar.NewSidebar(theme, contextWindow),
 	}
 	e.panelY = -1
 	e.family = newFamily(e, time.Now)
@@ -1811,9 +1812,9 @@ func mergeModelNames(groups ...[]string) []string {
 	return result
 }
 
-// SkillPath returns the skill discovery root.
-func (e *View) SkillPath() string {
-	return e.skillPath
+// Skills returns the session's skill catalog sources.
+func (e *View) Skills() skills.Sources {
+	return e.skillSources
 }
 
 // skillNames resolves the session's skill names on first use and caches them:
@@ -1821,7 +1822,7 @@ func (e *View) SkillPath() string {
 // the skill tree again.
 func (e *View) skillNames() []string {
 	if !e.skillsResolved {
-		list, _ := skills.LoadSkills(e.skillPath)
+		list, _ := e.skillSources.Load()
 		for _, skill := range list {
 			e.discoveredSkills = append(e.discoveredSkills, skill.Name)
 		}

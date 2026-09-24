@@ -48,7 +48,7 @@ func newTUIView(
 ) *sessions.View {
 	cfg := ctrl.ModelConfig()
 	view := sessions.NewView(
-		application, bus, ctrl, cmds, vx, th, cwd, ctrl.ModelLabel(), cfg.SkillPath,
+		application, bus, ctrl, cmds, vx, th, cwd, ctrl.ModelLabel(), cfg.Skills,
 		cfg.ContextWindow, ctrl.ModelNames(), hist.NewCursor(), settingsManager,
 	)
 	view.ConfigureStatusDashboard(controller.NewStatusHistory(bus, cwd, session.HistoryStats))

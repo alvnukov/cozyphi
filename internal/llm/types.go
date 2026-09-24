@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 )
 
 // Compactor compresses conversation history into a concise summary.
@@ -108,9 +110,9 @@ type ModelConfig struct {
 	// actual account or connection receiving requests. Empty means the
 	// recipient cannot be bound safely; credentials must never be substituted.
 	ConnectionIdentity string
-	// SkillPath is the directory to scan for SKILL.md files.
-	// Defaults to ~/.cozyphi/skills if empty.
-	SkillPath string
+	// Skills is the skill catalog: skill_path first, then the skill
+	// directories of enabled Claude Code plugins. Nil means none configured.
+	Skills skills.Sources
 	// ContextWindow is the model's context window in tokens.
 	// Zero disables session compaction (safe default).
 	ContextWindow int

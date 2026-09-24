@@ -105,7 +105,7 @@ func newQueueEditor(t *testing.T, baseURL, cwd string) (*View, *controller.Contr
 	ctrl, err := controller.NewController(bus, proj, cwd, "")
 	require.NoError(t, err)
 
-	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 1000, nil, nil)
+	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", nil, 1000, nil, nil)
 	return e, ctrl
 }
 

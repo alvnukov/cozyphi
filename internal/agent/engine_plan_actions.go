@@ -313,9 +313,9 @@ func (engine *Engine) queuePlanSkills(names []string) {
 	if len(names) == 0 {
 		return
 	}
-	catalog, err := skills.LoadSkills(engine.skillPath)
+	catalog, err := engine.skillSources.Load()
 	if err != nil {
-		debuglog.Logf("plan: load skills for preload from %s: %v", engine.skillPath, err)
+		debuglog.Logf("plan: load skills for preload from %s: %v", engine.skillSources, err)
 	}
 	queued := make([]planSkillPreload, 0, len(names))
 	for _, name := range names {
@@ -391,7 +391,7 @@ func (engine *Engine) drainPlanSkills() (text string, blocking bool) {
 		out.WriteString("\n\n")
 		out.WriteString(skill.body)
 	}
-	if instruction := pendingSkillsInstruction(engine.skillPath, missing); instruction != "" {
+	if instruction := pendingSkillsInstruction(engine.skillSources, missing); instruction != "" {
 		if out.Len() > 0 {
 			out.WriteString("\n\n")
 		}

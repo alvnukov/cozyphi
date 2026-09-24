@@ -42,7 +42,7 @@ func TestNewEditorShowsResumedHistory(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 
-	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0, nil, nil)
+	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", nil, 0, nil, nil)
 	snap := e.transcript.Snapshot()
 	require.Len(t, snap.Messages, 2)
 	assert.Equal(t, "hello editor", snap.Messages[0].Text)
@@ -69,6 +69,6 @@ func TestNewEditorFreshSessionKeepsEmptyTranscript(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 
-	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0, nil, nil)
+	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", nil, 0, nil, nil)
 	assert.Empty(t, e.transcript.Snapshot().Messages)
 }

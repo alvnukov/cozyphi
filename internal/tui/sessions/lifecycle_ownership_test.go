@@ -73,7 +73,7 @@ func testCloseRetainsHistoryUntilShellPublication(t *testing.T, route string) {
 			ctrl, err := runtime.NewSession(bus, workspace, path, nil)
 			require.NoError(t, err)
 			t.Cleanup(ctrl.Close)
-			view := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0, nil, nil)
+			view := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", nil, 0, nil, nil)
 			constructedRunner := view.bashRunner
 
 			ready, release, published := make(chan session.ToolRun, 1), make(chan struct{}), make(chan struct{})
@@ -186,7 +186,7 @@ func testCloseRetainsHistoryUntilShellPublication(t *testing.T, route string) {
 			require.False(t, constructedRunner.Running(), "NewView must register its runner")
 			require.NoError(t, view.Close(t.Context()))
 
-			late := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0, nil, nil)
+			late := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", nil, 0, nil, nil)
 			require.True(t, late.bashRunner.HandleSubmit("!sleep 30"))
 			require.False(t, late.bashRunner.Running(), "late registration must fail closed before exposure")
 			require.NoError(t, late.Close(t.Context()))

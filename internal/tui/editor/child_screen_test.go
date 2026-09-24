@@ -41,7 +41,7 @@ func newChildShell(t *testing.T) *childShell {
 	makeView := func() (*sessions.View, *controller.Bus) {
 		bus := controller.NewBus(nil)
 		return sessions.NewView(application, bus, nil, nil, nil, components.DefaultTheme(),
-			t.TempDir(), "test", "", 1000, nil, nil), bus
+			t.TempDir(), "test", nil, 1000, nil, nil), bus
 	}
 	makeTab := func(name string) (string, *sessions.View, *controller.Bus) {
 		view, bus := makeView()

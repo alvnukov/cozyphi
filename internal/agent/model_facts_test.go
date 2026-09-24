@@ -11,6 +11,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/diag"
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 )
 
 // sentinelAuthenticator is a credential holder that would be caught by name
@@ -30,7 +31,7 @@ func secretModel() llm.ModelConfig {
 		APIKey:          "sk-test-secret",
 		BaseURL:         "https://secret-endpoint.invalid/v1",
 		Authenticator:   sentinelAuthenticator{token: "authenticator-secret"},
-		SkillPath:       "/home/someone/.cozyphi/skills",
+		Skills:          skills.Sources{{Dir: "/home/someone/.cozyphi/skills"}},
 		ContextWindow:   128000,
 		MaxOutputTokens: 4096,
 	}

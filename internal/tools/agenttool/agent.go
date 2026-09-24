@@ -14,6 +14,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/job"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/util"
 )
 
@@ -52,10 +53,10 @@ type AgentDeps struct {
 	// ModelForRole names the agents.models pin for a role so the spawn
 	// result can show it; nil or ok=false means inherit-the-session-model.
 	ModelForRole func(job.Role) (string, bool)
-	// SkillPath names the installed-skill catalog spawn validation resolves
+	// Skills is the installed-skill catalog spawn validation resolves
 	// `skills` names against; nil or empty means no catalog is installed, so
 	// only `skills: []` with a no_skill_reason can pass.
-	SkillPath func() string
+	Skills func() skills.Sources
 }
 
 // InheritModel is the spawn-result model value for a child that runs the
@@ -81,8 +82,8 @@ func AgentTools(deps AgentDeps) []tooldef.Tool {
 	if deps.ModelForRole == nil {
 		deps.ModelForRole = func(job.Role) (string, bool) { return "", false }
 	}
-	if deps.SkillPath == nil {
-		deps.SkillPath = func() string { return "" }
+	if deps.Skills == nil {
+		deps.Skills = func() skills.Sources { return nil }
 	}
 	return []tooldef.Tool{
 		agentSpawnTool(deps),
@@ -155,7 +156,7 @@ Starts asynchronously and returns job_id immediately. Interactive sessions recei
 			// against the installed catalog, or the call fails saying what to pass.
 			skillNames := []string{}
 			if len(in.Skills) > 0 {
-				skillNames, err = resolveSpawnSkills(deps.SkillPath(), in.Skills)
+				skillNames, err = resolveSpawnSkills(deps.Skills(), in.Skills)
 				if err != nil {
 					return tooldef.Result{}, err
 				}

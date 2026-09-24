@@ -52,7 +52,7 @@ func (f *forkTabs) open(path string) (*View, error) {
 		return nil, err
 	}
 	f.t.Cleanup(ctrl.Close)
-	view := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), f.cwd, "m", "", 1000, nil, nil)
+	view := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), f.cwd, "m", nil, 1000, nil, nil)
 	f.opened = append(f.opened, view)
 	return view, nil
 }

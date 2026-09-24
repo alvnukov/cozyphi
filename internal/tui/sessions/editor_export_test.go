@@ -33,7 +33,7 @@ func newExportEditor(t *testing.T) (*View, string) {
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 
-	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0, nil, nil)
+	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", nil, 0, nil, nil)
 	return e, cwd
 }
 
@@ -79,7 +79,7 @@ func TestEditorRegistersModelSlash(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 
-	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0,
+	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", nil, 0,
 		[]string{"test-model", "other-model"}, nil)
 
 	items := e.commands.FilterSlash("model")

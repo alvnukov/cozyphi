@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/tools"
 	"github.com/alvnukov/cozyphi/internal/tools/agenttool"
 )
@@ -41,7 +42,7 @@ func TestSpawnTitleFromInput(t *testing.T) {
 // TestSpawnDetailKeepsSkillsSuffix: the row title is the child's name plus
 // the skills decision, in that order.
 func TestSpawnDetailKeepsSkillsSuffix(t *testing.T) {
-	reg, _ := skillsRegistry(t, t.TempDir())
+	reg, _ := skillsRegistry(t, skills.Sources{{Dir: t.TempDir()}})
 	args := mustArgs(t, map[string]any{
 		"prompt": "p", "description": "probe", "role": "worker",
 		"skills": []string{}, "no_skill_reason": "nothing installed fits",

@@ -13,6 +13,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/app"
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/session"
@@ -48,7 +49,7 @@ func newTestEditorResuming(t *testing.T, home, cwd, resumePath string) *View {
 	ctrl, err := controller.NewController(bus, proj, cwd, resumePath)
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
-	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 1000, nil, nil)
+	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", nil, 1000, nil, nil)
 	e.SetActive(true)
 	return e
 }
@@ -241,7 +242,7 @@ func TestEditorSettingsCarrySkills(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"),
 		[]byte("---\nname: grep-me\ndescription: finds things\n---\n"), 0o644))
-	e.skillPath = root
+	e.skillSources = skills.Sources{{Dir: root}}
 	e.discoveredSkills = nil
 	e.skillsResolved = false
 

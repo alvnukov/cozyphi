@@ -9,6 +9,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/alvnukov/cozyphi/internal/debuglog"
 	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/tasks"
@@ -46,6 +47,9 @@ type systemData struct {
 
 type skillsData struct {
 	Catalog string
+	// Plugins adds the Claude Code tool-name mapping: plugin skills are
+	// written for Claude Code's tools.
+	Plugins bool
 }
 
 type mcpData struct {
@@ -69,7 +73,9 @@ type planData struct {
 // that read the same at a call site — `engine.jobs != nil, engine.lsp != nil,
 // engine.watches != nil` transposes silently and compiles.
 type Options struct {
-	SkillPath string
+	// Skills is the skill catalog: skill_path first, then the skill
+	// directories of enabled Claude Code plugins. Nil means none configured.
+	Skills skills.Sources
 	// Agents reports whether agent_* tools are registered.
 	Agents bool
 	// LSP reports whether the lsp tool is registered.
@@ -148,12 +154,12 @@ func BuildWithFacts(opts Options) (string, Facts) {
 	facts := Facts{
 		Instructions:      len(files),
 		InstructionScopes: contextScopes(files),
-		SkillDir:          strings.TrimSpace(opts.SkillPath) != "",
+		SkillDir:          len(opts.Skills) > 0,
 	}
 	if ctx := formatProjectContext(files); ctx != "" {
 		parts = append(parts, ctx)
 	}
-	skillBlock, loadedSkills := skillsBlock(opts.SkillPath)
+	skillBlock, loadedSkills := skillsBlock(opts.Skills)
 	facts.Skills = loadedSkills
 	if skillBlock != "" {
 		parts = append(parts, skillBlock)
@@ -188,19 +194,22 @@ func execTmpl(t *template.Template, data any) string {
 
 // skillsBlock renders the catalog and reports how many skills it names, so
 // the render's own count is the one recorded rather than a second load's.
-func skillsBlock(skillDir string) (string, int) {
-	if skillDir == "" {
+func skillsBlock(sources skills.Sources) (string, int) {
+	if len(sources) == 0 {
 		return "", 0
 	}
-	list, err := skills.LoadSkills(skillDir)
-	if err != nil || len(list) == 0 {
+	list, err := sources.Load()
+	if err != nil {
+		debuglog.Logf("prompt: load skills from %s: %v", sources, err)
+	}
+	if len(list) == 0 {
 		return "", 0
 	}
 	catalog := strings.TrimSpace(skills.ToPromptMarkdown(list))
 	if catalog == "" {
 		return "", 0
 	}
-	return execTmpl(skillsPrompt, skillsData{Catalog: catalog}), len(list)
+	return execTmpl(skillsPrompt, skillsData{Catalog: catalog, Plugins: sources.Namespaced()}), len(list)
 }
 
 func mcpBlock(serverNames []string) string {

@@ -38,7 +38,7 @@ func TestBeginCloseRetiresHistoryBeforeBackgroundJoin(t *testing.T) {
 		components.DefaultTheme(),
 		t.TempDir(),
 		"test",
-		"",
+		nil,
 		1000,
 		nil,
 		nil,

@@ -164,8 +164,8 @@ models:
 	assert.Equal(t, "https://api.openai.com/v1", cfg.Model().BaseURL)
 	assert.Equal(t, llm.ProtocolOpenAI, cfg.Model().Protocol)
 	assert.Equal(t, p.Global().SkillsDir(), cfg.SkillPath)
-	// Model() carries the skill path for agent.NewEngine.
-	assert.Equal(t, p.Global().SkillsDir(), cfg.Model().SkillPath)
+	// Model() carries the skill catalog for agent.NewEngine.
+	assert.Equal(t, p.Global().SkillsDir(), cfg.Model().Skills[0].Dir)
 }
 
 func TestLoadConfigLeavesPlanDefaultsToHarnessSettings(t *testing.T) {
@@ -697,16 +697,16 @@ models:
 	assert.Equal(t, 2000, cfg.Models[2].ContextWindow)
 	assert.Equal(t, "p", cfg.DefaultModel)
 
-	// Model() returns the entry marked default, with the skill path applied.
+	// Model() returns the entry marked default, with the skill catalog applied.
 	m := cfg.Model()
 	assert.Equal(t, "p", m.Name)
-	assert.Equal(t, p.Global().SkillsDir(), m.SkillPath)
+	assert.Equal(t, p.Global().SkillsDir(), m.Skills[0].Dir)
 
-	// Models() lists every entry with the skill path applied.
+	// Models() lists every entry with the skill catalog applied.
 	models := cfg.AllModels()
 	require.Len(t, models, 3)
 	for _, mm := range models {
-		assert.Equal(t, p.Global().SkillsDir(), mm.SkillPath)
+		assert.Equal(t, p.Global().SkillsDir(), mm.Skills[0].Dir)
 	}
 
 	// FindModel returns the full per-model connection config.

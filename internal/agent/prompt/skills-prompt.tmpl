@@ -10,3 +10,19 @@ Treat skills as constraints and shortcuts—apply the smallest relevant part.
 
 ## Available skills
 {{.Catalog}}
+{{- if .Plugins}}
+
+## Plugin skills
+Skills named `<plugin>:<name>` come from Claude Code plugins and are written for Claude Code. Its tool names map to yours:
+
+| Claude Code | cozyphi |
+| --- | --- |
+| `Skill` | `read` the SKILL.md at the listed Location |
+| `Task` / `Agent` | `agent_spawn`, then `agent_wait` |
+| `TodoWrite` | `plan` |
+| `Bash`, `Read`, `Write`, `Edit`, `Grep` | `bash`, `read`, `write`, `edit`, `grep` |
+| `Glob` | `find` |
+| `WebFetch`, `WebSearch` | `web` |
+
+`${CLAUDE_PLUGIN_ROOT}` in a skill is the plugin root: the directory above that skill's `skills/` folder.
+{{- end}}

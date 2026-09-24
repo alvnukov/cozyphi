@@ -71,7 +71,7 @@ func newNotifyTestEditor(t *testing.T) (*View, *fakeNotifier) {
 	require.NoError(t, err)
 	t.Cleanup(ctrl.Close)
 
-	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0, nil, nil)
+	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", nil, 0, nil, nil)
 	n := &fakeNotifier{}
 	e.SetAttentionNotifier(n)
 	return e, n

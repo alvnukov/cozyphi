@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 )
 
 // seedTwoTurns records two finished turns and returns the entry ids of the
@@ -167,7 +168,7 @@ func TestRewindHandsBackWhatTheUserTypedWithoutTheSkillParagraph(t *testing.T) {
 // The paragraph is built from the same constant the strip looks for, so a
 // reworded instruction cannot silently start leaking into the composer.
 func TestTheSkillParagraphAndTheStripAgree(t *testing.T) {
-	instruction := pendingSkillsInstruction(t.TempDir(), []string{"proofread"})
+	instruction := pendingSkillsInstruction(skills.Sources{{Dir: t.TempDir()}}, []string{"proofread"})
 	require.NotEmpty(t, instruction)
 	assert.Empty(t, userTypedPrompt(instruction),
 		"an instruction with no words of the user's leaves nothing behind")

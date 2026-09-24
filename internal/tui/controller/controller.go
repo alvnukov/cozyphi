@@ -1175,7 +1175,7 @@ func (c *Controller) ModelNames() []string {
 func (c *Controller) findModel(name string) (llm.ModelConfig, bool) {
 	for _, cfg := range c.modelCatalog() {
 		if cfg.Name == name {
-			return c.skillPathOrDefault(cfg), true
+			return c.skillsOrDefault(cfg), true
 		}
 	}
 	// Legacy "name:effort" selectors predate effort being a separate choice;
@@ -1194,7 +1194,7 @@ func (c *Controller) findModel(name string) (llm.ModelConfig, bool) {
 		if !valid || !slices.Contains(cfg.ReasoningEfforts, effort) {
 			return llm.ModelConfig{}, false
 		}
-		cfg = c.skillPathOrDefault(cfg)
+		cfg = c.skillsOrDefault(cfg)
 		cfg.ReasoningEffort = effort
 		return cfg, true
 	}
@@ -1216,12 +1216,12 @@ func effortSupported(cfg llm.ModelConfig, effort llm.ReasoningEffort) bool {
 	return effort != "" && slices.Contains(cfg.ReasoningEfforts, effort)
 }
 
-// skillPathOrDefault fills a catalog model's empty skill path from the project
+// skillsOrDefault fills a catalog model's empty skill catalog from the project
 // config, so a provider or opencode pick behaves like a configured one at
 // every place it is resolved.
-func (c *Controller) skillPathOrDefault(cfg llm.ModelConfig) llm.ModelConfig {
-	if cfg.SkillPath == "" && c.proj != nil && c.proj.Config() != nil {
-		cfg.SkillPath = c.proj.Config().SkillPath
+func (c *Controller) skillsOrDefault(cfg llm.ModelConfig) llm.ModelConfig {
+	if cfg.Skills == nil && c.proj != nil && c.proj.Config() != nil {
+		cfg.Skills = c.proj.Config().Skills
 	}
 	return cfg
 }
@@ -1416,7 +1416,7 @@ func (c *Controller) applyStartupFallbackModel(resumeModel string) {
 		if cfg.Name == "" {
 			continue
 		}
-		c.modelCfg = c.skillPathOrDefault(cfg)
+		c.modelCfg = c.skillsOrDefault(cfg)
 		c.startupModelFallback = true
 		return
 	}

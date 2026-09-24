@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 )
 
 func TestSessionPersistFlush(t *testing.T) {
@@ -122,13 +123,13 @@ func TestEngineSetModelKeepsSession(t *testing.T) {
 		APIKey:        "k",
 		BaseURL:       "http://example",
 		ContextWindow: 8192,
-		SkillPath:     dir,
+		Skills:        skills.Sources{{Dir: dir}},
 	}))
 	assert.Equal(t, id, eng.SessionID())
 	assert.Equal(t, file, eng.SessionFile())
 	assert.Equal(t, n, eng.session.manager.Len())
 	assert.Equal(t, 8192, eng.contextWindow)
-	assert.Equal(t, dir, eng.skillPath)
+	assert.Equal(t, dir, eng.skillSources[0].Dir)
 }
 
 func splitFirstJSONL(b []byte) []byte {

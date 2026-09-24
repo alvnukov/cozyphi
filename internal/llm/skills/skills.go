@@ -218,9 +218,3 @@ func bareName(name string) string {
 	}
 	return name
 }
-
-// LoadSkills reads one unnamespaced directory. It is kept until every
-// caller carries Sources (see the Task 5 refactor).
-func LoadSkills(skillDir string) ([]*Skill, error) {
-	return Sources{{Dir: skillDir}}.Load()
-}

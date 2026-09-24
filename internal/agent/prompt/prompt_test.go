@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/tasks"
 )
 
@@ -207,4 +210,31 @@ func TestBuildWithFactsMeasuresTheRenderItProduces(t *testing.T) {
 	if text != Build(Options{}) {
 		t.Fatal("the measured render is the render Build returns")
 	}
+}
+
+// TestSkillsBlockMapsClaudeToolsOnlyForPlugins pins the plugin-only mapping:
+// a plain skill_path catalog renders no Claude Code tool guidance, but the
+// moment a namespaced (plugin) source joins the mix, the mapping table shows
+// up — because a plugin skill's body was written for Claude Code's tools.
+func TestSkillsBlockMapsClaudeToolsOnlyForPlugins(t *testing.T) {
+	user, plugin := t.TempDir(), t.TempDir()
+	for _, dir := range []string{user, plugin} {
+		path := filepath.Join(dir, "s", "SKILL.md")
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte("---\nname: s\ndescription: d\n---\n"), 0o600))
+	}
+
+	plain, facts := BuildWithFacts(Options{Skills: skills.Sources{{Dir: user}}})
+	require.True(t, facts.SkillDir)
+	require.Equal(t, 1, facts.Skills)
+	require.NotContains(t, plain, "written for Claude Code")
+
+	mixed, facts := BuildWithFacts(Options{Skills: skills.Sources{{Dir: user}, {Dir: plugin, Namespace: "p"}}})
+	require.Equal(t, 2, facts.Skills)
+	require.Contains(t, mixed, "### p:s")
+	require.Contains(t, mixed, "written for Claude Code")
+	require.Contains(t, mixed, "`agent_spawn`, then `agent_wait`")
+
+	_, facts = BuildWithFacts(Options{})
+	require.False(t, facts.SkillDir)
 }
