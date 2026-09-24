@@ -125,6 +125,7 @@ var reportedConfig = map[string]catalogRef{
 
 	"internal/project:fileConfig.models":        {diag.CategoryModel, diag.KeyModelVariants},
 	"internal/project:fileConfig.skill_path":    {diag.CategoryContext, diag.KeyContextSkills},
+	"internal/project:fileConfig.plugins":       {diag.CategoryContext, diag.KeyContextSkills},
 	"internal/project:fileConfig.permissions":   {diag.CategoryPermissions, diag.KeyPermissionMode},
 	"internal/project:fileConfig.agents":        {diag.CategoryAgents, diag.KeyAgentsState},
 	"internal/project:fileConfig.notifications": {diag.CategoryUI, diag.KeyNotifyMode},
@@ -195,6 +196,10 @@ var reportedConfig = map[string]catalogRef{
 	"internal/tasks:cfg.task_registry.backend":       {diag.CategoryStorage, diag.KeyTasksState},
 	"internal/tasks:cfg.task_registry.obsidian":      {diag.CategoryStorage, diag.KeyTasksLocation},
 	"internal/tasks:cfg.task_registry.obsidian.path": {diag.CategoryStorage, diag.KeyTasksLocation},
+
+	"internal/project:pluginsFileConfig.enabled":    {diag.CategoryContext, diag.KeyContextSkills},
+	"internal/project:pluginsFileConfig.claude_dir": {diag.CategoryContext, diag.KeyContextSkills},
+	"internal/project:pluginsFileConfig.paths":      {diag.CategoryContext, diag.KeyContextSkills},
 
 	"internal/project:fileConfig.tasks":      {diag.CategoryStorage, diag.KeyTasksLocation},
 	"internal/project:tasksFileConfig.roots": {diag.CategoryStorage, diag.KeyTasksLocation},
