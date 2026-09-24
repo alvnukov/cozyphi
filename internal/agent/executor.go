@@ -77,12 +77,10 @@ type Executor struct {
 	// directive for a tool name blocks the call before hooks and permissions
 	// spend anything. nil = no gate.
 	compactGate func(tool string) string
-	// drainCompactAdvice, when wired, moves a compaction recommendation a
-	// call parked mid-run (its settle transition or the plan tool's own
-	// action) into that call's result, so the model meets it at this
-	// boundary instead of one prompt later. nil = advice waits for the next
-	// prompt.
-	drainCompactAdvice func() string
+	// drainReminders, when wired, moves reminders parked on the engine —
+	// session context and compaction advice — onto this call's result, one
+	// boundary earlier than the next-prompt drain.
+	drainReminders func() string
 	// drainPlanSkills, when wired, returns plan-step skill text queued at a
 	// step_start boundary and whether it is guidance the model has not seen.
 	// Only such guidance refuses the starting call; a reminder of skills
@@ -168,15 +166,15 @@ func (e *Executor) SetCompactGate(gate func(tool string) string) {
 	e.compactGate = gate
 }
 
-// SetCompactAdviceDrain wires the engine's parked-compaction-advice drain.
-// The executor calls it once a tool has run, so advice the call itself
-// parked rides that call's result instead of the next user prompt. nil
-// keeps the next-prompt delivery.
-func (e *Executor) SetCompactAdviceDrain(drain func() string) {
+// SetReminderDrain wires the engine's parked-reminder drain. The executor
+// calls it once a tool has run, so a reminder parked before or during the
+// call rides that call's result instead of the next user prompt. nil keeps
+// the next-prompt delivery.
+func (e *Executor) SetReminderDrain(drain func() string) {
 	if e == nil {
 		return
 	}
-	e.drainCompactAdvice = drain
+	e.drainReminders = drain
 }
 
 // SetPlanSkillDrain wires the engine's parked plan-skill preload. The executor
@@ -519,12 +517,13 @@ func (e *Executor) runOne(
 		content = appendModelReminder(content, "A post-tool hook stopped the run: "+state.stop.Reason())
 	}
 
-	// Advice this very call parked (a plan compact action in its settle or
-	// in the plan tool's Run) rides the call's own result — one boundary
-	// earlier than the next-prompt drain, and drained here so that prompt
-	// does not repeat it.
-	if e.drainCompactAdvice != nil {
-		if reminder := e.drainCompactAdvice(); reminder != "" {
+	// Reminders parked on the engine — session context queued since the
+	// prompt, advice this very call parked (a plan compact action in its
+	// settle or in the plan tool's Run) — ride the call's own result: one
+	// boundary earlier than the next-prompt drain, and drained here so that
+	// prompt does not repeat them.
+	if e.drainReminders != nil {
+		if reminder := e.drainReminders(); reminder != "" {
 			content = appendModelReminder(content, reminder)
 		}
 	}

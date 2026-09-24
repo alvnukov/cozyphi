@@ -152,6 +152,11 @@ type Engine struct {
 	// user prompt drains it and prepends it: the model, not the harness,
 	// picks the moment and calls the compact itself.
 	compactAdvice string
+	// lifecycle is LifecycleHooks for a primary engine; a child never gets it.
+	lifecycle bool
+	// sessionContext parks session_start hook context until the next prompt
+	// or tool result, whichever comes first. A newer queue replaces it.
+	sessionContext string
 
 	// compactStrikes counts tool rounds that ran over the reminder threshold
 	// without a compaction landing — one strike per round, so a runaway loop
@@ -342,6 +347,10 @@ type EngineOpts struct {
 	// directory, leaves the tool out entirely — a session with no web tool
 	// is the honest shape of a session that cannot reach the network.
 	Web WebOptions
+	// LifecycleHooks marks a controller-owned primary engine: it accepts
+	// session-start context and re-runs session_start hooks after
+	// compaction. Children and headless runs leave it off.
+	LifecycleHooks bool
 }
 
 // NewEngine wires an LLM client, tool executor, and session store.
@@ -414,6 +423,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		autoApprove:        opts.AutoApprove,
 		sessionNaming:      opts.SessionOpts.ParentID == "" && opts.Tools == nil,
 		planEnabled:        opts.SessionOpts.ParentID == "" && opts.Tools == nil,
+		lifecycle:          opts.LifecycleHooks && opts.SessionOpts.ParentID == "",
 		baseTools:          tools.RebuildSessionTools(opts.Tools),
 		defaultTools:       defaultTools,
 		mode:               ModeUsePlan,
@@ -816,7 +826,7 @@ func (engine *Engine) bindExecutor(registry tools.Registry) {
 	}
 	engine.executor.SetApprovalObserver(engine.observeWebApproval)
 	engine.executor.SetCompactGate(engine.compactGateFor)
-	engine.executor.SetCompactAdviceDrain(engine.drainCompactAdvice)
+	engine.executor.SetReminderDrain(engine.drainBoundaryReminders)
 	engine.executor.SetPlanSkillDrain(engine.drainPlanSkills)
 	if engine.session != nil {
 		engine.executor.SetMeta(engine.session.ID(), engine.session.Cwd())
@@ -1361,6 +1371,9 @@ func (engine *Engine) composeUserPrompt(recall *memory.Recall, skillNames []stri
 		}
 	}
 	content = prependReminder(recall.Reminder(engine.memoryQuery(query)), content)
+	// Session context (a plugin bootstrap) precedes the request it frames;
+	// compact advice stays outermost.
+	content = prependReminder(engine.drainSessionContext(), content)
 	// The compact advice rides exactly one prompt, outermost: it is
 	// operational rather than context, so it opens the turn, and replay
 	// strips it back out with every other reminder.

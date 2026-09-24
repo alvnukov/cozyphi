@@ -291,7 +291,7 @@ func newController(
 	c.startJobProgress()
 	c.startWatchEvents()
 	c.startShellTaskEvents()
-	c.emitSessionStart("startup", eng.SessionID(), "")
+	c.emitSessionStart(eng, hooks.ReasonStartup, "")
 	return c, nil
 }
 
@@ -339,6 +339,9 @@ func (c *Controller) newEngine(
 		Diagnostics:   c.diagnostics,
 		Web:           c.webOptions(),
 		Compaction:    c.compactionPolicy(),
+		// Only the session the user sits in takes a plugin bootstrap; a
+		// child controller's engine is a sub-agent and stays off.
+		LifecycleHooks: c.childRole == "",
 	})
 }
 
@@ -2302,7 +2305,7 @@ func (c *Controller) switchSession(
 	c.resetUsage()
 	c.publishPlan(eng.Plan())
 	c.publish(ShellTasksChangedMsg{Tasks: c.ShellTasks()})
-	c.emitSessionStart(reason, eng.SessionID(), prevID)
+	c.emitSessionStart(eng, reason, prevID)
 	return eng, nil
 }
 
@@ -2948,7 +2951,9 @@ func (c *Controller) sessionShutdown(reason, sessionID string) {
 	c.publishSessionEffects(out)
 }
 
-func (c *Controller) emitSessionStart(reason, sessionID, previousID string) {
+// emitSessionStart runs session_start hooks for eng's session and queues the
+// context they return on that engine, so it reaches the model once.
+func (c *Controller) emitSessionStart(eng *agent.Engine, reason, previousID string) {
 	mgr := c.Hooks()
 	if mgr == nil {
 		return
@@ -2958,13 +2963,14 @@ func (c *Controller) emitSessionStart(reason, sessionID, previousID string) {
 		ctx = c.runtime.constructionCtx
 	}
 	out := mgr.SessionStart(ctx, hooks.SessionEvent{
-		SessionID:         sessionID,
+		SessionID:         eng.SessionID(),
 		Cwd:               c.cwd,
 		Reason:            reason,
 		PreviousSessionID: previousID,
 		Usage:             c.sessionUsage(),
 	})
 	c.publishSessionEffects(out)
+	eng.QueueSessionContext(out.Context)
 }
 
 // sessionUsage returns the token usage of the last completed turn observed by
