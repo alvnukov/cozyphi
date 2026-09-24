@@ -349,7 +349,11 @@ Tests live beside the code and use public interfaces only.
   `internal/hooks/observe.go` maps discovery's source labels onto
   `diag.HookOrigin`'s closed vocabulary (`user`, `project`), and a
   `plugin:<Name>` source falls into its `default: continue` — present in
-  `hooks list` but invisible to that diagnostic view.
+  `hooks list` but invisible to that diagnostic view. The config coverage
+  inventory (`configCoverage`/`envCoverage` in
+  `internal/tui/controller/developer_mode_coverage_test.go`) maps the
+  `plugins` section, its `enabled`/`claude_dir`/`paths` keys and
+  `COZYPHI_PLUGINS` to the skills key, `diag.KeyContextSkills`.
 - The executor setter is renamed to `SetReminderDrain`, because it now
   carries session context as well.
 - Skill bodies are expanded at load. The file the model `read`s stays raw.
