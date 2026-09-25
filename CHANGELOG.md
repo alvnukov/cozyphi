@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Added: a side question (`/btw`) is drawn as a row of its own in the theme's
+  side question color. The title carries the question, and `re:` names an
+  earlier message the question was about. A click on the title folds the answer, and Esc marks
+  the row cancelled. A resumed session shows each side question again after
+  the message it was asked at, and `/export` marks it as a side question. See
+  `doc/aside.md`.
 - Fixed: background watch output can no longer close its `<watch>` or
   `<system-reminder>` wrapper early, including when replaying a transcript.
 - Changed: `session_start` hooks now see reason `resume`, not `startup`, when
@@ -39,7 +45,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   version now tracks the current Codex CLI release (0.156.0).
 - Added: side questions. `/btw <question>` asks the model about the
   conversation as it stands, and `/btw @<id> <question>` about the conversation
-  up to that message. The answer streams into the feed as a row marked `btw:`
+  up to that message. The answer streams into the feed as a row of its own
   and is kept in the session file, but neither the question nor the answer is
   ever shown to the model again, and the cursor does not move. Tools do not run
   for a side question: a tool call ends the answer with a note naming the tool.

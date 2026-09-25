@@ -478,6 +478,15 @@ func (t *TranscriptPane) markProjectionChange(ev session.Event, before, after se
 				return
 			}
 		}
+	case session.AsideUpdate:
+		// A side question streams into the row it opened at the bottom of
+		// the feed; while nothing has been added below it, one patch does.
+		if len(before.Messages) == len(after.Messages) && len(after.Messages) > 0 &&
+			after.Messages[len(after.Messages)-1].ID == e.ID &&
+			after.Messages[len(after.Messages)-1].Role == session.RoleAside {
+			t.markProjectionTail()
+			return
+		}
 	case session.ToolData:
 		if lastMessageOwnsTool(after, e.Run.ToolUseID) {
 			t.markProjectionTail()
@@ -873,6 +882,8 @@ func applyThemeToWidgets(entries []components.Widget, th components.Theme) {
 		case *block.DiffBlock:
 			b.Theme = th
 		case *block.TurnSummaryBlock:
+			b.Theme = th
+		case *block.AsideBlock:
 			b.Theme = th
 		}
 	}

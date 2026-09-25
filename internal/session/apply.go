@@ -354,12 +354,18 @@ func lastAssistantIndex(msgs []Message) int {
 	return -1
 }
 
-// IsStreaming reports whether inference, tools, or compaction are still active.
+// IsStreaming reports whether inference, a side question, tools, or
+// compaction are still active.
 func IsStreaming(s Snapshot) bool {
 	if s.Compacting {
 		return true
 	}
 	if i := lastAssistantIndex(s.Messages); i >= 0 && s.Messages[i].State == StateStreaming {
+		return true
+	}
+	if slices.ContainsFunc(s.Messages, func(m Message) bool {
+		return m.Role == RoleAside && m.State == StateStreaming
+	}) {
 		return true
 	}
 	return HasRunningTools(s)

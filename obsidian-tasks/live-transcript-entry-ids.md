@@ -1,7 +1,7 @@
 ---
 id: live-transcript-entry-ids
 title: Живые строки транскрипта несут персистентные id записей сессии
-status: in_progress
+status: done
 priority: high
 model_level: medium
 task_type: bug
@@ -22,7 +22,7 @@ verification_plan:
     - 'Ручная проверка: ход в TUI, затем /context — id записей совпадают с id строк (временный лог или тест на Project)'
     - Один scoped golangci-lint run по изменённым пакетам перед коммитом
 created_at: "2026-09-16T08:00:30.672449Z"
-updated_at: "2026-09-16T08:00:30.672449Z"
+updated_at: "2026-09-20T19:09:21.000000Z"
 ---
 
 ## Body

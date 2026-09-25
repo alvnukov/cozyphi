@@ -35,9 +35,10 @@ func drainAside(t *testing.T, bus *Bus) []session.AsideUpdate {
 }
 
 // A side question through the controller streams its answer onto the bus and
-// is written to the session file, while the replay a resumed transcript is
-// built from stays exactly the conversation it was.
-func TestControllerAsideStreamsTheAnswerAndLeavesTheReplayAlone(t *testing.T) {
+// is written to the session file. The replay a resumed transcript is built
+// from keeps the conversation as it was and shows the aside after the leaf it
+// was asked at.
+func TestControllerAsideStreamsTheAnswerAndReplaysItAfterItsLeaf(t *testing.T) {
 	srv, requests := textSSEServer(t)
 	bus := NewBus(nil)
 	ctrl := newInjectController(t, bus, srv.URL)
@@ -54,8 +55,16 @@ func TestControllerAsideStreamsTheAnswerAndLeavesTheReplayAlone(t *testing.T) {
 	assert.Len(t, requests(), 1)
 	waitForCond(t, 2*time.Second, func() bool { return !ctrl.RunActive() })
 
-	assert.Equal(t, replayBefore, ctrl.ReplaySnapshot(), "the replay has no aside row in it")
-	for _, msg := range ctrl.ReplaySnapshot().Messages {
+	replayed := ctrl.ReplaySnapshot().Messages
+	require.Len(t, replayed, len(replayBefore.Messages)+1)
+	assert.Equal(t, replayBefore.Messages, replayed[:len(replayBefore.Messages)],
+		"the conversation rows are the ones there were")
+	aside := replayed[len(replayed)-1]
+	assert.Equal(t, last.ID, aside.ID, "the replayed row carries the id it streamed under")
+	assert.Equal(t, session.RoleAside, aside.Role)
+	assert.Equal(t, session.StateComplete, aside.State)
+	assert.Equal(t, session.AsideRow{Question: "what did we do?", Answer: "noted"}, aside.Aside)
+	for _, msg := range replayed {
 		assert.False(t, strings.HasPrefix(msg.Text, "btw:"))
 	}
 	raw, err := os.ReadFile(ctrl.SessionFile())

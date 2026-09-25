@@ -46,6 +46,14 @@ func (c *Controller) Aside(question, anchorID string) error {
 		// or with the error, so the returned error adds nothing to show.
 		_ = engine.RunAside(ctx, req, func(ev session.Event) bool {
 			if !c.Alive(gen) {
+				// Esc stops the stream but must not strand the row: the
+				// update that ends it is the only thing that settles its
+				// state, so it still goes out while this run is the
+				// current one.
+				if update, ok := ev.(session.AsideUpdate); ok &&
+					update.State != session.StateStreaming && c.sameGeneration(gen) {
+					c.publish(SessionEventMsg{Event: ev})
+				}
 				return false
 			}
 			c.publish(SessionEventMsg{Event: ev})
@@ -55,6 +63,14 @@ func (c *Controller) Aside(question, anchorID string) error {
 	c.streamMu.Unlock()
 	c.publish(SetActivityMsg{Activity: ActivityStreaming})
 	return nil
+}
+
+// sameGeneration reports whether the run gen started is still the current one,
+// stopped or not.
+func (c *Controller) sameGeneration(gen int) bool {
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	return c.streamGen == gen
 }
 
 // AsideAnchors lists the messages a side question may be asked about, oldest

@@ -1,7 +1,7 @@
 ---
 id: aside-composer-mode
 title: 'Режим btw в композере: кнопка-lead, хоткей Ctrl+T, подсказка'
-status: in_progress
+status: done
 priority: high
 model_level: medium
 task_type: feature
@@ -24,7 +24,7 @@ verification_plan:
     - 'Ручная проверка: Ctrl+T → вопрос → ответ-aside; кнопка btw на старом ответе → lead с @id → вопрос по тому контексту'
     - Один scoped golangci-lint run по изменённым пакетам перед коммитом
 created_at: "2026-09-16T08:00:30.678223Z"
-updated_at: "2026-09-23T23:52:20.516769Z"
+updated_at: "2026-09-25T09:00:00.000000Z"
 ---
 
 ## Body

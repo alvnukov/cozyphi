@@ -20,6 +20,9 @@ const (
 	// RoleAgentOutcome is a finished sub-agent whose spawn row is gone
 	// (UI-only, not agent).
 	RoleAgentOutcome
+	// RoleAside is a side question and its answer. The row lives in the feed
+	// only: no context the model is shown ever contains it.
+	RoleAside
 )
 
 // State is the assistant message lifecycle.
@@ -154,6 +157,21 @@ type Message struct {
 	// ThinkingDuration is the wall-clock span of the round's reasoning,
 	// 0 when unknown (streaming, replayed history, or no reasoning).
 	ThinkingDuration time.Duration
+	// Aside is what a side question row shows (RoleAside only).
+	Aside AsideRow
+}
+
+// AsideRow is the question, the answer and the ending of a side question row.
+type AsideRow struct {
+	Question string
+	// AnchorPreview names the message the question was asked about when that
+	// message was not the end of the context, and is empty otherwise.
+	AnchorPreview string
+	// Answer is the whole answer so far.
+	Answer      string
+	SkippedTool string
+	// Error explains a row that ended in StateError.
+	Error string
 }
 
 // TurnDuration returns the round span when both ends are known, else 0.
@@ -322,11 +340,14 @@ func (AssistantMessageUpdate) isSessionEvent() {}
 // row it draws and the record in the log carry one name. Answer is the whole
 // answer so far, not a delta.
 type AsideUpdate struct {
-	ID       string
-	Anchor   string
-	Question string
-	Answer   string
-	State    State
+	ID     string
+	Anchor string
+	// AnchorPreview names the anchor when the question was not about the
+	// whole context (see AsideRow).
+	AnchorPreview string
+	Question      string
+	Answer        string
+	State         State
 	// SkippedTool names the tool the model asked for when the answer
 	// stopped there instead of running it.
 	SkippedTool string

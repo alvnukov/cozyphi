@@ -156,6 +156,10 @@ func TestEngineAsideAtAnAnchorSendsTheContextUpToIt(t *testing.T) {
 	assert.Contains(t, requests[0], "first answer")
 	assert.NotContains(t, requests[0], "second question")
 	assert.Equal(t, firstAnswer, engine.session.manager.Asides()[0].Anchor)
+	require.NotEmpty(t, events)
+	for _, event := range events {
+		assert.Equal(t, "answer first answer", event.AnchorPreview, "every update names the message asked about")
+	}
 }
 
 // Tools never run for a side question. A call the model makes anyway ends

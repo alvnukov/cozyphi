@@ -2385,13 +2385,14 @@ func (c *Controller) Clear() error {
 }
 
 // ReplaySnapshot builds a UI transcript snapshot from the engine session
-// (user/assistant text; tool rows simplified away). The projection itself
-// lives in internal/tui/transcript beside the Mapper.
+// (user/assistant text and side questions; tool rows simplified away). The
+// projection itself lives in internal/tui/transcript beside the Mapper.
 func (c *Controller) ReplaySnapshot() session.Snapshot {
 	if c.engine == nil || c.engine.Session() == nil {
 		return session.Snapshot{}
 	}
-	return transcript.ReplaySnapshot(c.engine.Session().PathEntries())
+	sess := c.engine.Session()
+	return transcript.ReplaySnapshot(sess.PathEntries(), sess.PathAsides()...)
 }
 
 // StartPrompt starts a new agent loop. When another run is already in flight

@@ -235,27 +235,79 @@ func entryIDs(entries []session.MessageEntry) []string {
 	return ids
 }
 
-// Until the feed has a block of its own for side questions, an aside draws
-// as an assistant row marked "btw:", patched in place under its one id.
+// An aside draws as a row of its own kind, patched in place under its one id,
+// and the next turn is a row of its own rather than a patch of the aside.
 func TestAsideUpdateDrawsOneRowUnderItsID(t *testing.T) {
 	snap := session.Apply(session.Snapshot{}, session.AsideUpdate{
 		ID: "a1", Question: "side?", Answer: "part", State: session.StateStreaming,
+		AnchorPreview: "answer earlier",
 	})
 	snap = session.Apply(snap, session.AsideUpdate{
 		ID: "a1", Question: "side?", Answer: "partial answer", State: session.StateComplete,
-		SkippedTool: "bash",
+		AnchorPreview: "answer earlier", SkippedTool: "bash", Model: "m",
 	})
 	require.Len(t, snap.Messages, 1)
 	row := snap.Messages[0]
 	assert.Equal(t, "a1", row.ID)
-	assert.Equal(t, session.RoleAssistant, row.Role)
+	assert.Equal(t, session.RoleAside, row.Role)
 	assert.Equal(t, session.StateComplete, row.State)
-	assert.Equal(t, "btw: side?\n\npartial answer\n\n"+session.AsideSkippedToolNote("bash"), row.Text)
+	assert.Equal(t, "m", row.Model)
+	assert.Equal(t, session.AsideRow{
+		Question: "side?", AnchorPreview: "answer earlier", Answer: "partial answer", SkippedTool: "bash",
+	}, row.Aside)
 
-	// The next turn is a row of its own, not a patch of the finished aside.
+	items := session.Project(snap)
+	require.Len(t, items, 1)
+	assert.Equal(t, session.ItemAside, items[0].Kind)
+	assert.Equal(t, row.Aside, items[0].Aside)
+
 	snap = session.Apply(snap, session.AssistantMessageUpdate{Message: session.Message{
 		ID: "turn", State: session.StateStreaming, Text: "hello",
 	}})
 	require.Len(t, snap.Messages, 2)
-	assert.Equal(t, "btw: side?\n\npartial answer\n\n"+session.AsideSkippedToolNote("bash"), snap.Messages[0].Text)
+	assert.Equal(t, "partial answer", snap.Messages[0].Aside.Answer)
+	assert.Equal(t, session.RoleAssistant, snap.Messages[1].Role)
+}
+
+// A streaming aside keeps the pipeline busy, the way a streaming turn does,
+// so a local command is not started under it.
+func TestAStreamingAsideCountsAsStreaming(t *testing.T) {
+	snap := session.Apply(session.Snapshot{}, session.AsideUpdate{
+		ID: "a1", Question: "side?", State: session.StateStreaming,
+	})
+	assert.True(t, session.IsStreaming(snap))
+	snap = session.Apply(snap, session.AsideUpdate{ID: "a1", Question: "side?", State: session.StateComplete})
+	assert.False(t, session.IsStreaming(snap))
+}
+
+func anchorPreviewOf(t *testing.T, manager *session.Manager, entryID string) string {
+	t.Helper()
+	for _, anchor := range manager.AsideAnchors() {
+		if anchor.EntryID == entryID {
+			return anchor.Preview
+		}
+	}
+	t.Fatalf("no anchor %s", entryID)
+	return ""
+}
+
+// A question about the end of the context is a question about all of it and
+// names nothing; one about an earlier message names that message.
+func TestAsideScopeNamesAnAnchorThatIsNotTheEndOfTheContext(t *testing.T) {
+	manager := session.NewManager(t.TempDir())
+	first := recordTurn(t, manager, "one", "answer one")
+	second := recordTurn(t, manager, "two", "answer two")
+
+	whole, err := manager.AsideScope("")
+	require.NoError(t, err)
+	assert.Empty(t, whole.AnchorPreview)
+
+	atEnd, err := manager.AsideScope(second.Answer)
+	require.NoError(t, err)
+	assert.Empty(t, atEnd.AnchorPreview, "the last message is the whole context")
+
+	earlier, err := manager.AsideScope(first.Answer)
+	require.NoError(t, err)
+	assert.Equal(t, anchorPreviewOf(t, manager, first.Answer), earlier.AnchorPreview)
+	assert.NotEmpty(t, earlier.AnchorPreview)
 }

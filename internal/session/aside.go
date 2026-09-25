@@ -66,6 +66,9 @@ func (e *NotAsideAnchorError) Error() string {
 type AsideScope struct {
 	Anchor string
 	Leaf   string
+	// AnchorPreview names the anchor when it is not the end of the context,
+	// and is empty when the question is about all of it.
+	AnchorPreview string
 	// Entries is the current context cut after the anchor, oldest first.
 	Entries []MessageEntry
 }
@@ -105,6 +108,7 @@ func (sm *Manager) AsideScope(anchorID string) (AsideScope, error) {
 		}
 		scope.Anchor = anchorID
 		scope.Entries = slices.Clone(path[:i+1])
+		scope.AnchorPreview = anchorPreview(path, anchorID)
 		return scope, nil
 	}
 	return AsideScope{}, &NotAsideAnchorError{EntryID: anchorID}
@@ -129,6 +133,21 @@ func (sm *Manager) AsideAnchors() []AsideAnchor {
 		}
 	}
 	return anchors
+}
+
+// anchorPreview names the anchor when it is not the last entry of context,
+// and is empty when it is: a question about the end of the context is a
+// question about all of it.
+func anchorPreview(context []MessageEntry, anchor string) string {
+	if len(context) == 0 || context[len(context)-1].GetID() == anchor {
+		return ""
+	}
+	for _, entry := range context {
+		if message, ok := entry.(SessionMessageEntry); ok && message.ID == anchor {
+			return asidePreview(message)
+		}
+	}
+	return ""
 }
 
 func asidePreview(entry SessionMessageEntry) string {
@@ -199,6 +218,67 @@ func (sm *Manager) Asides() []AsideEntry {
 	return asides
 }
 
+// PlacedAside is a side question and the place its row takes in the feed.
+type PlacedAside struct {
+	AsideEntry
+	// After is the context entry the row follows. Empty puts the row at the
+	// top of the feed, the place of a question about history that has since
+	// been compacted away.
+	After string
+	// AnchorPreview names the anchor when the question was not about the
+	// whole context it was asked in (see AsideScope).
+	AnchorPreview string
+}
+
+// PathAsides lists the side questions asked on the current branch, oldest
+// first. Each one follows the context entry nearest the leaf it was asked
+// at, which is where the cursor stood and so where its row first appeared.
+//
+// A question asked on a branch the cursor has left since is not listed: its
+// leaf is off the current path, and the feed does not show what it was
+// about, much as a rewind and a fork refuse an entry off the path.
+func (sm *Manager) PathAsides() []PlacedAside {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if sm.leafID == nil {
+		return nil
+	}
+	path := walkPath(sm.entries, *sm.leafID, sm.byIDs)
+	position := make(map[string]int, len(path))
+	for i, entry := range path {
+		position[entry.GetID()] = i
+	}
+	inContext := make(map[string]bool)
+	for _, entry := range sm.contextPathLocked() {
+		inContext[entry.GetID()] = true
+	}
+	var placed []PlacedAside
+	for _, entry := range sm.entries {
+		aside, ok := entry.(AsideEntry)
+		if !ok {
+			continue
+		}
+		at, onPath := position[aside.Leaf]
+		if !onPath {
+			continue
+		}
+		row := PlacedAside{AsideEntry: aside}
+		for i := at; i >= 0; i-- {
+			if id := path[i].GetID(); inContext[id] {
+				row.After = id
+				break
+			}
+		}
+		// The context the question was asked in, not the one there is now:
+		// a later compaction must not turn a question about everything into
+		// one about a single message.
+		asked := buildSessionContext(sm.entries, aside.Leaf, sm.byIDs)
+		row.AnchorPreview = anchorPreview(asked, aside.Anchor)
+		placed = append(placed, row)
+	}
+	return placed
+}
+
 // AsideSkippedToolNote is the line an answer that stopped at a tool call ends
 // with, so the stop is not read as the whole answer.
 func AsideSkippedToolNote(tool string) string {
@@ -208,26 +288,21 @@ func AsideSkippedToolNote(tool string) string {
 	return "[stopped here: the model asked to run " + tool + ", and tools do not run for a side question]"
 }
 
-// asideRow draws a side question as a plain assistant row marked "btw:". It
-// stands in until the feed has a block of its own for side questions.
+// asideRow is the feed row of a side question. Its state is set by the
+// update carrying its id and by nothing else: the row is no assistant turn,
+// so a cancel aimed at the last one never reaches it.
 func asideRow(e AsideUpdate) Message {
-	parts := []string{"btw: " + e.Question}
-	if e.Answer != "" {
-		parts = append(parts, e.Answer)
-	}
-	if e.SkippedTool != "" {
-		parts = append(parts, AsideSkippedToolNote(e.SkippedTool))
-	}
-	if e.Error != "" {
-		parts = append(parts, e.Error)
-	}
-	body := strings.Join(parts, "\n\n")
 	return Message{
-		ID:      e.ID,
-		Role:    RoleAssistant,
-		State:   e.State,
-		Text:    body,
-		Content: []ContentBlock{{Type: BlockText, Text: body}},
-		Model:   e.Model,
+		ID:    e.ID,
+		Role:  RoleAside,
+		State: e.State,
+		Model: e.Model,
+		Aside: AsideRow{
+			Question:      e.Question,
+			AnchorPreview: e.AnchorPreview,
+			Answer:        e.Answer,
+			SkippedTool:   e.SkippedTool,
+			Error:         e.Error,
+		},
 	}
 }

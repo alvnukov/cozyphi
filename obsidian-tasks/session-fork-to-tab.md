@@ -1,7 +1,7 @@
 ---
 id: session-fork-to-tab
 title: Форк сессии с сообщения в новую вкладку, /fork, кнопка fork
-status: in_progress
+status: done
 priority: high
 model_level: high
 task_type: feature
@@ -23,7 +23,7 @@ verification_plan:
     - 'Ручная проверка: форк кнопкой со второго ответа, новая вкладка с историей до него, ход в форке не появляется в исходной; перезапуск и cozyphi sessions list показывает обе'
     - Один scoped golangci-lint run по изменённым пакетам перед коммитом
 created_at: "2026-09-16T08:00:30.675171Z"
-updated_at: "2026-09-20T00:00:00.000000Z"
+updated_at: "2026-09-21T09:00:00.000000Z"
 ---
 
 ## Body

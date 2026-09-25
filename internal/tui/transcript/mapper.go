@@ -376,6 +376,8 @@ func (m *Mapper) Sync(
 			m.expanded[id] = b.Expanded
 		case *block.CompactionBlock:
 			m.expanded[id] = b.Expanded
+		case *block.AsideBlock:
+			m.expanded[id] = b.Expanded
 		}
 	}
 
@@ -533,8 +535,58 @@ func (m *Mapper) patchItem(w components.Widget, it session.Item) (ok, dirty bool
 		return true, dirty
 	case session.ItemTool:
 		return m.patchTool(w, it)
+	case session.ItemAside:
+		return m.patchAside(w, it)
 	}
 	return false, false
+}
+
+// asideExpanded is the fold state of a side question row: open until the
+// reader folds it.
+func (m *Mapper) asideExpanded(id string) bool {
+	if exp, ok := m.expanded[id]; ok {
+		return exp
+	}
+	return true
+}
+
+// asideWidget draws a side question. It carries no action strip: rewind,
+// fork and btw name entries of the conversation, and an aside is none.
+func (m *Mapper) asideWidget(it session.Item) components.Widget {
+	id := it.ID
+	a := &block.AsideBlock{
+		Expanded: m.asideExpanded(id),
+		Spinner:  m.spinner,
+		OnToggle: func(expanded bool) {
+			m.expanded[id] = expanded
+			if m.onInvalidate != nil {
+				m.onInvalidate()
+			}
+		},
+	}
+	m.patchAside(a, it)
+	return a
+}
+
+func (m *Mapper) patchAside(w components.Widget, it session.Item) (ok, dirty bool) {
+	a, ok := w.(*block.AsideBlock)
+	if !ok {
+		return false, false
+	}
+	row := it.Aside
+	exp := m.asideExpanded(it.ID)
+	dirty = a.Question != row.Question || a.AnchorPreview != row.AnchorPreview ||
+		a.Answer != row.Answer || a.SkippedTool != row.SkippedTool ||
+		a.Error != row.Error || a.State != it.State || a.Expanded != exp || a.Theme.Name != m.theme.Name
+	a.Question = row.Question
+	a.AnchorPreview = row.AnchorPreview
+	a.Answer = row.Answer
+	a.SkippedTool = row.SkippedTool
+	a.Error = row.Error
+	a.State = it.State
+	a.Expanded = exp
+	a.Theme = m.theme
+	return true, dirty
 }
 
 func (m *Mapper) patchTool(w components.Widget, it session.Item) (ok, dirty bool) {
@@ -737,6 +789,8 @@ func (m *Mapper) widgetFor(it session.Item) components.Widget {
 		}
 	case session.ItemTool:
 		return m.toolWidget(it, exp)
+	case session.ItemAside:
+		return m.asideWidget(it)
 	default:
 		label, tail := formatItemMeta(it)
 		a := &block.AssistantBlock{
@@ -926,10 +980,11 @@ func (m *Mapper) groupTurns(items []session.Item, snap session.Snapshot) []sessi
 
 // condenseTurn folds one finished turn's working rows behind a summary row.
 // turn[0] is the opening user prompt; the trailing run of assistant text is
-// the turn's answer and stays out of the fold too.
+// the turn's answer and stays out of the fold too, as do side questions
+// asked after it.
 func (m *Mapper) condenseTurn(turn []session.Item, dur time.Duration) []session.Item {
 	tail := len(turn)
-	for tail > 1 && turn[tail-1].Kind == session.ItemAssistant {
+	for tail > 1 && (turn[tail-1].Kind == session.ItemAssistant || turn[tail-1].Kind == session.ItemAside) {
 		tail--
 	}
 	work := turn[1:tail]
@@ -967,10 +1022,10 @@ func (m *Mapper) condenseTurn(turn []session.Item, dur time.Duration) []session.
 }
 
 // keepVisible reports a row a condensed turn may never hide: a failed or
-// rejected tool call, a compaction marker.
+// rejected tool call, a compaction marker, a side question.
 func keepVisible(it session.Item) bool {
 	switch it.Kind {
-	case session.ItemUser, session.ItemCompaction:
+	case session.ItemUser, session.ItemCompaction, session.ItemAside:
 		return true
 	case session.ItemTool:
 		return failedToolRun(it.ToolRun.Status) ||
