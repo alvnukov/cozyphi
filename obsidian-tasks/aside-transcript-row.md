@@ -1,7 +1,7 @@
 ---
 id: aside-transcript-row
 title: 'Строка aside в ленте: свой цвет, сворачивание, ссылка на якорь'
-status: in_progress
+status: done
 priority: high
 model_level: medium
 task_type: feature
@@ -24,7 +24,7 @@ verification_plan:
     - 'Ручная проверка в обеих темах: /btw, свернуть, развернуть, перезапуск, /export'
     - Один scoped golangci-lint run по изменённым пакетам перед коммитом
 created_at: "2026-09-16T08:00:30.677241Z"
-updated_at: "2026-09-25T12:00:00Z"
+updated_at: "2026-09-26T09:00:00Z"
 ---
 
 ## Body
