@@ -15,8 +15,23 @@ import (
 // (user/assistant text; tool rows simplified away). It is the load-side
 // counterpart of the Mapper: the same projection rules, applied to a whole
 // history at once instead of event by event.
-func ReplaySnapshot(entries []session.MessageEntry) session.Snapshot {
+//
+// Side questions are no entries of the path, so they come separately, each
+// with the entry its row follows; one whose entry the path lacks still gets
+// a row, at the end, rather than vanishing.
+func ReplaySnapshot(entries []session.MessageEntry, asides ...session.PlacedAside) session.Snapshot {
 	var snap session.Snapshot
+	asidesAfter := make(map[string][]session.PlacedAside, len(asides))
+	for _, aside := range asides {
+		asidesAfter[aside.After] = append(asidesAfter[aside.After], aside)
+	}
+	emitAsides := func(after string) {
+		for _, aside := range asidesAfter[after] {
+			snap = session.Apply(snap, replayedAside(aside))
+		}
+		delete(asidesAfter, after)
+	}
+	emitAsides("")
 	shells := replayShellRecords(entries)
 	seenShells := make(map[string]bool)
 	// Sub-agent titles, keyed by the spawn call that made them. The history
@@ -32,7 +47,76 @@ func ReplaySnapshot(entries []session.MessageEntry) session.Snapshot {
 			ID:         pendingCompaction.ID,
 			Compaction: pendingCompaction.Compaction,
 		})
+		emitAsides(pendingCompaction.ID)
 		pendingCompaction = nil
+	}
+	replayMessage := func(messageEntry session.SessionMessageEntry) {
+		msg := messageEntry.Message
+		switch msg.Role {
+		case llm.RoleUser:
+			if _, ok := parseShellOutcomeDelivery(messageEntry); ok {
+				return
+			}
+			// A delivered child outcome is a receipt, not something the
+			// user typed. It becomes the sub-agent row whose spawn call
+			// the projection dropped, so a resumed session still shows
+			// what the child came back with.
+			if outcome, ok := parseOutcomeDelivery(messageEntry); ok {
+				snap = session.Apply(snap, replayedOutcome(messageEntry.ID, outcome, spawnTitles))
+				return
+			}
+			// Recall blocks are prepended by the turn, not typed by the
+			// user; a replayed transcript shows the prompt as it was sent.
+			snap = session.Apply(snap, session.UserAppend{
+				ID:   messageEntry.ID,
+				Text: memory.StripReminders(msg.Content),
+			})
+		case llm.RoleAssistant:
+			for _, call := range msg.ToolCalls {
+				if strings.EqualFold(call.Function.Name, "agent_spawn") {
+					spawnTitles[call.ID] = tools.SpawnTitleFromInput(
+						json.RawMessage(call.Function.Arguments),
+					)
+				}
+			}
+			text := msg.Content
+			var blocks []session.ContentBlock
+			if strings.TrimSpace(msg.ReasoningContent) != "" {
+				blocks = append(
+					blocks,
+					session.ContentBlock{Type: session.BlockThinking, Text: msg.ReasoningContent},
+				)
+			}
+			if text != "" {
+				blocks = append(blocks, session.ContentBlock{Type: session.BlockText, Text: text})
+			}
+			for _, call := range msg.ToolCalls {
+				if task, ok := shells[call.ID]; ok && strings.EqualFold(call.Function.Name, "bash") {
+					blocks = append(
+						blocks,
+						session.ContentBlock{
+							Type:  session.BlockToolUse,
+							ID:    call.ID,
+							Name:  "bash",
+							Input: task.Command,
+						},
+					)
+					seenShells[call.ID] = true
+				}
+			}
+			snap = session.Apply(snap, session.AssistantMessageUpdate{Message: session.Message{
+				ID:      messageEntry.ID,
+				State:   session.StateComplete,
+				Text:    text,
+				Content: blocks,
+				Usage: session.TokenUsage{
+					PromptTokens:     msg.Usage.PromptTokens,
+					CompletionTokens: msg.Usage.CompletionTokens,
+					CachedTokens:     msg.Usage.CachedTokens(),
+					TotalTokens:      msg.Usage.TotalTokens,
+				},
+			}})
+		}
 	}
 	for _, entry := range entries {
 		switch entry.GetType() {
@@ -44,75 +128,16 @@ func ReplaySnapshot(entries []session.MessageEntry) session.Snapshot {
 			if pendingCompaction != nil && session.MessageFollowsCompaction(*pendingCompaction, messageEntry) {
 				emitCompaction()
 			}
-			msg := messageEntry.Message
-			switch msg.Role {
-			case llm.RoleUser:
-				if _, ok := parseShellOutcomeDelivery(messageEntry); ok {
-					continue
-				}
-				// A delivered child outcome is a receipt, not something the
-				// user typed. It becomes the sub-agent row whose spawn call
-				// the projection dropped, so a resumed session still shows
-				// what the child came back with.
-				if outcome, ok := parseOutcomeDelivery(messageEntry); ok {
-					snap = session.Apply(snap, replayedOutcome(entry.GetID(), outcome, spawnTitles))
-					continue
-				}
-				// Recall blocks are prepended by the turn, not typed by the
-				// user; a replayed transcript shows the prompt as it was sent.
-				snap = session.Apply(snap, session.UserAppend{
-					ID:   entry.GetID(),
-					Text: memory.StripReminders(msg.Content),
-				})
-			case llm.RoleAssistant:
-				for _, call := range msg.ToolCalls {
-					if strings.EqualFold(call.Function.Name, "agent_spawn") {
-						spawnTitles[call.ID] = tools.SpawnTitleFromInput(
-							json.RawMessage(call.Function.Arguments),
-						)
-					}
-				}
-				text := msg.Content
-				var blocks []session.ContentBlock
-				if strings.TrimSpace(msg.ReasoningContent) != "" {
-					blocks = append(
-						blocks,
-						session.ContentBlock{Type: session.BlockThinking, Text: msg.ReasoningContent},
-					)
-				}
-				if text != "" {
-					blocks = append(blocks, session.ContentBlock{Type: session.BlockText, Text: text})
-				}
-				for _, call := range msg.ToolCalls {
-					if task, ok := shells[call.ID]; ok && strings.EqualFold(call.Function.Name, "bash") {
-						blocks = append(
-							blocks,
-							session.ContentBlock{
-								Type:  session.BlockToolUse,
-								ID:    call.ID,
-								Name:  "bash",
-								Input: task.Command,
-							},
-						)
-						seenShells[call.ID] = true
-					}
-				}
-				snap = session.Apply(snap, session.AssistantMessageUpdate{Message: session.Message{
-					ID:      entry.GetID(),
-					State:   session.StateComplete,
-					Text:    text,
-					Content: blocks,
-					Usage: session.TokenUsage{
-						PromptTokens:     msg.Usage.PromptTokens,
-						CompletionTokens: msg.Usage.CompletionTokens,
-						CachedTokens:     msg.Usage.CachedTokens(),
-						TotalTokens:      msg.Usage.TotalTokens,
-					},
-				}})
-			}
+			replayMessage(messageEntry)
+			emitAsides(entry.GetID())
 		}
 	}
 	emitCompaction()
+	for _, aside := range asides {
+		if _, left := asidesAfter[aside.After]; left {
+			emitAsides(aside.After)
+		}
+	}
 	for _, task := range sortedShellRecords(shells) {
 		if !seenShells[task.ToolUseID] {
 			snap = session.Apply(snap, session.LocalBashStart{ID: task.ToolUseID, Command: task.Command})
@@ -124,6 +149,21 @@ func ReplaySnapshot(entries []session.MessageEntry) session.Snapshot {
 		}})
 	}
 	return snap
+}
+
+// replayedAside is the update that draws a recorded side question. Only a
+// finished answer is ever recorded, so the row is complete.
+func replayedAside(aside session.PlacedAside) session.AsideUpdate {
+	return session.AsideUpdate{
+		ID:            aside.ID,
+		Anchor:        aside.Anchor,
+		AnchorPreview: aside.AnchorPreview,
+		Question:      aside.Question,
+		Answer:        aside.Answer,
+		State:         session.StateComplete,
+		SkippedTool:   aside.SkippedTool,
+		Model:         aside.Model,
+	}
 }
 
 // outcomeDeliverySuffix marks a message the engine appended as the receipt of

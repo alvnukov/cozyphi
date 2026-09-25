@@ -218,6 +218,67 @@ func (sm *Manager) Asides() []AsideEntry {
 	return asides
 }
 
+// PlacedAside is a side question and the place its row takes in the feed.
+type PlacedAside struct {
+	AsideEntry
+	// After is the context entry the row follows. Empty puts the row at the
+	// top of the feed, the place of a question about history that has since
+	// been compacted away.
+	After string
+	// AnchorPreview names the anchor when the question was not about the
+	// whole context it was asked in (see AsideScope).
+	AnchorPreview string
+}
+
+// PathAsides lists the side questions asked on the current branch, oldest
+// first. Each one follows the context entry nearest the leaf it was asked
+// at, which is where the cursor stood and so where its row first appeared.
+//
+// A question asked on a branch the cursor has left since is not listed: its
+// leaf is off the current path, and the feed does not show what it was
+// about, much as a rewind and a fork refuse an entry off the path.
+func (sm *Manager) PathAsides() []PlacedAside {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if sm.leafID == nil {
+		return nil
+	}
+	path := walkPath(sm.entries, *sm.leafID, sm.byIDs)
+	position := make(map[string]int, len(path))
+	for i, entry := range path {
+		position[entry.GetID()] = i
+	}
+	inContext := make(map[string]bool)
+	for _, entry := range sm.contextPathLocked() {
+		inContext[entry.GetID()] = true
+	}
+	var placed []PlacedAside
+	for _, entry := range sm.entries {
+		aside, ok := entry.(AsideEntry)
+		if !ok {
+			continue
+		}
+		at, onPath := position[aside.Leaf]
+		if !onPath {
+			continue
+		}
+		row := PlacedAside{AsideEntry: aside}
+		for i := at; i >= 0; i-- {
+			if id := path[i].GetID(); inContext[id] {
+				row.After = id
+				break
+			}
+		}
+		// The context the question was asked in, not the one there is now:
+		// a later compaction must not turn a question about everything into
+		// one about a single message.
+		asked := buildSessionContext(sm.entries, aside.Leaf, sm.byIDs)
+		row.AnchorPreview = anchorPreview(asked, aside.Anchor)
+		placed = append(placed, row)
+	}
+	return placed
+}
+
 // AsideSkippedToolNote is the line an answer that stopped at a tool call ends
 // with, so the stop is not read as the whole answer.
 func AsideSkippedToolNote(tool string) string {

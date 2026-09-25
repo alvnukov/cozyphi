@@ -319,6 +319,15 @@ func (s *Session) AsideScope(anchorID string) (session.AsideScope, error) {
 	return s.manager.AsideScope(anchorID)
 }
 
+// PathAsides lists the side questions of the current branch with the place
+// each takes in the feed (see Manager.PathAsides).
+func (s *Session) PathAsides() []session.PlacedAside {
+	if s == nil || s.manager == nil {
+		return nil
+	}
+	return s.manager.PathAsides()
+}
+
 // AsideAnchors lists the messages a side question may be asked about.
 func (s *Session) AsideAnchors() []session.AsideAnchor {
 	if s == nil || s.manager == nil {
