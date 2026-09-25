@@ -29,6 +29,13 @@ and `/fork` with nothing after it copies the whole conversation as it stands.
 Type `/fork ` and press Tab for the list of places you can copy up to. It runs
 newest first, with a line of the message behind each one.
 
+The context browser (`/context`) forks too. Select the row of a prompt or a
+reply and press `f`, or open the `.` menu and pick `Fork a new tab before this
+prompt` (`Fork a new tab after this reply` on a reply). The browser closes
+and the new tab opens, as the button would. The menu lists the item only on a
+row a fork is offered at, and on any other row `f` says in the footer why
+not: not a message, not a turn boundary, or a turn still running.
+
 ## Where a fork may be taken
 
 The same two kinds of message a rewind may cut at, and only those.

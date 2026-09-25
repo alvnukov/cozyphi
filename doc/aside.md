@@ -42,6 +42,13 @@ can ask about. It runs newest first, with a line of each message behind its id.
 The title of the row then ends with `re:` and the same line, so the answer is
 read against the message it is about.
 
+The context browser (`/context`) asks too. Select the row of a prompt or a
+reply and press `b`, or open the `.` menu and pick `Ask btw about this
+message`. The browser closes and the composer is in btw mode with that
+message as the anchor, as if `/btw @<id>` had been typed. A summary row and a
+tool row are not messages, and `b` there says so in the footer; so does a
+turn still running.
+
 ## The row in the feed
 
 A side question row is open when it appears. A click on the title folds the

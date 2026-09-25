@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Added: the context browser (`/context`) takes the message actions the feed
+  offers. `r` rewinds at the selected prompt or reply, `f` forks a new tab
+  there, `b` closes the browser in btw mode anchored at the row, and the `.`
+  menu lists each one where it can run. A row it cannot run on says why in
+  the footer. Refresh moved from `r` to `R`. See `doc/rewind.md`,
+  `doc/fork.md` and `doc/aside.md`.
 - Added: a side question (`/btw`) is drawn as a row of its own in the theme's
   side question color. The title carries the question, and `re:` names an
   earlier message the question was about. A click on the title folds the answer, and Esc marks
