@@ -1,9 +1,11 @@
 // Package ctxpane renders the full-screen context browser (/context): what
 // the model receives on the next request, item by item, with token numbers,
 // a block viewer popup, and three actions — compact now, trim-from-here and
-// delete. The pane is a dumb view over an agent.ContextView snapshot; every
-// mutation goes back through the seams injected at construction (refresh,
-// onCompact, onTrim, onDelete).
+// delete. The message actions the feed offers (rewind, fork, btw) are wired
+// on top through SetMessageActions. The pane is a dumb view over an
+// agent.ContextView snapshot; every mutation goes back through the seams
+// injected at construction (refresh, onCompact, onTrim, onDelete) or wired
+// later.
 package ctxpane
 
 import (
@@ -34,6 +36,16 @@ type Pane struct {
 	onTrim func(entryID string) error
 	// onDelete drops exactly the given entries from the model's context.
 	onDelete func(ids []string) error
+
+	// The message actions: rewind, fork and btw, each handed the entry the
+	// selected row stands for. offers says where they may act right now
+	// and is re-read on every refresh and before every attempt, never on
+	// Draw.
+	onRewind func(entryID string)
+	onFork   func(entryID string)
+	onAside  func(entryID string)
+	offers   func() ActionOffers
+	offered  ActionOffers
 
 	view     agent.ContextView
 	visible  bool
@@ -92,6 +104,29 @@ func New(
 	}
 }
 
+// ActionOffers is what the message actions may act on right now: the entries
+// a rewind and a fork are offered at, keyed by entry id, and whether a turn
+// is running, which refuses all three.
+type ActionOffers struct {
+	Rewind map[string]struct{}
+	Fork   map[string]struct{}
+	Busy   bool
+}
+
+// SetMessageActions wires the message actions the feed offers, so the
+// browser can do the same on its selected row. offers is wired in the same
+// call so nobody can wire the actions and forget it: nil offers nothing,
+// which is the harmless answer.
+func (p *Pane) SetMessageActions(
+	onRewind, onFork, onAside func(entryID string),
+	offers func() ActionOffers,
+) {
+	if p != nil {
+		p.onRewind, p.onFork, p.onAside = onRewind, onFork, onAside
+		p.offers = offers
+	}
+}
+
 // Show refreshes the snapshot and opens the browser at the newest entry.
 func (p *Pane) Show() {
 	p.refresh()
@@ -135,6 +170,14 @@ func (p *Pane) refresh() {
 		p.view = p.snapshot()
 	}
 	p.cursor.SetRows(len(p.view.Items), nil)
+	p.reloadOffers()
+}
+
+func (p *Pane) reloadOffers() {
+	p.offered = ActionOffers{}
+	if p.offers != nil {
+		p.offered = p.offers()
+	}
 }
 
 // selectedEntry returns the entry the actions act on, if any.
@@ -148,6 +191,78 @@ func (p *Pane) selectedEntry() (session.ContextItem, bool) {
 // trimmable reports whether trimming up to this entry makes sense (summary
 // rows already describe dropped history; trimming onto one is a no-op).
 func trimmable(item session.ContextItem) bool { return item.Kind != "summary" }
+
+// isMessage reports whether the row is a prompt or a reply: the only rows a
+// message action can anchor at. Summaries and tool results are not messages
+// anyone sent.
+func isMessage(item session.ContextItem) bool {
+	return item.Kind == "user" || item.Kind == "assistant"
+}
+
+// The one-keypress footer answers for a message action that cannot run on
+// the selected row. They name the reason, and where it helps, the row that
+// would do.
+const (
+	noticeBusy        = "a turn is running: wait for the reply, then try again"
+	noticeNotMessage  = "not a message: pick a prompt or a reply"
+	noticeNotBoundary = "not a turn boundary: a prompt, or the reply that finished a turn"
+	noticeRewindTail  = "a cut here drops nothing: the context already ends at this reply"
+)
+
+// rewindRefusal says why a rewind cannot be taken at the row, or "" when it
+// can. The engine's offers are the truth on boundaries; the reasons are read
+// off the row so the footer can say which one applies.
+func (p *Pane) rewindRefusal(item session.ContextItem, last bool) string {
+	switch {
+	case !isMessage(item):
+		return noticeNotMessage
+	case p.offered.Busy:
+		return noticeBusy
+	case contains(p.offered.Rewind, item.EntryID):
+		return ""
+	case last && item.Kind == "assistant":
+		return noticeRewindTail
+	default:
+		return noticeNotBoundary
+	}
+}
+
+// forkRefusal says why a fork cannot be taken at the row, or "" when it can.
+func (p *Pane) forkRefusal(item session.ContextItem) string {
+	switch {
+	case !isMessage(item):
+		return noticeNotMessage
+	case p.offered.Busy:
+		return noticeBusy
+	case contains(p.offered.Fork, item.EntryID):
+		return ""
+	default:
+		return noticeNotBoundary
+	}
+}
+
+// asideRefusal says why a side question cannot be asked about the row, or
+// "" when it can: any message will do, as long as no turn is running.
+func (p *Pane) asideRefusal(item session.ContextItem) string {
+	switch {
+	case !isMessage(item):
+		return noticeNotMessage
+	case p.offered.Busy:
+		return noticeBusy
+	default:
+		return ""
+	}
+}
+
+func contains(set map[string]struct{}, id string) bool {
+	_, ok := set[id]
+	return ok
+}
+
+// selectedIsLast reports whether the selection sits on the newest row.
+func (p *Pane) selectedIsLast() bool {
+	return p.cursor.Selected() == len(p.view.Items)-1
+}
 
 // Handle implements components.Widget; the editor owns dispatch and calls
 // HandleEvent instead, so this entry point is intentionally inert.
@@ -246,12 +361,24 @@ func (p *Pane) handleKey(e xui.KeyEvent) {
 // handleRune covers the pane's own letters; the motion dialect (j/k,
 // counts, gg/G, Ctrl+U/D) is already claimed by the shared parser.
 func (p *Pane) handleRune(e xui.KeyEvent) {
+	r := e.HotkeyRune()
+	// Shift+r reaches here as an uppercase rune, with or without the shift
+	// bit set, depending on the terminal's key protocol; G in the motion
+	// parser is read the same way.
+	if r == 'R' && (e.Mods == 0 || e.Mods == xui.ModShift) {
+		p.refresh()
+		return
+	}
 	if e.Mods != 0 {
 		return
 	}
-	switch e.HotkeyRune() {
+	switch r {
 	case 'r':
-		p.refresh()
+		p.requestRewind()
+	case 'f':
+		p.requestFork()
+	case 'b':
+		p.requestAside()
 	case 'd':
 		p.requestDelete()
 	case 'c':
@@ -270,6 +397,79 @@ func (p *Pane) compact() {
 	if p.onCompact != nil {
 		p.onCompact()
 	}
+}
+
+// requestRewind cuts the context at the selected row: before a prompt, after
+// the reply that finished a turn. The browser closes and the shell takes it
+// from there, toasts included.
+func (p *Pane) requestRewind() {
+	p.runMessageAction(p.onRewind, p.rewindRefusal)
+}
+
+// requestFork copies the conversation up to the selected row into a tab of
+// its own; the browser closes, as for a rewind.
+func (p *Pane) requestFork() {
+	p.runMessageAction(p.onFork, func(item session.ContextItem, _ bool) string {
+		return p.forkRefusal(item)
+	})
+}
+
+// requestAside closes the browser and puts the composer in btw mode with
+// the selected message as the anchor; the mode lives in the composer.
+func (p *Pane) requestAside() {
+	p.runMessageAction(p.onAside, func(item session.ContextItem, _ bool) string {
+		return p.asideRefusal(item)
+	})
+}
+
+// runMessageAction is the one path all three message actions take: re-read
+// the offers, then either refuse into the footer or close the browser and
+// hand the entry to the shell. An unwired action refuses quietly, like an unwired seam
+// anywhere else in the pane.
+func (p *Pane) runMessageAction(
+	action func(entryID string),
+	refusal func(item session.ContextItem, last bool) string,
+) {
+	item, ok := p.selectedEntry()
+	if !ok || action == nil {
+		return
+	}
+	p.reloadOffers()
+	if reason := refusal(item, p.selectedIsLast()); reason != "" {
+		p.notice = reason
+		return
+	}
+	id := item.EntryID
+	p.Hide()
+	action(id)
+}
+
+// messageActionItems lists the menu rows for the message actions the
+// selected row can take right now. A row that would only refuse is left
+// out, the way trim is left out on a summary.
+func (p *Pane) messageActionItems(item session.ContextItem) []browse.MenuItem {
+	p.reloadOffers()
+	var items []browse.MenuItem
+	where := "after this reply"
+	if item.Kind == "user" {
+		where = "before this prompt"
+	}
+	if p.onRewind != nil && p.rewindRefusal(item, p.selectedIsLast()) == "" {
+		items = append(items, browse.MenuItem{
+			Label: "Rewind " + where + ", drop the tail (r)", Run: p.requestRewind,
+		})
+	}
+	if p.onFork != nil && p.forkRefusal(item) == "" {
+		items = append(items, browse.MenuItem{
+			Label: "Fork a new tab " + where + " (f)", Run: p.requestFork,
+		})
+	}
+	if p.onAside != nil && p.asideRefusal(item) == "" {
+		items = append(items, browse.MenuItem{
+			Label: "Ask btw about this message (b)", Run: p.requestAside,
+		})
+	}
+	return items
 }
 
 // openJump starts the `/` fuzzy jump over the item rows: the query is
@@ -308,8 +508,9 @@ func (p *Pane) openMenu() {
 	p.confirm.Disarm()
 	items := []browse.MenuItem{{Label: "View block (Enter)", Run: p.openPopup}}
 	if trimmable(item) {
-		items = append(items, browse.MenuItem{Label: "Trim context up to here (t)", Run: p.requestTrim})
+		items = append(items, browse.MenuItem{Label: "Trim context up to here, keep the tail (t)", Run: p.requestTrim})
 	}
+	items = append(items, p.messageActionItems(item)...)
 	if n := len(p.deletableIDs()); n > 0 {
 		label := "Delete block (Del)"
 		if n > 1 {
@@ -319,7 +520,7 @@ func (p *Pane) openMenu() {
 	}
 	items = append(items,
 		browse.MenuItem{Label: "Compact now (c)", Run: p.compact},
-		browse.MenuItem{Label: "Refresh (r)", Run: p.refresh},
+		browse.MenuItem{Label: "Refresh (R)", Run: p.refresh},
 	)
 	p.menu = items
 	p.menuCur = browse.Cursor{}

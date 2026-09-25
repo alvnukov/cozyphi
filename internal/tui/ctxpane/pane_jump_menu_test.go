@@ -83,10 +83,10 @@ func TestPaneMenuListsCommandsAndRunsTrim(t *testing.T) {
 	viewText := renderText(t, p, 80, 24)
 	assert.Contains(t, viewText, "Actions", "the menu titles itself")
 	assert.Contains(t, viewText, "View block (Enter)")
-	assert.Contains(t, viewText, "Trim context up to here (t)")
+	assert.Contains(t, viewText, "Trim context up to here, keep the tail (t)")
 	assert.Contains(t, viewText, "Delete block (Del)")
 	assert.Contains(t, viewText, "Compact now (c)")
-	assert.Contains(t, viewText, "Refresh (r)")
+	assert.Contains(t, viewText, "Refresh (R)")
 	assert.Contains(t, viewText, "Enter run", "the footer speaks the menu scope")
 
 	require.True(t, press(t, p, xui.KeyDown, 0))
@@ -109,7 +109,7 @@ func TestPaneMenuOnASummaryRowOffersNoTrimAndEscReturns(t *testing.T) {
 	for _, item := range p.menu {
 		labels = append(labels, item.Label)
 	}
-	assert.Equal(t, []string{"View block (Enter)", "Compact now (c)", "Refresh (r)"}, labels,
+	assert.Equal(t, []string{"View block (Enter)", "Compact now (c)", "Refresh (R)"}, labels,
 		"a summary row neither trims nor deletes")
 
 	require.True(t, press(t, p, xui.KeyEscape, 0))

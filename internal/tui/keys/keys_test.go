@@ -109,3 +109,23 @@ func TestHelpScopeDocumentsItsOwnKeys(t *testing.T) {
 		assert.Contains(t, hints, want, "help row %q lacks %q", hints, want)
 	}
 }
+
+// The context browser documents the message actions on the keys the pane
+// answers, and tells a trim (the head goes) from a rewind (the tail goes)
+// in words, since r sits next to t on the same list.
+func TestContextScopeDocumentsMessageActions(t *testing.T) {
+	g, ok := keys.Find(keys.ScopeContext)
+	require.True(t, ok)
+	descs := map[string]string{}
+	for _, b := range g.Bindings {
+		for _, k := range b.Keys {
+			descs[k] = b.Desc
+		}
+	}
+	assert.Contains(t, descs["r"], "rewind")
+	assert.Contains(t, descs["r"], "tail")
+	assert.Contains(t, descs["t"], "tail stays")
+	assert.Contains(t, descs["f"], "fork")
+	assert.Contains(t, descs["b"], "btw")
+	assert.Contains(t, descs["R"], "re-read")
+}
