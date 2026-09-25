@@ -22,8 +22,10 @@ context on the answer and without steering the next turn with it.
    /btw what did we decide about the retry limit?
    ```
 
-3. The answer streams into the feed as a row that starts with `btw:` and the
-   question. The composer is free again once it has finished.
+3. The answer streams into the feed as a row of its own. The title reads
+   `? btw` and the question, and the answer is drawn under it. A bar down the
+   left edge carries the theme's side question color, so the row does not
+   pass for a reply. The composer is free again once the answer has finished.
 4. Send the next prompt as usual. The model is shown the conversation as it
    was before the question, and nothing of the question or the answer.
 
@@ -37,6 +39,35 @@ message after an `@`:
 The model is then shown everything up to that message, the message included,
 and nothing after it. Type `/btw @` and press Tab for the list of messages you
 can ask about. It runs newest first, with a line of each message behind its id.
+The title of the row then ends with `re:` and the same line, so the answer is
+read against the message it is about.
+
+## The row in the feed
+
+A side question row is open when it appears. A click on the title folds the
+answer away, and another click brings it back. Pointing at the title lights it
+up, and a moment later a tooltip says whether a click folds or unfolds. The
+fold stays as you left it while the answer streams and after it ends.
+
+The title says `(cancelled)` after Esc and `(failed)` when the provider
+returned an error, with the error under it. An answer that stopped at a tool
+call ends with a note naming the tool. The row does not show which model
+answered. The session file keeps the model name with the record.
+
+The row has no `rewind`, `fork` or `btw` buttons. They act on messages of the
+conversation, and a side question is not one.
+
+A resumed session shows the question again, finished and open, after the
+message the cursor stood on when it was asked. Turns sent later come after
+it, so the row keeps its place among them. A question asked on a branch you
+rewound away from is not shown while the cursor is elsewhere, and comes back
+when you return to that branch. A question about history that a compaction has
+since summarized opens the feed, above everything the compaction kept.
+
+`/export` writes each side question under a `## Side question (btw)` heading:
+the question as a quote, a `(cancelled)` or `(failed)` line when the answer did
+not finish, a `re:` line when it was about an earlier message, then the
+answer.
 
 ## What a question may be about
 
@@ -59,7 +90,7 @@ nothing in the file.
 
 A side question holds the pipeline while it is answered, the way `/compact`
 does. A prompt you send meanwhile waits in the queue and goes out when the
-answer is done. Esc cancels the answer.
+answer is done. Esc cancels the answer, and the row says so.
 
 Afterwards everything is where it was. The cursor has not moved, the context
 has not changed, and the next turn is built exactly as it would have been.
@@ -87,9 +118,9 @@ usage. An answer that was cancelled or failed is not written: the file
 holds only answers that were given in full. The row of a cancelled answer says
 so, and the row of a failed one says why.
 
-For now the answer is drawn as an ordinary reply marked `btw:`, and a session
-you resume does not show it again: it is in the file, not in the replay. A row
-of its own, drawn in the feed where it was asked, is the next step.
+The feed rebuilds its side question rows from these records when a session is
+resumed, and after a rewind or its undo. A cancelled or failed answer is not
+among them, so its row stays only until the next such rebuild.
 
 The `btw` button on a message opens the one-shot question composer at that
 message's id. The composer lead shows `btw @<id>` until you ask or leave the
