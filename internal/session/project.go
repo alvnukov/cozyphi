@@ -16,6 +16,8 @@ const (
 	ItemAssistant
 	ItemTool
 	ItemCompaction
+	// ItemAside is a side question and its answer.
+	ItemAside
 )
 
 // Item is one list row projected from Snapshot.
@@ -40,6 +42,9 @@ type Item struct {
 	ToolInput string
 	ToolUseID string
 	ToolRun   ToolRun
+
+	// Aside is the side question row's content (ItemAside only).
+	Aside AsideRow
 
 	// TurnMeta is end-of-round metadata (model, duration, usage), set on the
 	// tail text row of a terminal assistant round. Zero Model means no row.
@@ -76,6 +81,14 @@ func Project(s Snapshot) []Item {
 			}
 		case RoleAssistant:
 			items = append(items, projectAssistant(m, s.Tools)...)
+		case RoleAside:
+			items = append(items, Item{
+				ID:        m.ID,
+				Kind:      ItemAside,
+				State:     m.State,
+				Streaming: m.State == StateStreaming,
+				Aside:     m.Aside,
+			})
 		case RoleCompaction:
 			items = append(items, Item{
 				ID:      m.ID,

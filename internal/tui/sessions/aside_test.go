@@ -27,7 +27,7 @@ func waitForAside(t *testing.T, e *View) {
 			return false
 		}
 		last := snap.Messages[len(snap.Messages)-1]
-		return strings.HasPrefix(last.Text, "btw:") && last.State != session.StateStreaming && !e.ctrl.RunActive()
+		return last.Role == session.RoleAside && last.State != session.StateStreaming && !e.ctrl.RunActive()
 	})
 }
 
@@ -49,7 +49,7 @@ func TestSlashBtwAnswersAndTheNextTurnNeverSeesIt(t *testing.T) {
 
 	snap := e.transcript.Snapshot()
 	require.Len(t, snap.Messages, 5)
-	assert.Equal(t, "btw: what did we talk about?\n\nreply 3", snap.Messages[4].Text)
+	assert.Equal(t, session.AsideRow{Question: "what did we talk about?", Answer: "reply 3"}, snap.Messages[4].Aside)
 	assert.Equal(t, session.StateComplete, snap.Messages[4].State)
 	got := bodies()
 	require.Len(t, got, 3)
@@ -182,7 +182,7 @@ func TestEscCancelsASideQuestionAndLeavesNoRecord(t *testing.T) {
 	waitFor(t, 10*time.Second, func() bool {
 		e.DrainNow()
 		snap := e.transcript.Snapshot()
-		return len(snap.Messages) == 3 && strings.Contains(snap.Messages[2].Text, "partial")
+		return len(snap.Messages) == 3 && snap.Messages[2].Aside.Answer == "partial"
 	})
 
 	require.True(t, e.interruptWork(), "Esc found the side question in flight")
@@ -193,7 +193,8 @@ func TestEscCancelsASideQuestionAndLeavesNoRecord(t *testing.T) {
 	e.DrainNow()
 
 	row := e.transcript.Snapshot().Messages[2]
-	assert.True(t, strings.HasPrefix(row.Text, "btw: still there?"))
+	assert.Equal(t, session.RoleAside, row.Role)
+	assert.Equal(t, "still there?", row.Aside.Question)
 	assert.Equal(t, session.StateCancelled, row.State)
 	raw, err := os.ReadFile(ctrl.SessionFile())
 	require.NoError(t, err)

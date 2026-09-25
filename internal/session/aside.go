@@ -66,6 +66,9 @@ func (e *NotAsideAnchorError) Error() string {
 type AsideScope struct {
 	Anchor string
 	Leaf   string
+	// AnchorPreview names the anchor when it is not the end of the context,
+	// and is empty when the question is about all of it.
+	AnchorPreview string
 	// Entries is the current context cut after the anchor, oldest first.
 	Entries []MessageEntry
 }
@@ -105,6 +108,7 @@ func (sm *Manager) AsideScope(anchorID string) (AsideScope, error) {
 		}
 		scope.Anchor = anchorID
 		scope.Entries = slices.Clone(path[:i+1])
+		scope.AnchorPreview = anchorPreview(path, anchorID)
 		return scope, nil
 	}
 	return AsideScope{}, &NotAsideAnchorError{EntryID: anchorID}
@@ -129,6 +133,21 @@ func (sm *Manager) AsideAnchors() []AsideAnchor {
 		}
 	}
 	return anchors
+}
+
+// anchorPreview names the anchor when it is not the last entry of context,
+// and is empty when it is: a question about the end of the context is a
+// question about all of it.
+func anchorPreview(context []MessageEntry, anchor string) string {
+	if len(context) == 0 || context[len(context)-1].GetID() == anchor {
+		return ""
+	}
+	for _, entry := range context {
+		if message, ok := entry.(SessionMessageEntry); ok && message.ID == anchor {
+			return asidePreview(message)
+		}
+	}
+	return ""
 }
 
 func asidePreview(entry SessionMessageEntry) string {
@@ -208,26 +227,21 @@ func AsideSkippedToolNote(tool string) string {
 	return "[stopped here: the model asked to run " + tool + ", and tools do not run for a side question]"
 }
 
-// asideRow draws a side question as a plain assistant row marked "btw:". It
-// stands in until the feed has a block of its own for side questions.
+// asideRow is the feed row of a side question. Its state is set by the
+// update carrying its id and by nothing else: the row is no assistant turn,
+// so a cancel aimed at the last one never reaches it.
 func asideRow(e AsideUpdate) Message {
-	parts := []string{"btw: " + e.Question}
-	if e.Answer != "" {
-		parts = append(parts, e.Answer)
-	}
-	if e.SkippedTool != "" {
-		parts = append(parts, AsideSkippedToolNote(e.SkippedTool))
-	}
-	if e.Error != "" {
-		parts = append(parts, e.Error)
-	}
-	body := strings.Join(parts, "\n\n")
 	return Message{
-		ID:      e.ID,
-		Role:    RoleAssistant,
-		State:   e.State,
-		Text:    body,
-		Content: []ContentBlock{{Type: BlockText, Text: body}},
-		Model:   e.Model,
+		ID:    e.ID,
+		Role:  RoleAside,
+		State: e.State,
+		Model: e.Model,
+		Aside: AsideRow{
+			Question:      e.Question,
+			AnchorPreview: e.AnchorPreview,
+			Answer:        e.Answer,
+			SkippedTool:   e.SkippedTool,
+			Error:         e.Error,
+		},
 	}
 }

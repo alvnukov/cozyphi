@@ -35,7 +35,10 @@ type AsideRequest struct {
 	Question string
 	Anchor   string
 	Leaf     string
-	messages []llm.Message
+	// AnchorPreview names the anchor when the question is not about the
+	// whole context.
+	AnchorPreview string
+	messages      []llm.Message
 }
 
 // PrepareAside checks a side question and resolves what it is asked about:
@@ -60,11 +63,12 @@ func (engine *Engine) PrepareAside(question, anchorID string) (AsideRequest, err
 		Content: asideInstruction + "\n\n" + question,
 	})
 	return AsideRequest{
-		ID:       session.NewEntryID(),
-		Question: question,
-		Anchor:   scope.Anchor,
-		Leaf:     scope.Leaf,
-		messages: messages,
+		ID:            session.NewEntryID(),
+		Question:      question,
+		Anchor:        scope.Anchor,
+		Leaf:          scope.Leaf,
+		AnchorPreview: scope.AnchorPreview,
+		messages:      messages,
 	}, nil
 }
 
@@ -109,11 +113,12 @@ func (engine *Engine) RunAside(ctx context.Context, req AsideRequest, yield func
 		return errors.New("agent: no model to ask")
 	}
 	update := session.AsideUpdate{
-		ID:       req.ID,
-		Anchor:   req.Anchor,
-		Question: req.Question,
-		State:    session.StateStreaming,
-		Model:    rt.modelName,
+		ID:            req.ID,
+		Anchor:        req.Anchor,
+		AnchorPreview: req.AnchorPreview,
+		Question:      req.Question,
+		State:         session.StateStreaming,
+		Model:         rt.modelName,
 	}
 	events := rt.client.Stream
 	if engine.asideStream != nil {
