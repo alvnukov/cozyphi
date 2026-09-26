@@ -29,6 +29,16 @@ The keyboard does the same thing. `/rewind <entry id>` cuts at that message, and
 of places you can cut at. It runs newest first, with a line of the message
 behind each one.
 
+The context browser (`/context`) cuts too. Select the row of a prompt or a
+reply and press `r`. The `.` menu has the same cut as `Rewind before this
+prompt, drop the tail`, or `Rewind after this reply, drop the tail` on a
+reply. The browser closes and the cut is the one the button takes. The menu
+lists the item only on a row a cut is offered at. On any other row `r` says
+in the footer why not. The reasons are four: not a message, not a turn
+boundary, the row the context already ends at, and a turn still running. Trim
+(`t`) is the other cut the browser has, and it goes the other way. The head
+before the row is dropped and the tail stays. Refresh in the browser is `R`.
+
 ## Where a cut is allowed
 
 Two kinds of message are a turn boundary, and only those.

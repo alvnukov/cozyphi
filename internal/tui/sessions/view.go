@@ -532,6 +532,10 @@ func NewView(
 		// Closing the browser hands the keyboard back to the composer.
 		func() { e.composer.FocusChat() },
 	)
+	// The browser's message actions reach the shell the way the feed's strip
+	// does, through the same Host methods, and read the same offers, so a
+	// row the browser acts on is a row the feed would have acted on too.
+	e.ctxpane.SetMessageActions(e.RewindTo, e.ForkFrom, e.AsideAbout, e.contextActionOffers)
 
 	e.help = helppane.New(theme, func() { e.composer.FocusChat() })
 	e.initShellTasks(theme)
@@ -2068,6 +2072,25 @@ func (e *View) RunCompact() {
 	}
 	if e.ctrl != nil {
 		e.ctrl.Compact()
+	}
+}
+
+// contextActionOffers answers the context browser where its message actions
+// may act: the cuts the engine offers for a rewind and a fork, and whether a
+// turn is running.
+func (e *View) contextActionOffers() ctxpane.ActionOffers {
+	if e.ctrl == nil {
+		return ctxpane.ActionOffers{}
+	}
+	boundaries := e.ctrl.ForkBoundaries()
+	fork := make(map[string]struct{}, len(boundaries))
+	for _, boundary := range boundaries {
+		fork[boundary.EntryID] = struct{}{}
+	}
+	return ctxpane.ActionOffers{
+		Rewind: e.ctrl.RewindOffers(),
+		Fork:   fork,
+		Busy:   e.ctrl.RunActive(),
 	}
 }
 
