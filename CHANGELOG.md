@@ -48,7 +48,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Fixed: ChatGPT subscription model discovery no longer hides new OpenAI models.
   The Codex `/models` endpoint filters by `client_version`; the pinned 0.153.1
   omitted models requiring 0.155.0 (gpt-6-sol, gpt-6-luna). The compatibility
-  version now tracks the current Codex CLI release (0.156.0).
+  version now tracks the current Codex CLI release (0.160.0).
 - Added: side questions. `/btw <question>` asks the model about the
   conversation as it stands, and `/btw @<id> <question>` about the conversation
   up to that message. The answer streams into the feed as a row of its own

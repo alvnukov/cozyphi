@@ -40,7 +40,7 @@ func TestSubscriptionModelsRefreshLegacyCacheForAstra(t *testing.T) {
 			Expires: time.Now().Add(time.Hour).UnixMilli(), BaseURL: chatgptCodexBaseURL,
 			Protocol:        llm.ProtocolOpenAIResponses,
 			Models:          []Model{{ID: "gpt-5.5", Name: "GPT-5.5"}},
-			ModelsFetchedAt: time.Now().UnixMilli(), ModelsClientVersion: "0.145.0",
+			ModelsFetchedAt: time.Now().UnixMilli(), ModelsClientVersion: "0.156.0",
 		},
 	}))
 	manager, err := Open(options)
