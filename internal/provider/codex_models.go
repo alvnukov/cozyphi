@@ -20,7 +20,7 @@ const (
 	// gpt-6-sol/gpt-6-luna with mcv 0.155.0, 0.156.0 returned them). This value
 	// tracks the official Codex CLI release whose response schema this decoder
 	// implements, not CozyPhi's app version; bump it when models go missing.
-	codexModelsClientVersion = "0.156.0"
+	codexModelsClientVersion = "0.160.0"
 	codexModelsCacheTTL      = 5 * time.Minute
 	codexModelsTimeout       = 5 * time.Second
 	maxCodexModelsBytes      = 16 << 20

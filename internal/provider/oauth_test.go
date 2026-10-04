@@ -45,7 +45,7 @@ func TestOpenAIDeviceAuthorizationPersistsAndAuthorizes(t *testing.T) {
 			tokenForm = r.Form
 			_, _ = fmt.Fprintf(w, `{"access_token":%q,"refresh_token":"refresh-1","expires_in":3600}`, access)
 		case "/backend-api/codex/models":
-			require.Equal(t, codexModelsClientVersion, r.URL.Query().Get("client_version"))
+			require.Equal(t, "0.160.0", r.URL.Query().Get("client_version"))
 			_, _ = fmt.Fprint(w, `{"models":[
 				{"slug":"gpt-5.5","display_name":"GPT-5.5","visibility":"list","context_window":400000}
 			]}`)
