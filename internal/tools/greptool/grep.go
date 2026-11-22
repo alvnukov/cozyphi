@@ -184,10 +184,29 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 
 // outAnchor is one output line's editable anchor, kept index-aligned with the
 // rendered lines so the output cap decides what gets authorized.
+type resultLine struct {
+	Path        string `json:"path"`
+	Hash        string `json:"hash,omitempty"`
+	Number      int    `json:"number"`
+	Anchor      string `json:"anchor,omitempty"`
+	Text        string `json:"text"`
+	Truncated   bool   `json:"truncated,omitempty"`
+	Unavailable bool   `json:"unavailable,omitempty"`
+}
+
+type grepResult struct {
+	Matches   []resultLine `json:"matches"`
+	Context   []resultLine `json:"context,omitempty"`
+	Truncated bool         `json:"truncated"`
+	Notices   []string     `json:"notices,omitempty"`
+}
+
 type outAnchor struct {
-	abs string
-	rev util.Revision
-	ref string
+	row   resultLine
+	match bool
+	abs   string
+	rev   util.Revision
+	ref   string
 }
 
 func runGrepWithSink(ctx context.Context, input json.RawMessage, sink AnchorSink) (tooldef.Result, error) {
@@ -330,7 +349,12 @@ func runGrepWithSink(ctx context.Context, input json.RawMessage, sink AnchorSink
 	if matchCount == 0 {
 		content := "No matches found"
 		detail := grepDetail(in.Pattern, 0, 0)
-		return tooldef.Result{Content: content, Detail: detail, Output: content}, nil
+		return tooldef.Result{
+			Content:    content,
+			Structured: grepResult{Matches: []resultLine{}},
+			Detail:     detail,
+			Output:     content,
+		}, nil
 	}
 
 	// Read matched files to produce output.
@@ -371,13 +395,20 @@ func runGrepWithSink(ctx context.Context, input json.RawMessage, sink AnchorSink
 				anchors = append(anchors, outAnchor{})
 			}
 		}
-		block, refs, lt := formatGrepBlock(formatPath, getFileLines, m.filePath, m.lineNumber, contextN)
+		block, rows, lt := formatGrepBlock(formatPath, getFileLines, m.filePath, m.lineNumber, contextN)
 		if lt {
 			linesTruncated = true
 		}
 		out = append(out, block...)
-		for _, ref := range refs {
-			anchors = append(anchors, outAnchor{abs: m.filePath, rev: fileRev[m.filePath], ref: ref})
+		for _, row := range rows {
+			rev := fileRev[m.filePath]
+			if row.Anchor != "" {
+				row.Hash = rev.Tag()
+			}
+			anchors = append(anchors, outAnchor{
+				row: row, match: row.Number == m.lineNumber,
+				abs: m.filePath, rev: rev, ref: row.Anchor,
+			})
 		}
 	}
 
@@ -385,7 +416,8 @@ func runGrepWithSink(ctx context.Context, input json.RawMessage, sink AnchorSink
 	truncRes := truncateHead(raw, grepDefaultMaxBytes)
 	output := truncRes.Content
 	byteTrunc := truncRes.Truncated
-	reportAnchors(ctx, sink, anchors, keptLineCount(output, byteTrunc, len(out)))
+	kept := keptLineCount(output, byteTrunc, len(out))
+	reportAnchors(ctx, sink, anchors, kept)
 
 	var notices []string
 	if matchLimitReached {
@@ -412,7 +444,17 @@ func runGrepWithSink(ctx context.Context, input json.RawMessage, sink AnchorSink
 		files[m.filePath] = struct{}{}
 	}
 	detail := grepDetail(in.Pattern, matchCount, len(files))
-	return tooldef.Result{Content: output, Detail: detail, Output: output}, nil
+	data := grepResult{Matches: []resultLine{}, Truncated: len(notices) > 0, Notices: notices}
+	for _, entry := range anchors[:kept] {
+		switch {
+		case entry.row.Path == "": // @file header
+		case entry.match:
+			data.Matches = append(data.Matches, entry.row)
+		default:
+			data.Context = append(data.Context, entry.row)
+		}
+	}
+	return tooldef.Result{Content: output, Structured: data, Detail: detail, Output: output}, nil
 }
 
 // grepDetail is the post-run transcript row summary: the pattern searched
@@ -463,11 +505,12 @@ func formatGrepBlock(
 	getLines func(string) []string,
 	absPath string,
 	lineNumber, contextN int,
-) (lines, refs []string, anyLineTruncated bool) {
+) (lines []string, rows []resultLine, anyLineTruncated bool) {
 	rel := formatPath(absPath)
 	fileLines := getLines(absPath)
-	if len(fileLines) == 0 {
-		return []string{fmt.Sprintf("%s:%d: (unable to read file)", rel, lineNumber)}, []string{""}, false
+	if lineNumber < 1 || lineNumber > len(fileLines) {
+		row := resultLine{Path: rel, Number: lineNumber, Unavailable: true}
+		return []string{fmt.Sprintf("%s:%d: (unable to read file)", rel, lineNumber)}, []resultLine{row}, false
 	}
 
 	start, end := lineNumber, lineNumber
@@ -478,7 +521,7 @@ func formatGrepBlock(
 
 	numLines := end - start + 1
 	lines = make([]string, 0, numLines)
-	refs = make([]string, 0, numLines)
+	rows = make([]resultLine, 0, numLines)
 
 	for cur := start; cur <= end; cur++ {
 		var lineText string
@@ -499,9 +542,12 @@ func formatGrepBlock(
 			prefix = "  "
 		}
 		lines = append(lines, fmt.Sprintf("%s:%s%s|%s", rel, prefix, ref, truncLine))
-		refs = append(refs, ref)
+		rows = append(
+			rows,
+			resultLine{Path: rel, Number: cur, Anchor: ref, Text: strings.Clone(truncLine), Truncated: wasTrunc},
+		)
 	}
-	return lines, refs, anyLineTruncated
+	return lines, rows, anyLineTruncated
 }
 
 // keptLineCount reports how many rendered lines survived the output cap, which

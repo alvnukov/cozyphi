@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -55,6 +56,7 @@ type Config struct {
 	Agents        AgentsConfig
 	Notifications NotificationsConfig
 	OpenCode      OpenCodeConfig
+	CodeMode      CodeModeConfig
 	Voice         voice.Config
 	// Web is the bounded network access the `web` tool runs under: the
 	// cozy-tools policy plus cozyphi's own quarantine setting.
@@ -97,6 +99,14 @@ type AgentsConfig struct {
 // OpenCodeConfig controls the optional read-only opencode source.
 type OpenCodeConfig struct {
 	Enabled bool // true when opencode.enabled is absent
+}
+
+// CodeModeConfig controls programmatic tool use and optional model-assisted discovery.
+type CodeModeConfig struct {
+	Enabled        bool          `yaml:"enabled"`
+	AdvisorModel   string        `yaml:"advisor_model"`
+	Discovery      string        `yaml:"discovery"`
+	AdvisorTimeout time.Duration `yaml:"advisor_timeout"`
 }
 
 // Model returns the default model config with the skill path applied, ready
@@ -279,6 +289,12 @@ const defaultConfigTemplate = `# cozyphi configuration (~/.cozyphi/config.yaml).
 #
 # Environment overrides for the default entry:
 #   COZYPHI_MODEL, COZYPHI_API_KEY, COZYPHI_BASE_URL
+#
+# code_mode:
+#   enabled: true
+#   discovery: conditional         # manual, local, conditional, or always
+#   advisor_model: my-cheap-model  # optional; local discovery works without it
+#   advisor_timeout: 1500ms
 #
 # Claude Code plugins: their skills and SessionStart/SessionEnd hooks.
 # plugins:
@@ -463,6 +479,17 @@ func parseConfigFile(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 
+	if raw.CodeMode.AdvisorTimeout < 0 {
+		return nil, fmt.Errorf("%s: code_mode.advisor_timeout must be a positive duration", path)
+	}
+	switch raw.CodeMode.Discovery {
+	case "", "manual", "local", "conditional", "always":
+	default:
+		return nil, fmt.Errorf("%s: code_mode.discovery must be manual, local, conditional or always", path)
+	}
+	cfg.CodeMode = raw.CodeMode
+	cfg.CodeMode.AdvisorModel = strings.TrimSpace(cfg.CodeMode.AdvisorModel)
+
 	for _, m := range raw.Models {
 		mc := modelEntryToConfig(m)
 		if m.Default && cfg.DefaultModel == "" {
@@ -612,6 +639,7 @@ type fileConfig struct {
 	Agents        *agentsConfig            `yaml:"agents"`
 	Notifications *notificationsFileConfig `yaml:"notifications"`
 	OpenCode      *openCodeFileConfig      `yaml:"opencode"`
+	CodeMode      CodeModeConfig           `yaml:"code_mode"`
 	Voice         *voice.FileConfig        `yaml:"voice"`
 	Web           *webFileConfig           `yaml:"web"`
 	Keybinds      map[string]string        `yaml:"keybinds"`

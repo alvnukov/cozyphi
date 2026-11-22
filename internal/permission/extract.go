@@ -3,7 +3,9 @@ package permission
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
@@ -19,7 +21,36 @@ func Extract(toolName string, args json.RawMessage) (Request, error) {
 // ExtractAt is Extract with an explicit cwd for relative paths (session / job WorkDir).
 func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, error) {
 	req := Request{Tool: toolName}
+	if tooldef.CodeControl(toolName) {
+		req.Action = ActionCode
+		return req, nil
+	}
 	switch toolName {
+	case "library":
+		var in struct {
+			Action   string            `json:"action"`
+			Name     string            `json:"name"`
+			File     string            `json:"file"`
+			Version  string            `json:"version"`
+			Versions map[string]string `json:"versions"`
+		}
+		if err := json.Unmarshal(args, &in); err != nil {
+			return req, fmt.Errorf("library args: %w", err)
+		}
+		req.Op = in.Action
+		parts := strings.Fields(strings.Join([]string{in.Action, in.Name, in.Version, in.File}, " "))
+		if in.Action == "pin" {
+			for _, name := range slices.Sorted(maps.Keys(in.Versions)) {
+				parts = append(parts, fmt.Sprintf("%q@%q", name, in.Versions[name]))
+			}
+		}
+		req.Target = util.TruncateRunes(strings.Join(parts, " "), 512)
+		req.Action = ActionLibraryWrite
+		if tooldef.LibraryReadAction(in.Action) {
+			req.Action = ActionLibraryRead
+		}
+		return req, nil
+
 	case "bash":
 		var in struct {
 			Command    string `json:"command"`

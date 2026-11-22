@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alvnukov/cozyphi/internal/agent"
+	"github.com/alvnukov/cozyphi/internal/codehost"
 	"github.com/alvnukov/cozyphi/internal/debuglog"
 	"github.com/alvnukov/cozyphi/internal/diag"
 	"github.com/alvnukov/cozyphi/internal/harnesssettings"
@@ -55,6 +57,8 @@ type Runtime struct {
 	sessions            map[*Controller]struct{}
 	interactiveChildren bool
 	developerMode       bool
+	codeMode            *agent.CodeMode
+	codeModeFlag        string
 	children            []ChildSession
 	// childBuilders counts every construction in flight, of either kind, and
 	// only holds shutdown back until they land. The two caps are counted apart:
@@ -174,6 +178,23 @@ func NewRuntime(proj *project.Project, histories ...*usage.Store) (*Runtime, err
 	}
 	r.constructionCtx, r.cancelConstruction = context.WithCancel(context.Background())
 	return r, nil
+}
+
+// ConfigureCodeMode fixes the startup tool surface before opening any sessions.
+func (r *Runtime) ConfigureCodeMode(enabled bool, flag string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed || len(r.sessions) != 0 || r.childBuilders != 0 {
+		return errors.New("configure code mode before opening sessions")
+	}
+	r.codeModeFlag = flag
+	if !enabled {
+		r.codeMode = nil
+		return nil
+	}
+	models := catalogModels(r.proj, r.providers, r.opencode)
+	r.codeMode = codehost.New(r.proj.Global(), r.proj.Config().CodeMode, models)
+	return nil
 }
 
 // GrantDeveloperMode fixes the read-only harness capability on this process.

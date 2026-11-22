@@ -23,6 +23,12 @@ func (c statusClient) FindTool(context.Context, string) (*ToolDef, error) {
 func (c statusClient) CallTool(context.Context, string, map[string]any) (string, error) {
 	return "ok", c.err
 }
+
+func (c statusClient) CallToolResult(ctx context.Context, name string, args map[string]any) (CallResult, error) {
+	text, err := c.CallTool(ctx, name, args)
+	return CallResult{Content: []ContentBlock{{Type: "text", Text: text}}}, err
+}
+
 func (c statusClient) Close() error { return c.err }
 
 func TestPoolServerStatusesTrackObservedConnectivity(t *testing.T) {

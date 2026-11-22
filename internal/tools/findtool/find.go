@@ -33,6 +33,7 @@ Prefer this over bash find/ls for filename search.`,
 // FindTool returns the find tool definition + handler.
 func FindTool() tooldef.Tool {
 	return tooldef.Tool{
+		ConcurrentRead: func(json.RawMessage) bool { return true },
 		Definition: llm.ToolDefinition{
 			Name:        "find",
 			Description: findDescription,
@@ -128,9 +129,10 @@ func runFind(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		word = "file"
 	}
 	return tooldef.Result{
-		Content: content,
-		Detail:  fmt.Sprintf("%q — %d %s", pattern, len(files), word),
-		Output:  content,
+		Content:    content,
+		Structured: map[string]any{"paths": append([]string{}, files...), "truncated": truncated},
+		Detail:     fmt.Sprintf("%q — %d %s", pattern, len(files), word),
+		Output:     content,
 	}, nil
 }
 

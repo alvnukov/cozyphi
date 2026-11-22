@@ -73,7 +73,7 @@ func main() {
 // releasing and reopening it. Early startup failures release it here.
 // developerMode comes from the command line alone and grants every session the
 // user opens here — and nothing else — the read-only harness view.
-func runTUI(acquired *session.Manager, developerMode bool) (runErr error) {
+func runTUI(acquired *session.Manager, opts tuiOptions) (runErr error) {
 	defer func() {
 		if acquired != nil {
 			if err := acquired.Close(); err != nil {
@@ -145,7 +145,13 @@ func runTUI(acquired *session.Manager, developerMode bool) (runErr error) {
 	defer func() { runErr = errors.Join(runErr, process.Close()) }()
 	// Bind the first engine to the interactive adapter, not the headless runner.
 	process.EnableInteractiveChildren()
-	if developerMode {
+	if err := process.ConfigureCodeMode(
+		codeModeEnabled(proj.Config(), opts.toolSurface),
+		opts.toolSurface,
+	); err != nil {
+		return &exitError{code: ExitUsage, err: err}
+	}
+	if opts.developerMode {
 		// Granted before any session is built, so no session can be running
 		// when the capability is fixed.
 		if err := process.GrantDeveloperMode(); err != nil {

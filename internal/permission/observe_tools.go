@@ -36,7 +36,8 @@ var toolChecks = map[string]diag.ToolCheck{
 	"mcp_call": diag.CheckArguments,
 	// The action argument decides whether the call reads the registry or
 	// changes a note; permissions.tasks then decides how far it may go.
-	"task": diag.CheckArguments,
+	"task":    diag.CheckArguments,
+	"library": diag.CheckArguments,
 	// The memory tool takes a name, never a path: whether a memory directory
 	// is bound to this session is the whole decision, and it is the same for
 	// every call.
@@ -44,6 +45,9 @@ var toolChecks = map[string]diag.ToolCheck{
 	// Decided by the tool alone. Naming the session always asks; the rest
 	// carry no path, no command and no external capability, so the boundary
 	// answers the same way every time.
+	"code":         diag.CheckToolName,
+	"code_wait":    diag.CheckToolName,
+	"code_test":    diag.CheckToolName,
 	"session":      diag.CheckToolName,
 	"plan":         diag.CheckToolName,
 	"question":     diag.CheckToolName,

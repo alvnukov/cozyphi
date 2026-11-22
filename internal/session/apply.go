@@ -270,6 +270,28 @@ func applyInPlace(out *Snapshot, ev Event) {
 			out.Tools = make(map[string]ToolRun)
 		}
 		run := e.Run
+		if _, exists := out.Tools[run.ToolUseID]; !exists && run.ParentUseID != "" {
+			// A nested operation does not have its own provider tool_use block.
+			// Insert a display-only block after its cell and earlier children.
+			for i := len(out.Messages) - 1; i >= 0; i-- {
+				blocks := out.Messages[i].Content
+				start := slices.IndexFunc(
+					blocks,
+					func(b ContentBlock) bool { return b.Type == BlockToolUse && b.ID == run.ParentUseID },
+				)
+				if start < 0 {
+					continue
+				}
+				next := start + 1
+				for next < len(blocks) && out.Tools[blocks[next].ID].ParentUseID == run.ParentUseID {
+					next++
+				}
+				out.Messages[i].Content = slices.Insert(slices.Clone(blocks), next, ContentBlock{
+					Type: BlockToolUse, ID: run.ToolUseID, Name: run.Name, Input: run.Detail, Complete: true,
+				})
+				break
+			}
+		}
 		if prev, ok := out.Tools[run.ToolUseID]; ok {
 			if run.Name == "" {
 				run.Name = prev.Name

@@ -239,7 +239,8 @@ func (sm *Manager) appendMessage(msg llm.Message, model, effort string, deduplic
 	defer sm.mu.Unlock()
 	if deduplicate && msg.DeliveryID != "" {
 		for _, existing := range sm.entries {
-			if message, ok := existing.(SessionMessageEntry); ok && message.DeliveryID == msg.DeliveryID {
+			if message, ok := existing.(SessionMessageEntry); ok &&
+				(message.DeliveryID == msg.DeliveryID || slices.Contains(message.DeliveryIDs, msg.DeliveryID)) {
 				return "", nil
 			}
 		}
@@ -265,11 +266,13 @@ func (sm *Manager) appendMessage(msg llm.Message, model, effort string, deduplic
 			ParentID:  sm.leafID,
 			Timestamp: time.Now(),
 		},
-		DeliveryID: msg.DeliveryID,
-		Message:    msg,
-		Usage:      msg.Usage,
-		Model:      model,
-		Effort:     effort,
+		DeliveryID:  msg.DeliveryID,
+		DeliveryIDs: msg.DeliveryIDs,
+		CodeImports: msg.CodeImports,
+		Message:     msg,
+		Usage:       msg.Usage,
+		Model:       model,
+		Effort:      effort,
 	}
 	if err := sm.appendEntry(entry); err != nil {
 		return "", err
@@ -441,7 +444,7 @@ func (sm *Manager) appendEntry(entry MessageEntry) error {
 	prevHasAssistant := sm.hasAssistantMsg
 	forceFlush := false
 	if msgEntry, ok := entry.(SessionMessageEntry); ok {
-		forceFlush = msgEntry.DeliveryID != ""
+		forceFlush = msgEntry.DeliveryID != "" || len(msgEntry.DeliveryIDs) > 0
 		if msgEntry.Message.Role == llm.RoleAssistant {
 			sm.hasAssistantMsg = true
 		}

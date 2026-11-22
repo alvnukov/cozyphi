@@ -3,6 +3,8 @@ package bashtool
 import (
 	"strings"
 	"testing"
+
+	"github.com/alvnukov/cozyphi/internal/proc"
 )
 
 func TestFailureMarkersMatchToolchainsOnly(t *testing.T) {
@@ -171,7 +173,7 @@ func TestFailureBlockReportsBoundAndRetention(t *testing.T) {
 }
 
 func TestBashReportShortFailureIsPlain(t *testing.T) {
-	content, display := bashReport(goTestFailure, false, 1, false)
+	content, display := testBashReport(goTestFailure, 1, false)
 	if content != display {
 		t.Fatalf("short output split readers:\n%q\n%q", content, display)
 	}
@@ -185,7 +187,7 @@ func TestBashReportShortFailureIsPlain(t *testing.T) {
 
 func TestBashReportLongFailureLeadsWithBlockForModelOnly(t *testing.T) {
 	out := strings.Repeat("ok\n", 1500) + goTestFailure
-	content, display := bashReport(out, false, 1, false)
+	content, display := testBashReport(out, 1, false)
 	if !strings.HasPrefix(content, "[failures: 3 marker lines in 1509 lines of output]\n") {
 		t.Fatalf("content does not lead with the block: %q", content[:120])
 	}
@@ -201,25 +203,32 @@ func TestBashReportLongFailureLeadsWithBlockForModelOnly(t *testing.T) {
 }
 
 func TestBashReportFlagsMaskedFailure(t *testing.T) {
-	content, display := bashReport(goTestFailure, false, 0, false)
+	content, display := testBashReport(goTestFailure, 0, false)
 	note := "(exit code 0 is not trustworthy: the output carries 3 failure marker line(s), " +
 		"and a pipeline reports only its last stage)"
 	if !strings.HasSuffix(content, "\n"+note) || !strings.HasSuffix(display, "\n"+note) {
 		t.Fatalf("masked note missing:\n%q\n%q", content, display)
 	}
-	clean, _ := bashReport("ok\tpkg\t0.1s\n", false, 0, false)
+	clean, _ := testBashReport("ok\tpkg\t0.1s\n", 0, false)
 	if strings.Contains(clean, "not trustworthy") {
 		t.Fatalf("clean success flagged: %q", clean)
 	}
-	canceled, _ := bashReport(goTestFailure, false, 0, true)
+	canceled, _ := testBashReport(goTestFailure, 0, true)
 	if !strings.HasSuffix(canceled, "\n(command canceled or timed out)") {
 		t.Fatalf("cancellation footer lost: %q", canceled)
 	}
 }
 
 func TestBashReportEmptyOutput(t *testing.T) {
-	content, display := bashReport("", false, 0, false)
+	content, display := testBashReport("", 0, false)
 	if content != "(no output)" || display != "(no output)" {
 		t.Fatalf("empty output = %q / %q", content, display)
 	}
+}
+
+func testBashReport(output string, code int, canceled bool) (string, string) {
+	return bashReport(
+		proc.Result{Output: output, ExitCode: code, Canceled: canceled},
+		bashTail(output, false),
+	)
 }

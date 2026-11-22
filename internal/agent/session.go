@@ -541,6 +541,9 @@ func (s *Session) PathEntries() []session.MessageEntry {
 	return s.manager.BuildContext()
 }
 
+// ReplayEntries returns the retained conversation and its code operation trace.
+func (s *Session) ReplayEntries() []session.MessageEntry { return s.manager.ReplayEntries() }
+
 // BuildContext returns the messages for LLM inference, oldest first.
 // Compaction entries are projected as user messages carrying the summary.
 // The provider view is repaired defensively so legacy interrupted sessions
@@ -591,6 +594,12 @@ func (s *Session) RepairPendingToolCalls() (int, error) {
 	pending := llm.PendingToolResults(s.buildRawContext())
 	if len(pending) == 0 {
 		return 0, nil
+	}
+	traces := s.manager.ReplayEntries()
+	for i := range pending {
+		if summary := session.InterruptedCodeOperations(traces, pending[i].ToolCallID); summary != "" {
+			pending[i].Content += "\n" + summary
+		}
 	}
 	if err := s.Append(pending...); err != nil {
 		return 0, fmt.Errorf("persist recovery results: %w", err)

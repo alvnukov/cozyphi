@@ -30,6 +30,7 @@ type httpTransport struct {
 	client    *http.Client
 	id        atomic.Int64
 	sessionID string
+	protocol  string
 }
 
 func newHTTPTransport(name string, cfg ServerConfig) (*httpTransport, error) {
@@ -99,7 +100,17 @@ func (t *httpTransport) call(ctx context.Context, method string, params map[stri
 	if err != nil {
 		return nil, err
 	}
-	return resultOrError(method, rpc)
+	result, err := resultOrError(method, rpc)
+	if err == nil && method == "initialize" {
+		var handshake struct {
+			Version string `json:"protocolVersion"`
+		}
+		if err := json.Unmarshal(result, &handshake); err != nil {
+			return nil, fmt.Errorf("decode MCP initialize response: %w", err)
+		}
+		t.protocol = handshake.Version
+	}
+	return result, err
 }
 
 func (t *httpTransport) notify(ctx context.Context, method string, params map[string]any) error {
@@ -124,6 +135,7 @@ func (t *httpTransport) notify(ctx context.Context, method string, params map[st
 
 func (t *httpTransport) close() error {
 	t.sessionID = ""
+	t.protocol = ""
 	if t.client != nil {
 		t.client.CloseIdleConnections()
 	}
@@ -138,6 +150,9 @@ func (t *httpTransport) newRequest(ctx context.Context, payload []byte) (*http.R
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range t.headers {
 		req.Header.Set(k, v)
+	}
+	if t.protocol != "" {
+		req.Header.Set("MCP-Protocol-Version", t.protocol)
 	}
 	if t.sessionID != "" {
 		req.Header.Set(headerSessionID, t.sessionID)

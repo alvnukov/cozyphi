@@ -25,18 +25,30 @@ const (
 // real output. Collection metadata is appended afterward so it does not alter
 // the display budget or reported line range.
 func formatBashOutput(output string, collectionTruncated bool) string {
+	return bashTail(output, collectionTruncated).display
+}
+
+type outputTail struct {
+	data      string
+	display   string
+	path      string
+	truncated bool
+}
+
+func bashTail(output string, collectionTruncated bool) outputTail {
 	label := "Full output"
 	if collectionTruncated {
 		label = "Retained output"
 	}
-	display, _ := truncateBashTail(output, BashMaxOutputLines, BashMaxOutputBytes, label)
+	tail := boundedTail(output, BashMaxOutputLines, BashMaxOutputBytes, label)
 	if collectionTruncated {
-		display += collectTruncationNote
+		tail.display += collectTruncationNote
+		tail.truncated = true
 	}
-	return display
+	return tail
 }
 
-func truncateBashTail(output string, maxLines, maxBytes int, outputLabel string) (display, fullPath string) {
+func boundedTail(output string, maxLines, maxBytes int, outputLabel string) outputTail {
 	if maxLines <= 0 {
 		maxLines = BashMaxOutputLines
 	}
@@ -55,7 +67,7 @@ func truncateBashTail(output string, maxLines, maxBytes int, outputLabel string)
 	}
 
 	if totalLines <= maxLines && totalBytes <= maxBytes {
-		return output, ""
+		return outputTail{display: output, data: output}
 	}
 
 	path, err := writeBashTempFile(output)
@@ -92,7 +104,8 @@ func truncateBashTail(output string, maxLines, maxBytes int, outputLabel string)
 		}
 	}
 
-	display = output[tailStart:bodyEnd]
+	data := strings.Clone(output[tailStart:bodyEnd])
+	display := data
 	displayLines := strings.Count(display, "\n") + 1
 	startLine := totalLines - displayLines + 1
 	endLine := totalLines
@@ -114,7 +127,7 @@ func truncateBashTail(output string, maxLines, maxBytes int, outputLabel string)
 			outputLabel,
 		)
 	}
-	return display, path
+	return outputTail{data: data, display: display, path: path, truncated: true}
 }
 
 func writeBashTempFile(content string) (string, error) {

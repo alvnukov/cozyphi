@@ -85,15 +85,19 @@ func runManaged(
 			text += "\nDeadline: " + snapshot.Deadline.Format(time.RFC3339)
 		}
 		return tooldef.Result{
-			Content:    text,
+			Content: text,
+			Structured: map[string]any{
+				"id":         snapshot.ID,
+				"state":      snapshot.State,
+				"outputFile": snapshot.OutputFile,
+				"deadline":   snapshot.Deadline,
+			},
 			Detail:     command,
 			Output:     text,
 			DeliveryID: "shell:" + snapshot.ID + ":started",
 		}, nil
 	}
-	res := result.Process
-	content, display := bashReport(res.Output, res.Truncated, res.ExitCode, res.Canceled)
-	return tooldef.Result{Content: content, Detail: command, Output: display}, nil
+	return commandResult(command, result.Process), nil
 }
 
 // TaskTool controls only this conversation's existing processes. It cannot

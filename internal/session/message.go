@@ -120,14 +120,15 @@ func (s ToolStatus) String() string {
 
 // ToolRun is the live execution state for a tool_use id.
 type ToolRun struct {
-	ToolUseID string
-	Name      string // tool name (bash, read, ...)
-	Status    ToolStatus
-	Output    string
-	Error     string
-	Detail    string // optional one-line detail (path, cmd summary)
-	ExitCode  int    // set when a local bash run finishes (Status Done/Error)
-	Local     bool   // user "!cmd" bash; ignored by agent streaming/busy checks
+	ParentUseID string `json:"parent_use_id,omitempty"` // owning code cell, empty for direct calls
+	ToolUseID   string
+	Name        string // tool name (bash, read, ...)
+	Status      ToolStatus
+	Output      string
+	Error       string
+	Detail      string // optional one-line detail (path, cmd summary)
+	ExitCode    int    // set when a local bash run finishes (Status Done/Error)
+	Local       bool   // user "!cmd" bash; ignored by agent streaming/busy checks
 }
 
 // Message is one session message. Assistant rows carry Content blocks and State.

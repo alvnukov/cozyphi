@@ -21,6 +21,9 @@ func (g GlobalLayout) Root() string { return g.root }
 // ConfigFile returns the path to the global config file.
 func (g GlobalLayout) ConfigFile() string { return filepath.Join(g.root, "config.yaml") }
 
+// FunctionsDir is the user's shared repository of versioned executor functions.
+func (g GlobalLayout) FunctionsDir() string { return filepath.Join(g.root, "functions") }
+
 // UIStateFile returns the owner-local persisted TUI preferences file.
 func (g GlobalLayout) UIStateFile() string { return filepath.Join(g.root, "ui.json") }
 
@@ -276,6 +279,14 @@ func gitTopLevel(startDir string) string {
 	return filepath.Clean(strings.TrimSpace(string(output)))
 }
 
+// CheckoutFor returns the working tree containing cwd, falling back to cwd outside Git.
+func CheckoutFor(cwd string) string {
+	if root := gitTopLevel(cwd); root != "" {
+		return root
+	}
+	return cwd
+}
+
 // Discover resolves the cozyphi workspace starting from startDir ("" = cwd) and
 // ensures the global directory layout exists.
 func Discover(startDir string) (*Project, error) {
@@ -302,7 +313,7 @@ func Discover(startDir string) (*Project, error) {
 	return &Project{
 		root:          absRoot,
 		memoryRoot:    memoryRoot,
-		checkoutRoot:  gitTopLevel(absRoot),
+		checkoutRoot:  CheckoutFor(absRoot),
 		corpusForeign: corpusIsForeign(absRoot, memoryRoot),
 		global:        global,
 	}, nil

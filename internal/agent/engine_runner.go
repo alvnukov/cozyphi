@@ -38,6 +38,7 @@ import (
 // into a session that has no idea who asked for it, so children get no manager
 // and therefore no watch tool.
 type EngineRunner struct {
+	CodeMode     *CodeMode
 	Model        llm.ModelConfig
 	ModelFn      func() llm.ModelConfig                 // if set, preferred over Model
 	ModelForRole func(job.Role) (llm.ModelConfig, bool) // if set and the role resolves (agents.models), preferred over Model/ModelFn
@@ -101,7 +102,7 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		lastText string
 		lastErr  error
 	)
-	for ev, loopErr := range engine.Loop(ctx, prompt, LoopOpts{}) {
+	for ev, loopErr := range engine.Loop(ctx, prompt, LoopOpts{Origin: turnAssignment}) {
 		if loopErr != nil {
 			lastErr = loopErr
 			env.Log("error: " + loopErr.Error())
@@ -258,6 +259,10 @@ func (r EngineRunner) PrepareChild(meta job.Meta) (*EngineOpts, string, error) {
 			Persist:    true,
 			ParentID:   meta.ParentID,
 		},
+	}
+
+	if spec.Role != job.RoleWebReader {
+		opts.CodeMode = r.CodeMode
 	}
 
 	prompt := meta.Prompt

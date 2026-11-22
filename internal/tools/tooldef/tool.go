@@ -9,6 +9,9 @@ import (
 
 // Result is what a tool returns to the model / UI.
 type Result struct {
+	// Structured is the JSON value returned to programmatic callers after hooks.
+	// A nil value preserves Content as the tool's result. Host metadata stays private.
+	Structured any
 	// Content is sent back to the model as the tool message body.
 	Content string
 	// Detail is a short one-line summary for the TUI tool row.
@@ -29,9 +32,13 @@ type Tool struct {
 	Run        Handler
 	// DetailFromArgs extracts a one-line detail for the UI before execution.
 	DetailFromArgs func(input json.RawMessage) string
+	// ApprovalPreview supplies display-only evidence after an invocation needs consent.
+	ApprovalPreview func(context.Context, json.RawMessage) string
 	// SessionScoped marks a built-in tool whose closure owns session-local
 	// state. The assembly layer replaces it when the session changes.
 	SessionScoped bool
+	// ConcurrentRead identifies invocations that can safely overlap other read-only operations.
+	ConcurrentRead func(json.RawMessage) bool
 }
 
 // Definitions extracts LLM schemas from tools.

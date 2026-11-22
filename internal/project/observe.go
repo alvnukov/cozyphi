@@ -2,6 +2,15 @@ package project
 
 import "github.com/alvnukov/cozyphi/internal/diag"
 
+// Observation keeps the configured Code Mode settings separate from the
+// actual tool surface chosen for a session at process startup.
+func (cfg CodeModeConfig) Observation() diag.CodeModeSettings {
+	return diag.CodeModeSettings{
+		Known: true, Enabled: cfg.Enabled, Discovery: cfg.Discovery,
+		AdvisorModel: cfg.AdvisorModel, AdvisorTimeout: cfg.AdvisorTimeout,
+	}
+}
+
 // StoreAnchors reports where this workspace's layout puts each store, for
 // the harness view to compose locators from.
 //

@@ -194,6 +194,10 @@ type Message struct {
 	Usage Usage `json:"-"`
 	// DeliveryID is host-only receipt metadata persisted by the session wrapper.
 	DeliveryID string `json:"-"`
+	// DeliveryIDs and CodeImports belong to the outer code result and are
+	// persisted by the session wrapper, never serialized to a provider.
+	DeliveryIDs []string          `json:"-"`
+	CodeImports map[string]string `json:"-"`
 	// EntryID is host-only: the session entry id the caller already published
 	// this message under, so the transcript row and the log entry share one id.
 	// Empty lets the session manager mint the id itself.

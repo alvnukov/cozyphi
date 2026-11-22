@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 )
 
 var stepTypeNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
@@ -392,6 +393,18 @@ func (p *Policy) ValidateItems(items []session.PlanItem) error {
 func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 	if p == nil {
 		p = defaultPolicy
+	}
+	// A cell is a transport. Each host operation carries and checks its own
+	// step binding, including when the operation is reached from an import.
+	if tooldef.CodeControl(call.Name) {
+		return Verdict{}
+	}
+	if call.Name == "library" {
+		if tooldef.LibraryReadAction(call.Action) {
+			call.Name = "read"
+		} else {
+			call.Name = "edit"
+		}
 	}
 	if _, ok := p.exempt[call.Name]; ok {
 		if v, denied := preApprovalVerdict(phase, plan, call); denied {

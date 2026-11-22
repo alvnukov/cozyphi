@@ -161,7 +161,7 @@ func TestRunHeadlessJobRunnerRebindsModelSnapshot(t *testing.T) {
 			if pinned {
 				bs.Config.Agents.Models[string(job.RoleExplore)] = roleModel.Name
 			}
-			factory := runJobRunnerFactory(bs)
+			factory := runJobRunnerFactory(bs, nil)
 			hookManager := hooks.NewManager()
 			query := tools.LSPQueryFunc(func(context.Context, lsp.Query) (lsp.Result, error) {
 				return lsp.Result{}, fmt.Errorf("snapshot query")

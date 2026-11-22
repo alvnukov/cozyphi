@@ -30,6 +30,7 @@ const (
 // LsTool returns the ls tool definition + handler.
 func LsTool() tooldef.Tool {
 	return tooldef.Tool{
+		ConcurrentRead: func(json.RawMessage) bool { return true },
 		Definition: llm.ToolDefinition{
 			Name:        "ls",
 			Description: lsDescription,
@@ -145,12 +146,14 @@ func runLs(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 	if fileCount == 1 {
 		detail = display + " (1 entry)"
 	}
-	if fileCount < limit {
-		return tooldef.Result{Content: treeStr, Detail: detail, Output: treeStr}, nil
+	truncated := fileCount >= limit
+	if truncated {
+		treeStr = fmt.Sprintf(truncatedMessage, limit) + treeStr
 	}
-
-	truncated := fmt.Sprintf(truncatedMessage, limit) + treeStr
-	return tooldef.Result{Content: truncated, Detail: detail, Output: truncated}, nil
+	return tooldef.Result{
+		Content: treeStr, Detail: detail, Output: treeStr,
+		Structured: map[string]any{"path": display, "entries": root.Children, "truncated": truncated},
+	}, nil
 }
 
 func shouldSkip(name string) bool {

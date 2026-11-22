@@ -28,13 +28,17 @@ const (
 
 // Executor runs model tool_calls against a tool registry and emits ToolData for the UI.
 type Executor struct {
-	registry  tools.Registry
-	gate      permission.Gate
-	ask       permission.AskFunc
-	hooks     *hooks.Manager // nil = no hooks (behavior identical to pre-hooks)
-	sessionID string
-	cwd       string
-	mode      Mode
+	codeMode        *CodeMode
+	codeWritable    bool
+	saveCodeTrace   func(session.ToolRun) error
+	observeCodeArgs func(string)
+	registry        tools.Registry
+	gate            permission.Gate
+	ask             permission.AskFunc
+	hooks           *hooks.Manager // nil = no hooks (behavior identical to pre-hooks)
+	sessionID       string
+	cwd             string
+	mode            Mode
 	// modeUnavailable names advertised tools whose handlers are withheld by
 	// the current posture. It is a snapshot, never a path to dispatch them.
 	modeUnavailable map[string]struct{}
@@ -306,7 +310,11 @@ func (e *Executor) run(
 				e.rejectResult(call, call.Function.Arguments, plangate.ReasonBatchSkillPreload, send))
 			continue
 		}
-		results = append(results, e.runOne(ctx, call, send, &state))
+		if (call.Function.Name == "code" || call.Function.Name == "code_wait") && e.codeMode != nil {
+			results = append(results, e.runCode(ctx, call, send, &state))
+		} else {
+			results = append(results, e.runOne(ctx, call, send, &state, nil))
+		}
 	}
 	return results, active, state.stop
 }
@@ -316,6 +324,7 @@ func (e *Executor) runOne(
 	call llm.ToolCall,
 	emit func(session.ToolData) bool,
 	state *roundState,
+	capture *operationResult,
 ) llm.Message {
 	ctx = tools.WithCwd(ctx, e.cwd)
 	tool, ok := e.registry[call.Function.Name]
@@ -462,7 +471,10 @@ func (e *Executor) runOne(
 		tools.WithToolCallID(ctx, call.ID),
 		e.mutationGuard(call.Function.Name, consented),
 	)
-	result, err := tool.Run(runCtx, args)
+	if capture != nil && e.observeCodeArgs != nil {
+		e.observeCodeArgs(string(args))
+	}
+	result, err := capture.invoke(runCtx, tool, args)
 
 	var (
 		errText string
@@ -505,6 +517,13 @@ func (e *Executor) runOne(
 		output = post.Output
 	}
 
+	baseContent := content
+	if capture != nil {
+		capture.value = content
+		if post.Output == "" && result.Structured != nil {
+			capture.value = result.Structured
+		}
+	}
 	// The documented PostTool contract: stop:true / exit 2 halts the agentic
 	// loop. The stopped call's result still completes (pairing), and its
 	// content tells the model why the run ended — a later turn reads it.
@@ -573,6 +592,10 @@ func (e *Executor) runOne(
 	)
 	message := e.toolMessage(call.ID, modelContent)
 	message.DeliveryID = result.DeliveryID
+	if capture != nil {
+		capture.success = true
+		capture.notes = strings.TrimSpace(strings.TrimPrefix(modelContent, baseContent))
+	}
 	return message
 }
 
@@ -621,7 +644,11 @@ func (e *Executor) checkPermission(
 		// The diff preview is computed lazily, only when a human is about
 		// to look at the request: auto-approved calls never pay the file
 		// I/O, and the gate has already decided without seeing it.
-		req.Preview = writetool.AskPreview(ctx, call.Function.Name, args)
+		if preview := e.registry[call.Function.Name].ApprovalPreview; preview != nil {
+			req.Preview = preview(ctx, args)
+		} else {
+			req.Preview = writetool.AskPreview(ctx, call.Function.Name, args)
+		}
 		res, askErr := e.ask(ctx, req, reason)
 		if askErr != nil {
 			msg := fmt.Sprintf("approval failed: %v", askErr)

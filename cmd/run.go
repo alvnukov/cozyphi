@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/alvnukov/cozyphi/internal/agent"
+	"github.com/alvnukov/cozyphi/internal/codehost"
 	"github.com/alvnukov/cozyphi/internal/debuglog"
 	"github.com/alvnukov/cozyphi/internal/diag"
 	"github.com/alvnukov/cozyphi/internal/hooks"
@@ -36,6 +37,7 @@ import (
 
 // runOptions holds parsed `cozyphi run` flags.
 type runOptions struct {
+	toolSurface  string
 	prompt       string
 	jsonl        bool
 	yolo         bool
@@ -109,9 +111,14 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 	// The hook manager and the record of the load that built it are taken
 	// together: the manager keeps only entries, so which directory defined
 	// one and what the load had to skip survive nowhere else.
+	var codeMode *agent.CodeMode
+	if codeModeEnabled(bs.Config, opts.toolSurface) {
+		codeMode = codehost.New(bs.Proj.Global(), bs.Config.CodeMode, bs.models())
+	}
 	hooksMgr, hooksLoad := loadRunHooks(bs)
 	engineOpts := agent.EngineOpts{
-		Model: model,
+		Model:    model,
+		CodeMode: codeMode,
 		SessionOpts: agent.SessionOpts{
 			Cwd:          bs.Cwd,
 			SessionDir:   bs.SessionDir,
@@ -210,7 +217,12 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 			// category reports unavailable until the engine exists rather
 			// than listing the tools this function is about to ask for.
 			diag.NewToolCollector(diag.ToolDeps{
-				State: func() diag.ToolState { return running.ToolObservation() },
+				State: func() diag.ToolState {
+					state := running.ToolObservation()
+					state.CodeConfig = bs.Config.CodeMode.Observation()
+					state.CodeFlag = opts.toolSurface
+					return state
+				},
 			}),
 			// The context layer likewise: the window, the usage and the
 			// record of what the last prompt render loaded all live on the
@@ -350,7 +362,7 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 		defer func() { _ = pool.Close() }()
 	}
 	if bs.Config.Agents.Enabled {
-		engineOpts.JobRunner = runJobRunnerFactory(bs)
+		engineOpts.JobRunner = runJobRunnerFactory(bs, codeMode)
 		manager, jobErr := job.New(job.Options{
 			Root:   bs.Proj.JobsDir(),
 			Runner: engineOpts.JobRunner(model, engineOpts.Hooks, engineOpts.LSP),
@@ -404,7 +416,7 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 
 // runJobRunnerFactory resolves role pins at binding, not when a queued child starts.
 // Only the factory consults the catalog; each runner retains a fixed tool snapshot.
-func runJobRunnerFactory(bs *runBootstrap) agent.JobRunnerFactory {
+func runJobRunnerFactory(bs *runBootstrap, codeMode *agent.CodeMode) agent.JobRunnerFactory {
 	return func(model llm.ModelConfig, hooksManager *hooks.Manager, query tools.LSPQueryFunc) job.Runner {
 		models := bs.Config.AgentModels(bs.findModel)
 		resolved := make(map[job.Role]llm.ModelConfig)
@@ -414,7 +426,8 @@ func runJobRunnerFactory(bs *runBootstrap) agent.JobRunnerFactory {
 			}
 		}
 		return agent.EngineRunner{
-			Model: model, Hooks: hooksManager, LSP: query,
+			CodeMode: codeMode,
+			Model:    model, Hooks: hooksManager, LSP: query,
 			Web: agent.WebOptionsFrom(bs.Config.Web, bs.findModel),
 			ModelForRole: func(role job.Role) (llm.ModelConfig, bool) {
 				cfg, ok := resolved[role]
@@ -525,6 +538,8 @@ func parseRunArgs(args []string) (runOptions, error) {
 			o.jsonl = true
 		case arg == "--yolo":
 			o.yolo = true
+		case arg == "--code-mode" || arg == "--direct-tools":
+			o.toolSurface = arg
 		case arg == "--developer-mode":
 			o.developerMode = true
 		case arg == "--continue-last":
@@ -606,6 +621,8 @@ flags:
   -p, --prompt STRING   prompt to run (required)
       --jsonl           emit JSONL events to stdout
       --yolo            skip all permission checks for this run (benchmarks / CI only)
+      --code-mode       run tools from TypeScript cells with the shared function library
+      --direct-tools    use direct tool calls for this session
       --developer-mode  let the model read cozyphi's own configuration (read-only harness tool)
       --max-rounds N    cap tool rounds (default 64)
       --timeout DURATION stop after a wall-clock duration (e.g. 10m; default unlimited)

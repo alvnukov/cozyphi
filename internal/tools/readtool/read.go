@@ -44,6 +44,14 @@ func ReadTool(ledgers ...*editledger.Ledger) tooldef.Tool {
 		ledger = ledgers[0]
 	}
 	return tooldef.Tool{
+		ConcurrentRead: func(raw json.RawMessage) bool {
+			var in readInput
+			if json.Unmarshal(raw, &in) != nil {
+				return false
+			}
+			mode := strings.ToLower(strings.TrimSpace(in.Mode))
+			return mode == "" || mode == "view"
+		},
 		Definition: llm.ToolDefinition{
 			Name:        "read",
 			Description: readDescription,
@@ -88,6 +96,20 @@ type readInput struct {
 	Mode   string `json:"mode,omitempty"`
 	Limit  int    `json:"limit,omitempty"`
 	Offset int    `json:"offset,omitempty"`
+}
+
+type readLine struct {
+	Number int    `json:"number"`
+	Text   string `json:"text"`
+	Anchor string `json:"anchor,omitempty"`
+}
+
+type readPage struct {
+	Path       string     `json:"path"`
+	Size       int64      `json:"size"`
+	Hash       string     `json:"hash,omitempty"`
+	Lines      []readLine `json:"lines"`
+	NextOffset int        `json:"nextOffset,omitempty"`
 }
 
 func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
@@ -144,14 +166,15 @@ func runReadWithLedger(ctx context.Context, input json.RawMessage, ledger *editl
 	// being loaded whole with an index of every line. Lone-CR line breaks are
 	// not split on this path; \r\n still is.
 	if st.Size() > readMaxHashBytes {
-		page, shown, err := readViewWindow(ctx, path, startLine, limit)
+		text, page, err := readViewWindow(ctx, path, startLine, limit)
 		if err != nil {
 			return tooldef.Result{}, err
 		}
 		// Streaming forward cannot know the total line count; size only.
-		out := viewHeader(display, humanBytes(st.Size()), startLine, shown) + "\n" + page
+		page.Path, page.Size = display, st.Size()
+		out := viewHeader(display, humanBytes(st.Size()), startLine, len(page.Lines)) + "\n" + text
 		detail := fmt.Sprintf("%s (%s)", display, humanBytes(st.Size()))
-		return tooldef.Result{Content: out, Detail: detail, Output: out}, nil
+		return tooldef.Result{Content: out, Structured: page, Detail: detail, Output: out}, nil
 	}
 
 	raw, err := os.ReadFile(path)
@@ -162,8 +185,10 @@ func runReadWithLedger(ctx context.Context, input json.RawMessage, ledger *editl
 	// The revision is the identity the ledger authorizes; its tag is only the
 	// display form printed in the @file header.
 	var rev util.Revision
+	page := readPage{Path: display, Size: st.Size(), Lines: []readLine{}}
 	if mode == "edit" {
 		rev = util.RevisionOf(text)
+		page.Hash = rev.Tag()
 	}
 
 	lines := strings.Split(text, "\n")
@@ -177,7 +202,7 @@ func runReadWithLedger(ctx context.Context, input json.RawMessage, ledger *editl
 			out = util.FormatFileHeader(display, rev.Tag()) + "\n" + out
 			ledger.Authorize(path, rev, nil)
 		}
-		return tooldef.Result{Content: out, Detail: display + " (empty)", Output: out}, nil
+		return tooldef.Result{Content: out, Structured: page, Detail: display + " (empty)", Output: out}, nil
 	}
 
 	// The trailing empty element from a final newline is a split artifact,
@@ -205,21 +230,26 @@ func runReadWithLedger(ctx context.Context, input json.RawMessage, ledger *editl
 		}
 		line := lines[lineNo-1]
 		if bytesN+len(line)+1 > readDefaultMaxBytes {
+			page.NextOffset = lineNo
 			fmt.Fprintf(&b, "\n... truncated at %d bytes. Next offset: %d\n", readDefaultMaxBytes, lineNo)
 			break
 		}
+		row := readLine{Number: lineNo, Text: strings.Clone(line)}
 		if mode == "edit" {
 			hash := util.ComputeLineHash(line)
 			anchor := fmt.Sprintf("%d#%s", lineNo, hash)
+			row.Anchor = anchor
 			anchors = append(anchors, anchor)
 			fmt.Fprintf(&b, "%s|%s\n", anchor, line)
 		} else {
 			fmt.Fprintf(&b, "%d|%s\n", lineNo, line)
 		}
+		page.Lines = append(page.Lines, row)
 		bytesN += len(line) + 1
 		collected++
 		if collected >= limit {
 			if lineNo < len(lines) {
+				page.NextOffset = lineNo + 1
 				fmt.Fprintf(&b, "... truncated at %d lines. Next offset: %d\n", limit, lineNo+1)
 			}
 			break
@@ -238,7 +268,7 @@ func runReadWithLedger(ctx context.Context, input json.RawMessage, ledger *editl
 	if collected < totalLines {
 		detail = fmt.Sprintf("%s (lines %d-%d of %d)", display, startLine, startLine+collected-1, totalLines)
 	}
-	return tooldef.Result{Content: out, Detail: detail, Output: out}, nil
+	return tooldef.Result{Content: out, Structured: page, Detail: detail, Output: out}, nil
 }
 
 // viewHeader opens a view page with the stats the page knows, so the model
@@ -280,13 +310,14 @@ func humanBytes(n int64) string {
 // forward once and keeps at most one page, so cost is bounded by the offset,
 // not by the file. It reports how many lines the page shows; the header is
 // composed by the caller, which knows the display path.
-func readViewWindow(ctx context.Context, path string, startLine, limit int) (page string, shown int, err error) {
+func readViewWindow(ctx context.Context, path string, startLine, limit int) (string, readPage, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return "", 0, err
+		return "", readPage{}, err
 	}
 	defer f.Close()
 
+	page := readPage{Lines: []readLine{}}
 	reader := bufio.NewReaderSize(f, readStreamBufBytes)
 	var (
 		b         strings.Builder
@@ -297,31 +328,34 @@ func readViewWindow(ctx context.Context, path string, startLine, limit int) (pag
 	for {
 		select {
 		case <-ctx.Done():
-			return "", 0, ctx.Err()
+			return "", readPage{}, ctx.Err()
 		default:
 		}
 		line, eof, err := readLineBounded(reader, readDefaultMaxBytes)
 		if err != nil {
-			return "", 0, err
+			return "", readPage{}, err
 		}
 		lineNo++
 		if lineNo >= startLine {
 			if bytesN+len(line)+1 > readDefaultMaxBytes {
+				page.NextOffset = lineNo
 				fmt.Fprintf(&b, "\n... truncated at %d bytes. Next offset: %d\n", readDefaultMaxBytes, lineNo)
-				return b.String(), collected, nil
+				return b.String(), page, nil
 			}
+			page.Lines = append(page.Lines, readLine{Number: lineNo, Text: line})
 			fmt.Fprintf(&b, "%d|%s\n", lineNo, line)
 			bytesN += len(line) + 1
 			collected++
 			if collected >= limit {
 				if !eof {
+					page.NextOffset = lineNo + 1
 					fmt.Fprintf(&b, "... truncated at %d lines. Next offset: %d\n", limit, lineNo+1)
 				}
-				return b.String(), collected, nil
+				return b.String(), page, nil
 			}
 		}
 		if eof {
-			return b.String(), collected, nil
+			return b.String(), page, nil
 		}
 	}
 }

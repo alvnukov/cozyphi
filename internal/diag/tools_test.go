@@ -3,6 +3,7 @@ package diag_test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -218,7 +219,7 @@ func TestStatusIsAnsweredFromTheKeysAlone(t *testing.T) {
 	assert.Zero(t, calls, "listing what a category can answer must not read the engine")
 	assert.Equal(t, diag.CategoryTools, collector.Category())
 	assert.Equal(t, diag.AvailabilityAvailable, status.Availability)
-	assert.Len(t, status.Keys, len(diag.ToolCatalog())+3)
+	assert.Len(t, status.Keys, len(diag.ToolCatalog())+7)
 }
 
 func TestTheCatalogIsHandedOutDetached(t *testing.T) {
@@ -241,4 +242,32 @@ func TestNoSchemaOrArgumentCanRideAlongWithAToolAnswer(t *testing.T) {
 		assert.NotContains(t, string(encoded), field,
 			"the projection lists the members it exports; a schema is not one of them")
 	}
+}
+
+func TestCodeModeReportsStartupOverrideAndAdvisorFallback(t *testing.T) {
+	state := ownedTools()
+	state.CodeConfig = diag.CodeModeSettings{
+		Known: true, Discovery: "always", AdvisorModel: "missing-model", AdvisorTimeout: time.Second,
+	}
+	state.CodeFlag = "--code-mode"
+	state.CodeMode = diag.CodeModeSettings{Known: true, Enabled: true, Discovery: "local"}
+	fields := toolFields(t, state)
+	mode := fieldByKey(t, fields, diag.KeyCodeMode)
+	assert.False(t, mode.Configured.Value.Bool)
+	assert.True(t, mode.Effective.Value.Bool)
+	assert.Equal(t, diag.Source{Kind: diag.SourceCLIFlag, Ref: "--code-mode"}, mode.Effective.Source)
+	assert.Equal(t, "always", fieldByKey(t, fields, diag.KeyCodeDiscovery).Configured.Value.Str)
+	assert.Equal(t, "local", fieldByKey(t, fields, diag.KeyCodeDiscovery).Effective.Value.Str)
+	advisor := fieldByKey(t, fields, diag.KeyCodeAdvisor)
+	assert.Equal(t, "missing-model", advisor.Configured.Value.Str)
+	assert.Equal(t, diag.StateUnset, advisor.Effective.State)
+	timeout := fieldByKey(t, fields, diag.KeyCodeTimeout)
+	assert.Equal(t, "1s", timeout.Configured.Value.Str)
+	assert.Equal(t, diag.StateUnset, timeout.Effective.State)
+
+	state.CodeMode.Enabled = false
+	state.CodeFlag = "--direct-tools"
+	fields = toolFields(t, state)
+	assert.Equal(t, "--direct-tools", fieldByKey(t, fields, diag.KeyCodeMode).Effective.Source.Ref)
+	assert.Equal(t, diag.StateNotApplicable, fieldByKey(t, fields, diag.KeyCodeDiscovery).Effective.State)
 }

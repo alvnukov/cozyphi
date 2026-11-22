@@ -73,11 +73,13 @@ type SessionBaseEntry struct {
 // and session lifecycle hooks.
 type SessionMessageEntry struct {
 	SessionBaseEntry
-	DeliveryID string      `json:"delivery_id,omitempty"` // background receipt; never a permission grant
-	Message    llm.Message `json:"message"`
-	Usage      llm.Usage   `json:"usage,omitempty"`
-	Model      string      `json:"model,omitempty"`
-	Effort     string      `json:"effort,omitempty"`
+	DeliveryID  string            `json:"delivery_id,omitempty"` // background receipt; never a permission grant
+	DeliveryIDs []string          `json:"delivery_ids,omitempty"`
+	CodeImports map[string]string `json:"code_imports,omitempty"`
+	Message     llm.Message       `json:"message"`
+	Usage       llm.Usage         `json:"usage,omitempty"`
+	Model       string            `json:"model,omitempty"`
+	Effort      string            `json:"effort,omitempty"`
 }
 
 // GetType implements MessageEntry.

@@ -135,7 +135,8 @@ func TestTruncateBashTailPreservesTailSemantics(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			display, path := truncateBashTail(tc.output, tc.maxLines, tc.maxBytes, "Full output")
+			tail := boundedTail(tc.output, tc.maxLines, tc.maxBytes, "Full output")
+			display, path := tail.display, tail.path
 			if path == "" {
 				t.Fatal("missing temp output path")
 			}

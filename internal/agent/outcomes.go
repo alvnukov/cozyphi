@@ -40,25 +40,31 @@ func (engine *Engine) acknowledgeWaitOutcomes(ctx context.Context, parent *Sessi
 		return nil
 	}
 	for _, message := range messages {
-		id, ok := strings.CutSuffix(message.DeliveryID, ":terminal")
-		if !ok {
-			continue
+		ids := message.DeliveryIDs
+		if message.DeliveryID != "" {
+			ids = append([]string{message.DeliveryID}, ids...)
 		}
-		info, err := engine.jobs.Get(ctx, id)
-		if err != nil {
-			return err
-		}
-		if info.OwnerID != engine.jobOwnerID || info.ParentID != parent.ID() {
-			continue
-		}
-		if err := engine.jobs.AcknowledgeOutcome(
-			ctx,
-			engine.jobOwnerID,
-			parent.ID(),
-			id,
-			message.DeliveryID,
-		); err != nil {
-			return err
+		for _, receipt := range ids {
+			id, ok := strings.CutSuffix(receipt, ":terminal")
+			if !ok {
+				continue
+			}
+			info, err := engine.jobs.Get(ctx, id)
+			if err != nil {
+				return err
+			}
+			if info.OwnerID != engine.jobOwnerID || info.ParentID != parent.ID() {
+				continue
+			}
+			if err := engine.jobs.AcknowledgeOutcome(
+				ctx,
+				engine.jobOwnerID,
+				parent.ID(),
+				id,
+				receipt,
+			); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

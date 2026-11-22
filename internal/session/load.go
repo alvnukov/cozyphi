@@ -456,7 +456,16 @@ func decodeEntryLine(raw []byte, lineNo int) (MessageEntry, error) {
 		// Restore the persisted wrapper value so every in-memory consumer sees
 		// the same message shape before and after resume.
 		m.Message.Usage = m.Usage
+		m.Message.DeliveryID = m.DeliveryID
+		m.Message.DeliveryIDs = m.DeliveryIDs
+		m.Message.CodeImports = m.CodeImports
 		return m, nil
+	case EntryCodeTrace:
+		var trace CodeTraceEntry
+		if err := json.Unmarshal(raw, &trace); err != nil {
+			return nil, fmt.Errorf("session: line %d code operation: %w", lineNo, err)
+		}
+		return trace, nil
 	case EntryCompaction:
 		var c CompactionEntry
 		if err := json.Unmarshal(raw, &c); err != nil {

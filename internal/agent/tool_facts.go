@@ -177,6 +177,12 @@ func (engine *Engine) ToolObservation() diag.ToolState {
 		Registered: toolOrder(registered),
 		Tools:      make([]diag.ToolFacts, 0, len(diag.ToolCatalog())),
 	}
+	state.CodeMode = diag.CodeModeSettings{Known: true}
+	if cm := engine.codeMode; cm != nil && cm.Run != nil {
+		state.CodeMode = cm.Settings
+		state.CodeMode.Known = true
+		state.CodeMode.Enabled = true
+	}
 	for name := range registered {
 		if callable != nil {
 			if _, ok := callable[name]; !ok {

@@ -62,7 +62,7 @@ func (g *TaintGate) Check(ctx context.Context, req Request) (Decision, string) {
 // untrusted web content already entered this turn.
 func downgradeAfterWeb(req Request, taint Taint) bool {
 	switch req.Action {
-	case ActionWrite, ActionEdit, ActionBash, ActionMCPCall, ActionAgent:
+	case ActionWrite, ActionEdit, ActionBash, ActionMCPCall, ActionAgent, ActionLibraryWrite:
 		return true
 	case ActionWatch:
 		return req.Command != "" || req.Op == "stop"

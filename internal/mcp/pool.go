@@ -13,13 +13,14 @@ import (
 
 // Pool lazily connects to configured MCP servers.
 type Pool struct {
-	mu       sync.Mutex
-	servers  map[string]ServerConfig
-	clients  map[string]Client
-	status   map[string]ServerStatus
-	disabled map[string]bool
-	cwd      string // resolved once before publication; empty preserves legacy inheritance
-	closed   bool
+	mu        sync.Mutex
+	servers   map[string]ServerConfig
+	clients   map[string]Client
+	status    map[string]ServerStatus
+	disabled  map[string]bool
+	artifacts []storedArtifact
+	cwd       string // resolved once before publication; empty preserves legacy inheritance
+	closed    bool
 	// origins records, per server, every configuration source that defined
 	// it, in precedence order. It is written once at load and read only by
 	// the harness view; a hand-built pool has none and reports none.
@@ -245,13 +246,26 @@ func (p *Pool) Inspect(ctx context.Context, server, tool string) (*ToolDef, erro
 
 // Call invokes a tool on a server.
 func (p *Pool) Call(ctx context.Context, server, tool string, args map[string]any) (string, error) {
-	c, err := p.client(server)
+	result, err := p.CallResult(ctx, server, tool, args)
 	if err != nil {
 		return "", err
 	}
-	result, err := c.CallTool(ctx, tool, args)
+	return result.Text(), nil
+}
+
+// CallResult preserves MCP blocks and structured data before transcript formatting.
+func (p *Pool) CallResult(ctx context.Context, server, tool string, args map[string]any) (CallResult, error) {
+	c, err := p.client(server)
+	if err != nil {
+		return CallResult{}, err
+	}
+	result, err := c.CallToolResult(ctx, tool, args)
 	p.observe(server, err)
-	return result, err
+	if err != nil {
+		return CallResult{}, err
+	}
+	p.retainArtifacts(server, tool, &result)
+	return result, nil
 }
 
 // Doctor checks config and connectivity for each configured server,
@@ -318,6 +332,7 @@ func (p *Pool) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.closed = true
+	p.artifacts = nil
 	var first error
 	for name, c := range p.clients {
 		if err := c.Close(); err != nil {

@@ -185,7 +185,7 @@ func TestDisplayedAnchorsSelectsChangedLinesFirst(t *testing.T) {
 	grant := successorGrantFor(regions, lines, "AB12")
 	require.Greater(t, len(grant.anchors), maxDisplayedAnchors)
 
-	shown := displayedAnchors(grant, maxDisplayedAnchors)
+	shown := displayedAnchors(grant)
 	require.Len(t, shown, maxDisplayedAnchors)
 	require.Subset(t, grant.anchors, shown)
 	require.True(t, slices.IsSorted(anchorLines(shown)), "displayed anchors print in file order")
@@ -204,7 +204,7 @@ func TestDisplayedAnchorsSelectsChangedLinesFirst(t *testing.T) {
 func TestDisplayedAnchorsShowsSmallGrantWhole(t *testing.T) {
 	lines := numberedLines("old", 10)
 	grant := successorGrantFor([]editledger.Span{{From: 4, To: 5}}, lines, "AB12")
-	require.Equal(t, grant.anchors, displayedAnchors(grant, maxDisplayedAnchors))
+	require.Equal(t, grant.anchors, displayedAnchors(grant))
 }
 
 // A deletion leaves no changed line of its own; its region is the pair of

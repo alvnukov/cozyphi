@@ -457,8 +457,16 @@ func runParsedEdit(
 	// only the hunks — the title row already names the path.
 	return tooldef.Result{
 		Content: body.String(),
-		Detail:  display,
-		Output:  diff,
+		Structured: map[string]any{
+			"path":              display,
+			"status":            code,
+			"hash":              successor.tag,
+			"anchors":           displayedAnchors(successor),
+			"notices":           notices,
+			"duplicatesDropped": dropped,
+		},
+		Detail: display,
+		Output: diff,
 	}, nil
 }
 
@@ -717,10 +725,8 @@ func changedRegion(span editledger.Span, total int) (editledger.Span, bool) {
 // context, expanding outward from each region a line at a time, nearest
 // first. The result is a subset of grant.anchors in ascending line order, so
 // everything printed is authorized.
-func displayedAnchors(grant successorGrant, budget int) []string {
-	if budget <= 0 {
-		return nil
-	}
+func displayedAnchors(grant successorGrant) []string {
+	const budget = maxDisplayedAnchors
 	if len(grant.anchors) <= budget {
 		return grant.anchors
 	}
@@ -847,7 +853,7 @@ func (c *contextCursor) step(take func(int) bool) bool {
 // live anchors: the message says plainly that these authorize the next edit
 // and that every prior anchor died with the old revision.
 func writeSuccessorBlock(body *strings.Builder, grant successorGrant) {
-	shown := displayedAnchors(grant, maxDisplayedAnchors)
+	shown := displayedAnchors(grant)
 	fmt.Fprintf(
 		body,
 		"These LINE#HASH anchors are live and authorize the next edit of the changed region with hash=%s; all prior anchors are invalid:\n",

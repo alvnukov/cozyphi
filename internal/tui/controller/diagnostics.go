@@ -429,7 +429,16 @@ func (c *Controller) toolState() diag.ToolState {
 	if c == nil {
 		return diag.ToolState{}
 	}
-	return c.engineRef.Load().ToolObservation()
+	state := c.engineRef.Load().ToolObservation()
+	if c.runtime != nil {
+		c.runtime.mu.Lock()
+		state.CodeFlag = c.runtime.codeModeFlag
+		if proj := c.runtime.proj; proj != nil && proj.Config() != nil {
+			state.CodeConfig = proj.Config().CodeMode.Observation()
+		}
+		c.runtime.mu.Unlock()
+	}
+	return state
 }
 
 // configuredPermissionFacts is the permissions block the configuration

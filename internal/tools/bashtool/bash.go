@@ -95,8 +95,18 @@ func runBash(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		return tooldef.Result{}, err
 	}
 
-	content, display := bashReport(res.Output, res.Truncated, res.ExitCode, res.Canceled)
-	return tooldef.Result{Content: content, Detail: cmd, Output: display}, nil
+	return commandResult(cmd, res), nil
+}
+
+// commandResult keeps the exit status separate from program output. Use the
+// same bounded tail for the runtime and the usual report for the transcript.
+func commandResult(command string, res proc.Result) tooldef.Result {
+	tail := bashTail(res.Output, res.Truncated)
+	content, display := bashReport(res, tail)
+	return tooldef.Result{Content: content, Detail: command, Output: display, Structured: map[string]any{
+		"output": tail.data, "exitCode": res.ExitCode, "canceled": res.Canceled, "truncated": tail.truncated,
+		"outputFile": tail.path,
+	}}
 }
 
 // bashReport renders one run for its two readers. display is the tail the
@@ -104,22 +114,22 @@ func runBash(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 // reads: the same display, preceded by the failure block when the output is
 // long enough to hide its failures. Both carry the masked-failure note — a
 // zero exit that the output contradicts is news to the user too.
-func bashReport(output string, collectionTruncated bool, exitCode int, canceled bool) (content, display string) {
-	display = formatBashOutput(output, collectionTruncated)
+func bashReport(res proc.Result, tail outputTail) (content, display string) {
+	display = tail.display
 	if strings.TrimSpace(display) == "" {
 		display = "(no output)"
 	}
-	scan := scanFailures(output)
+	scan := scanFailures(res.Output)
 	switch {
-	case canceled:
+	case res.Canceled:
 		display += "\n(command canceled or timed out)"
-	case exitCode != 0:
-		display += fmt.Sprintf("\n(exit error: exit status %d)", exitCode)
+	case res.ExitCode != 0:
+		display += fmt.Sprintf("\n(exit error: exit status %d)", res.ExitCode)
 	case scan.Markers > 0:
 		display += "\n" + maskedFailureNote(scan)
 	}
 	content = display
-	if block := failureBlock(scan, collectionTruncated); block != "" {
+	if block := failureBlock(scan, res.Truncated); block != "" {
 		content = block + "\n\n" + display
 	}
 	return content, display
