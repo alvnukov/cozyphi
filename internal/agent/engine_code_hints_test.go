@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -124,4 +125,26 @@ func TestCodeHintsPermitFirstResponseToDisregardAdvisor(t *testing.T) {
 			require.Equal(t, permission.Action(alternate), gate.last.Action)
 		})
 	}
+}
+
+func TestCodeHintsOverlapPreparationAndDiscardLateResult(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	started, done := make(chan struct{}), make(chan struct{})
+	engine := &Engine{executor: &Executor{}, codeMode: &CodeMode{
+		Hints: func(ctx context.Context, _, _, _ string, _ []llm.ToolDefinition) string {
+			close(started)
+			<-ctx.Done()
+			close(done)
+			return `{"id":"late"}`
+		},
+	}}
+	pending := engine.startCodeHints(ctx, "which function?", true)
+	<-started
+	require.NoError(t, ctx.Err()) // Prompt preparation can run before the advisor returns.
+	seen := make(map[string]bool)
+	cancel()
+	require.Empty(t, pending.reminder(ctx, seen))
+	<-done
+	require.Empty(t, seen)
 }

@@ -1150,6 +1150,11 @@ func (engine *Engine) Loop(parent context.Context, prompt string, opts LoopOpts)
 			yield(nil, fmt.Errorf("agent: repair interrupted tool round: %w", err))
 			return
 		}
+		pendingHints := engine.startCodeHints(
+			ctx,
+			prompt,
+			opts.Origin == TurnUserInput || opts.Origin == turnAssignment,
+		)
 		// One recall pass per turn, and only past the prompt budget: a memory
 		// surfaced for the opening prompt is not repeated for the prompts
 		// queued after it.
@@ -1167,9 +1172,7 @@ func (engine *Engine) Loop(parent context.Context, prompt string, opts LoopOpts)
 		}
 		content = engine.composeUserPrompt(recall, opts.PendingSkills, prompt, content)
 		seenCodeHints := make(map[string]bool)
-		if opts.Origin == TurnUserInput || opts.Origin == turnAssignment {
-			content = prependReminder(engine.codeHints(ctx, prompt, seenCodeHints), content)
-		}
+		content = prependReminder(pendingHints.reminder(ctx, seenCodeHints), content)
 		if content != "" || len(opts.Media) > 0 || opts.Inbox == nil {
 			if err := sess.Append(llm.Message{
 				Role:    llm.RoleUser,
@@ -1372,33 +1375,42 @@ func (engine *Engine) Loop(parent context.Context, prompt string, opts LoopOpts)
 			// model answers it mid-turn instead of the user waiting out the whole
 			// agentic turn. UserPromoted lands the prompt's transcript row at
 			// this same moment — delivery, not dequeue, is what the feed shows.
-			if opts.Inject != nil {
-				for _, item := range opts.Inject() {
-					content := engine.composeUserPrompt(recall, item.Skills, item.Text, item.Text)
-					if item.UserID != "" {
-						content = prependReminder(engine.codeHints(ctx, item.Text, seenCodeHints), content)
-					}
-					if err := sess.Append(
-						llm.Message{
-							Role:    llm.RoleUser,
-							Content: content,
-							Media:   item.Media,
-							EntryID: item.UserID,
-						},
-					); err != nil {
-						yield(nil, err)
-						return
-					}
-					if item.RowOwed {
-						text := session.UserPromptText(item.Text, item.Skills)
-						if !yield(session.UserPromoted{ID: item.UserID, Text: text}, nil) {
-							return
-						}
-					}
-				}
+			if !engine.deliverQueued(ctx, sess, recall, opts.Inject, seenCodeHints, yield) {
+				return
 			}
 		}
 	}
+}
+
+func (engine *Engine) deliverQueued(
+	ctx context.Context,
+	sess *Session,
+	recall *memory.Recall,
+	inject func() []InjectedPrompt,
+	seen map[string]bool,
+	yield func(session.Event, error) bool,
+) bool {
+	if inject == nil {
+		return true
+	}
+	for _, item := range inject() {
+		pending := engine.startCodeHints(ctx, item.Text, item.UserID != "")
+		content := engine.composeUserPrompt(recall, item.Skills, item.Text, item.Text)
+		content = prependReminder(pending.reminder(ctx, seen), content)
+		if err := sess.Append(
+			llm.Message{Role: llm.RoleUser, Content: content, Media: item.Media, EntryID: item.UserID},
+		); err != nil {
+			yield(nil, err)
+			return false
+		}
+		if item.RowOwed {
+			text := session.UserPromptText(item.Text, item.Skills)
+			if !yield(session.UserPromoted{ID: item.UserID, Text: text}, nil) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // composeUserPrompt assembles a user message the way both entry points into a

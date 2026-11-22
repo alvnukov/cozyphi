@@ -16,12 +16,19 @@ import (
 // Tool results or code from a different turn must never become advisor input.
 var libraryImport = regexp.MustCompile(`cozy:lib/[a-z][a-z0-9-]{0,62}`)
 
-func (engine *Engine) codeHints(ctx context.Context, task string, seen map[string]bool) string {
+type pendingCodeHints <-chan string
+
+// Only immutable request data moves to the worker while the turn prepares
+// skills and memory. The consumer owns the seen set and all transcript writes.
+func (engine *Engine) startCodeHints(ctx context.Context, task string, eligible bool) pendingCodeHints {
+	if !eligible || ctx.Err() != nil || strings.TrimSpace(task) == "" {
+		return nil
+	}
 	engine.mu.RLock()
 	mode := engine.codeMode
-	if mode == nil || mode.Hints == nil || engine.executor == nil || strings.TrimSpace(task) == "" {
+	if mode == nil || mode.Hints == nil || engine.executor == nil {
 		engine.mu.RUnlock()
-		return ""
+		return nil
 	}
 	ex := engine.executor
 	sess := engine.session
@@ -32,23 +39,42 @@ func (engine *Engine) codeHints(ctx context.Context, task string, seen map[strin
 	}
 	engine.mu.RUnlock()
 	slices.SortFunc(defs, func(a, b llm.ToolDefinition) int { return cmp.Compare(a.Name, b.Name) })
-	var out []string
-	query := task
+	var query strings.Builder
+	query.WriteString(task)
 	if sess != nil {
 		p := sess.Plan()
 		for _, step := range p.Items {
 			if step.Status == session.PlanInProgress {
-				query += "\nCurrent plan step: " + step.Content
+				query.WriteString("\nCurrent plan step: " + step.Content)
 				break
 			}
 		}
 		if refersToPriorFunction(task) {
 			if prev := recentLibraryImport(sess.BuildContext()); prev != "" {
-				query += "\nPreviously used package: " + prev
+				query.WriteString("\nPreviously used package: " + prev)
 			}
 		}
 	}
-	for line := range strings.SplitSeq(mode.Hints(ctx, id, cwd, query, defs), "\n") {
+	result := make(chan string, 1)
+	go func() { result <- mode.Hints(ctx, id, cwd, query.String(), defs) }()
+	return result
+}
+
+func (pending pendingCodeHints) reminder(ctx context.Context, seen map[string]bool) string {
+	if pending == nil {
+		return ""
+	}
+	var raw string
+	select {
+	case <-ctx.Done():
+		return ""
+	case raw = <-pending:
+	}
+	if ctx.Err() != nil {
+		return ""
+	}
+	var out []string
+	for line := range strings.SplitSeq(raw, "\n") {
 		if line != "" && !seen[line] {
 			out = append(out, line)
 			seen[line] = true
@@ -79,8 +105,8 @@ func recentLibraryImport(msgs []llm.Message) string {
 		if msgs[i].Role != llm.RoleAssistant {
 			continue
 		}
-		for j := len(msgs[i].ToolCalls) - 1; j >= 0; j-- {
-			call := msgs[i].ToolCalls[j].Function
+		for _, toolCall := range slices.Backward(msgs[i].ToolCalls) {
+			call := toolCall.Function
 			if call.Name == "code" {
 				if name := libraryImport.FindString(call.Arguments); name != "" {
 					return name
