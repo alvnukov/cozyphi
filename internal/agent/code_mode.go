@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/alvnukov/cozyphi/internal/diag"
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools"
@@ -17,9 +18,10 @@ import (
 // CodeMode binds a program runner to a session. Only the executor supplies
 // its host callback, so the guest can never obtain a native tool handler.
 type CodeMode struct {
-	Run   func(context.Context, string, string, bool, string, []llm.ToolDefinition, func(context.Context, string, json.RawMessage) (any, error)) (CodeResult, error)
-	Tools func(sessionID, cwd string, writable bool, definitions []llm.ToolDefinition) []tools.Tool
-	Hints func(context.Context, string, string, string, []llm.ToolDefinition) string
+	Settings diag.CodeModeSettings
+	Run      func(context.Context, string, string, bool, string, []llm.ToolDefinition, func(context.Context, string, json.RawMessage) (any, error)) (CodeResult, error)
+	Tools    func(sessionID, cwd string, writable bool, definitions []llm.ToolDefinition) []tools.Tool
+	Hints    func(context.Context, string, string, string, []llm.ToolDefinition) string
 }
 
 // CodeResult carries exact library resolutions outside guest-controlled output.

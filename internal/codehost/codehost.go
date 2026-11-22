@@ -35,7 +35,7 @@ func New(layout project.GlobalLayout, cfg project.CodeModeConfig, models []llm.M
 		}
 	}
 	store := funclib.New(layout.FunctionsDir())
-	if cfg.Discovery == "local" {
+	if cfg.Discovery == "local" || cfg.Discovery == "manual" {
 		advisor = nil
 	}
 	selector := funcadvisor.NewWithPolicy(store, advisor, cfg.AdvisorTimeout, funcadvisor.ModelPolicy(cfg.Discovery))
@@ -48,7 +48,24 @@ func New(layout project.GlobalLayout, cfg project.CodeModeConfig, models []llm.M
 		checkouts.Store(cwd, root)
 		return root
 	}
+	settings := cfg.Observation()
+	settings.Enabled = true
+	if advisor == nil {
+		settings.AdvisorModel = ""
+		settings.AdvisorTimeout = 0
+		if cfg.Discovery != "manual" {
+			settings.Discovery = "local"
+		}
+	} else {
+		if settings.Discovery == "" {
+			settings.Discovery = string(funcadvisor.Conditional)
+		}
+		if settings.AdvisorTimeout <= 0 {
+			settings.AdvisorTimeout = funcadvisor.DefaultTimeout
+		}
+	}
 	mode := &agent.CodeMode{
+		Settings: settings,
 		Tools: func(sessionID, cwd string, writable bool, definitions []llm.ToolDefinition) []tools.Tool {
 			root := checkout(cwd)
 			return []tools.Tool{

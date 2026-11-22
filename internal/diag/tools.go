@@ -8,6 +8,10 @@ const (
 	KeyToolsRegistered = "registered"
 	KeyToolsMode       = "mode"
 	KeyToolsPlanGate   = "plan_gate"
+	KeyCodeMode        = "code_mode.enabled"
+	KeyCodeDiscovery   = "code_mode.discovery"
+	KeyCodeAdvisor     = "code_mode.advisor_model"
+	KeyCodeTimeout     = "code_mode.advisor_timeout"
 )
 
 // toolKeyPrefix namespaces the per-tool fields. Without it a tool named
@@ -82,8 +86,17 @@ const (
 
 // toolKeys is the declared key set, in the order Collect returns them.
 var toolKeys = func() []string {
-	keys := make([]string, 0, 3+len(toolCatalog))
-	keys = append(keys, KeyToolsRegistered, KeyToolsMode, KeyToolsPlanGate)
+	keys := make([]string, 0, 7+len(toolCatalog))
+	keys = append(
+		keys,
+		KeyToolsRegistered,
+		KeyToolsMode,
+		KeyToolsPlanGate,
+		KeyCodeMode,
+		KeyCodeDiscovery,
+		KeyCodeAdvisor,
+		KeyCodeTimeout,
+	)
 	for _, name := range toolCatalog {
 		keys = append(keys, ToolKey(name))
 	}
@@ -155,6 +168,9 @@ type ToolFacts struct {
 // assembled under, the three sets that differ from each other, and one entry
 // per tool the catalog knows.
 type ToolState struct {
+	CodeConfig CodeModeSettings
+	CodeMode   CodeModeSettings
+	CodeFlag   string
 	// Known is false when no engine has published a tool registry yet. Every
 	// layer fed from it then reports unavailable rather than an empty list
 	// that would read as "this session has no tools".
@@ -264,6 +280,7 @@ func (c *toolCollector) Collect(_ context.Context) ([]Field, error) {
 	state := callToolState(c.deps.State)
 	fields := make([]Field, 0, len(toolKeys))
 	fields = append(fields, state.sets(), state.mode(), state.phase())
+	fields = append(fields, state.codeModeFields()...)
 	byName := make(map[string]ToolFacts, len(state.Tools))
 	for _, facts := range state.Tools {
 		byName[facts.Name] = facts

@@ -21,7 +21,8 @@ import (
 )
 
 const (
-	defaultTimeout = 1500 * time.Millisecond
+	// DefaultTimeout bounds an auxiliary call unless the project chooses another duration.
+	DefaultTimeout = 1500 * time.Millisecond
 	hintLimit      = 3
 	shortlistLimit = 8
 )
@@ -79,7 +80,7 @@ func NewWithPolicy(
 	policy ModelPolicy,
 ) *Selector {
 	if timeout <= 0 {
-		timeout = defaultTimeout
+		timeout = DefaultTimeout
 	}
 	s := &Selector{
 		timeout:  timeout,

@@ -145,10 +145,11 @@ func runTUI(acquired *session.Manager, opts tuiOptions) (runErr error) {
 	defer func() { runErr = errors.Join(runErr, process.Close()) }()
 	// Bind the first engine to the interactive adapter, not the headless runner.
 	process.EnableInteractiveChildren()
-	if codeModeEnabled(proj.Config(), opts.toolSurface) {
-		if err := process.EnableCodeMode(); err != nil {
-			return &exitError{code: ExitUsage, err: err}
-		}
+	if err := process.ConfigureCodeMode(
+		codeModeEnabled(proj.Config(), opts.toolSurface),
+		opts.toolSurface,
+	); err != nil {
+		return &exitError{code: ExitUsage, err: err}
 	}
 	if opts.developerMode {
 		// Granted before any session is built, so no session can be running

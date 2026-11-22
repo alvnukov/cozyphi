@@ -217,7 +217,12 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 			// category reports unavailable until the engine exists rather
 			// than listing the tools this function is about to ask for.
 			diag.NewToolCollector(diag.ToolDeps{
-				State: func() diag.ToolState { return running.ToolObservation() },
+				State: func() diag.ToolState {
+					state := running.ToolObservation()
+					state.CodeConfig = bs.Config.CodeMode.Observation()
+					state.CodeFlag = opts.toolSurface
+					return state
+				},
 			}),
 			// The context layer likewise: the window, the usage and the
 			// record of what the last prompt render loaded all live on the
