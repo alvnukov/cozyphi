@@ -74,3 +74,16 @@ Use `fixture(tool, args, result)` or `fixtureError(tool, args, message)` from `c
 import { countRecords } from "cozy:lib/records"
 return countRecords([10, 8, 10])
 ```
+
+## Verification and measurements
+
+The deterministic MCP fixture joins 120 build records with a file of package owners. On the same inputs the direct tools returned 5,004 bytes to the model. The cell returned 53 bytes, with 13 failed builds across pkg-02, pkg-05 and pkg-08. This measures the tool result payload. Provider token usage and total request time require a live paired trial.
+
+On an Apple M2 (darwin/arm64, GOMAXPROCS=2), the first no-I/O TypeScript cell took 1.132 seconds including WASM compilation. The next 20 runs averaged 10.154 ms with fresh guest instances. The embedded image occupies 1,038,767 bytes.
+
+```sh
+go test ./cmd -run '^TestOfflineCodeModeAggregation$' -v
+go test -run '^$' -bench '^BenchmarkFreshCell$' -benchtime=20x ./internal/codemode
+```
+
+The opt-in `TestLiveCodeModeEvaluation` compares direct calls with manual, local, conditional and always-on discovery, using configured provider models. Set `COZYPHI_CODE_EVAL_MODELS` and `COZYPHI_CODE_EVAL_ADVISOR`. Setting the models variable to `list` lists available model names without an inference request. The separate `TestLiveExecutorLanguageTrial` runs the same authoring, modification and repair cases for Python and TypeScript on two configured models. Both trials use synthetic data.

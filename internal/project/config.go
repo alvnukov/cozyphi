@@ -292,6 +292,7 @@ const defaultConfigTemplate = `# cozyphi configuration (~/.cozyphi/config.yaml).
 #
 # code_mode:
 #   enabled: true
+#   discovery: conditional         # manual, local, conditional, or always
 #   advisor_model: my-cheap-model  # optional; local discovery works without it
 #   advisor_timeout: 1500ms
 #

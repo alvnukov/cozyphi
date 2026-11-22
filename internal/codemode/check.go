@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"os/exec"
@@ -41,9 +42,7 @@ func Check(ctx context.Context, p Program) error {
 	}
 	dir = absolute
 	files := make(map[string]string, len(p.Modules)+3)
-	for name, src := range p.Modules {
-		files[name] = src
-	}
+	maps.Copy(files, p.Modules)
 	imports, body := splitCell(p.Source)
 	files["cell.ts"] = imports + "\nexport async function cell(){\n" + body + "\n}"
 	files["sdk.d.ts"], err = sdkDeclarations(p.Tools)
@@ -63,10 +62,10 @@ func Check(ctx context.Context, p Program) error {
 			return fmt.Errorf("type checker directives are not supported in %s", name)
 		}
 		file := filepath.Join(dir, filepath.FromSlash(name))
-		if err = os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 			return err
 		}
-		if err = os.WriteFile(file, []byte(src), 0o600); err != nil {
+		if err := os.WriteFile(file, []byte(src), 0o600); err != nil {
 			return err
 		}
 		key := fileURL(file)
@@ -86,7 +85,7 @@ func Check(ctx context.Context, p Program) error {
 	if err != nil {
 		return err
 	}
-	if err = os.WriteFile(filepath.Join(dir, "deno.json"), cfg, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "deno.json"), cfg, 0o600); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, maxDuration)

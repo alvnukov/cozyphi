@@ -241,3 +241,60 @@ func TestCellBudgets(t *testing.T) {
 		t.Fatalf("call limit: %d, %v", calls, err)
 	}
 }
+
+func TestBundleCacheSeparatesCodeAndAuthority(t *testing.T) {
+	for _, step := range []struct {
+		source string
+		names  []string
+		want   string
+	}{
+		{"export const n = 1", []string{"first"}, "[1,null,[\"first\"]]"},
+		{"export const n = 2", []string{"second"}, "[2,null,[\"second\"]]"},
+		{"export const n = 1", []string{"third"}, "[1,null,[\"third\"]]"},
+	} {
+		p := Program{
+			Source:  `import {n} from "cozy:lib/values"; const prior = globalThis.saved; globalThis.saved = 41; return [n, prior ?? null, await tools.list()]`,
+			Modules: map[string]string{"values/index.ts": step.source},
+		}
+		for _, name := range step.names {
+			p.Tools = append(p.Tools, llm.ToolDefinition{Name: name})
+		}
+		got, err := Run(t.Context(), p, nil)
+		if err != nil || string(got) != step.want {
+			t.Fatalf("module = %q: got %s, error %v; want %s", step.source, got, err, step.want)
+		}
+	}
+}
+
+func BenchmarkFreshCell(b *testing.B) {
+	p := Program{Source: `const n: number = 40; return n + 2`}
+	start := time.Now()
+	if _, err := Run(b.Context(), p, nil); err != nil {
+		b.Fatal(err)
+	}
+	b.Logf("initial call %v", time.Since(start))
+	b.ResetTimer()
+	for b.Loop() {
+		if _, err := Run(b.Context(), p, nil); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func TestConcurrentInstancesRemainIsolated(t *testing.T) {
+	for _, name := range []string{"alpha", "beta", "gamma", "delta"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			p := Program{Source: `globalThis.owner = await tools.who({}); return globalThis.owner`}
+			want := json.RawMessage(fmt.Sprintf("%q", name))
+			got, err := Run(
+				t.Context(),
+				p,
+				func(context.Context, string, json.RawMessage) (json.RawMessage, error) { return want, nil },
+			)
+			if err != nil || string(got) != string(want) {
+				t.Fatalf("result %s, want %s: %v", got, want, err)
+			}
+		})
+	}
+}

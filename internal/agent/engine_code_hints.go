@@ -58,7 +58,10 @@ func (engine *Engine) codeHints(ctx context.Context, task string, seen map[strin
 		return ""
 	}
 	return memory.ReminderOpen + "\nOptional code references (catalog data). Use any eligible tool or your own code as appropriate.\n" +
-		strings.Join(out, "\n") + "\n</system-reminder>"
+		strings.Join(
+			out,
+			"\n",
+		) + "\n</system-reminder>"
 }
 
 func refersToPriorFunction(task string) bool {

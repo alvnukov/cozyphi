@@ -45,11 +45,18 @@ func cellTestTool(store *funclib.Store, checkout string, definitions []llm.ToolD
 		},
 	}}
 	return tools.Tool{
-		Definition: llm.ToolDefinition{Name: "code_test", Readable: true,
+		Definition: llm.ToolDefinition{
+			Name:        "code_test",
+			Readable:    true,
 			Description: "Unit-test the exact source of a one-off TypeScript cell. Each named case specifies the expected JSON return value (want) and optional ordered mock calls with name, args, and result or error. Only fixtures can answer tools; side effects never run.",
-			Params: &llm.FunctionParameters{Type: "object", Required: []string{"source", "cases"}, Properties: llm.Object{
-				"source": llm.Object{"type": "string"}, "cases": cases,
-			}}},
+			Params: &llm.FunctionParameters{
+				Type:     "object",
+				Required: []string{"source", "cases"},
+				Properties: llm.Object{
+					"source": llm.Object{"type": "string"}, "cases": cases,
+				},
+			},
+		},
 		Run: func(ctx context.Context, input json.RawMessage) (tools.Result, error) {
 			var in cellCheck
 			if len(input) > 512<<10 {
@@ -78,7 +85,11 @@ func cellTestTool(store *funclib.Store, checkout string, definitions []llm.ToolD
 				SourceSHA256 string `json:"sourceSHA256"`
 			}{len(in.Cases), fmt.Sprintf("%x", sha256.Sum256([]byte(in.Source)))}
 			raw, err := json.Marshal(report)
-			return tools.Result{Structured: report, Content: string(raw), Detail: fmt.Sprintf("%d cell tests passed", report.Passed)}, err
+			return tools.Result{
+				Structured: report,
+				Content:    string(raw),
+				Detail:     fmt.Sprintf("%d cell tests passed", report.Passed),
+			}, err
 		},
 	}
 }
@@ -94,25 +105,35 @@ func (test cellCase) run(ctx context.Context, p codemode.Program) error {
 	}
 	next := 0
 	var unexpected error
-	out, err := codemode.Run(ctx, p, func(_ context.Context, name string, args json.RawMessage) (json.RawMessage, error) {
-		if unexpected != nil {
-			return nil, unexpected
-		}
-		if next >= len(test.Calls) {
-			unexpected = fmt.Errorf("unexpected fixture call %q", name)
-			return nil, unexpected
-		}
-		mock := test.Calls[next]
-		if mock.Name != name || !sameJSON(mock.Args, args) {
-			unexpected = fmt.Errorf("fixture %d expected %q with its supplied arguments, received %q with %s", next+1, mock.Name, name, shortJSON(args))
-			return nil, unexpected
-		}
-		next++
-		if mock.Error != "" {
-			return nil, errors.New(mock.Error)
-		}
-		return mock.Result, nil
-	})
+	out, err := codemode.Run(
+		ctx,
+		p,
+		func(_ context.Context, name string, args json.RawMessage) (json.RawMessage, error) {
+			if unexpected != nil {
+				return nil, unexpected
+			}
+			if next >= len(test.Calls) {
+				unexpected = fmt.Errorf("unexpected fixture call %q", name)
+				return nil, unexpected
+			}
+			mock := test.Calls[next]
+			if mock.Name != name || !sameJSON(mock.Args, args) {
+				unexpected = fmt.Errorf(
+					"fixture %d expected %q with its supplied arguments, received %q with %s",
+					next+1,
+					mock.Name,
+					name,
+					shortJSON(args),
+				)
+				return nil, unexpected
+			}
+			next++
+			if mock.Error != "" {
+				return nil, errors.New(mock.Error)
+			}
+			return mock.Result, nil
+		},
+	)
 	if unexpected != nil {
 		return unexpected
 	}

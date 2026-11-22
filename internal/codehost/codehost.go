@@ -78,14 +78,17 @@ func New(layout project.GlobalLayout, cfg project.CodeModeConfig, models []llm.M
 				result.Imports[name] = pin.Version + "@" + pin.Digest
 			}
 		}
-		out, err := codemode.Run(ctx, codemode.Program{Source: source, Modules: modules, Tools: definitions, ParallelReads: true},
+		out, err := codemode.Run(
+			ctx,
+			codemode.Program{Source: source, Modules: modules, Tools: definitions, ParallelReads: true},
 			func(ctx context.Context, name string, args json.RawMessage) (json.RawMessage, error) {
 				value, callErr := dispatch(ctx, name, args)
 				if callErr != nil {
 					return nil, callErr
 				}
 				return json.Marshal(value)
-			})
+			},
+		)
 		result.Output = string(out)
 		return result, err
 	}

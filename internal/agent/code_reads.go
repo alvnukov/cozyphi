@@ -43,7 +43,8 @@ func (c *codeExecution) readGroup(ctx context.Context, args json.RawMessage) ([]
 		}
 		tool := c.executor.registry[call.Name]
 		envelope, _, err := plangate.SplitEnvelope(call.Args)
-		if tool.ConcurrentRead == nil || !tool.ConcurrentRead(call.Args) || plangate.StepFromArgs(call.Args) != (plangate.StepRef{}) ||
+		if tool.ConcurrentRead == nil || !tool.ConcurrentRead(call.Args) ||
+			plangate.StepFromArgs(call.Args) != (plangate.StepRef{}) ||
 			!envelope.Empty() ||
 			err != nil {
 			concurrent = false

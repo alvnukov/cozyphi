@@ -32,8 +32,28 @@ func TestCellTestsUseOnlyFixtures(t *testing.T) {
 	tool := cellTestTool(store, project.CheckoutRoot(), nil)
 	source := "const r = await tools.bash({command:'product-test'}); return r.exit === 0"
 	cases := []cellCase{
-		{Name: "passing product", Calls: []mockCall{{Name: "bash", Args: json.RawMessage(`{"command":"product-test"}`), Result: json.RawMessage(`{"exit":0}`)}}, Want: json.RawMessage("true")},
-		{Name: "failing product", Calls: []mockCall{{Name: "bash", Args: json.RawMessage(`{"command":"product-test"}`), Result: json.RawMessage(`{"exit":1}`)}}, Want: json.RawMessage("false")},
+		{
+			Name: "passing product",
+			Calls: []mockCall{
+				{
+					Name:   "bash",
+					Args:   json.RawMessage(`{"command":"product-test"}`),
+					Result: json.RawMessage(`{"exit":0}`),
+				},
+			},
+			Want: json.RawMessage("true"),
+		},
+		{
+			Name: "failing product",
+			Calls: []mockCall{
+				{
+					Name:   "bash",
+					Args:   json.RawMessage(`{"command":"product-test"}`),
+					Result: json.RawMessage(`{"exit":1}`),
+				},
+			},
+			Want: json.RawMessage("false"),
+		},
 	}
 	run := func(code string, cases []cellCase) (string, error) {
 		raw, err := json.Marshal(cellCheck{Source: code, Cases: cases})
@@ -44,7 +64,10 @@ func TestCellTestsUseOnlyFixtures(t *testing.T) {
 	out, err := run(source, cases)
 	require.NoError(t, err)
 	require.Contains(t, out, `"passed":2`)
-	_, err = run("try { await tools.write({}); } catch {} return true", []cellCase{{Name: "unknown", Want: json.RawMessage("true")}})
+	_, err = run(
+		"try { await tools.write({}); } catch {} return true",
+		[]cellCase{{Name: "unknown", Want: json.RawMessage("true")}},
+	)
 	require.ErrorContains(t, err, "unexpected fixture call")
 	cases[0].Want = json.RawMessage("false")
 	_, err = run(source, cases)
@@ -60,7 +83,13 @@ func TestPublishedFunctionIsSuggestedAndExecutedInAnotherCheckout(t *testing.T) 
 	store := funclib.New(p.Global().FunctionsDir())
 	_, err := store.Draft(ctx, "author", "records", "")
 	require.NoError(t, err)
-	_, err = store.CreateFile(ctx, "author", "records", "index.ts", "export function countRecords(rows: number[]): number { return rows.length; }")
+	_, err = store.CreateFile(
+		ctx,
+		"author",
+		"records",
+		"index.ts",
+		"export function countRecords(rows: number[]): number { return rows.length; }",
+	)
 	require.NoError(t, err)
 	_, err = store.CreateFile(ctx, "author", "records", "index.test.ts", `import {test,equal} from "cozy:test";
 import {countRecords} from "./index.ts";
@@ -76,10 +105,18 @@ test("counts supplied records",()=>equal(countRecords([3,4,4]),3))`)
 	require.Contains(t, hints, "countRecords")
 	require.Contains(t, hints, "cozy:lib/records")
 	source := `import { countRecords } from "cozy:lib/records"; return countRecords([7,8,8,9]);`
-	out, err := mode.Run(ctx, "other-session", second.Root(), true, source, nil, func(context.Context, string, json.RawMessage) (any, error) {
-		t.Fatal("unexpected host effect in pure library")
-		return nil, nil
-	})
+	out, err := mode.Run(
+		ctx,
+		"other-session",
+		second.Root(),
+		true,
+		source,
+		nil,
+		func(context.Context, string, json.RawMessage) (any, error) {
+			t.Fatal("unexpected host effect in pure library")
+			return nil, nil
+		},
+	)
 	require.NoError(t, err)
 	require.Equal(t, "4", out.Output)
 	require.Equal(t, "1.0.0@"+release.Digest, out.Imports["records"])
@@ -98,12 +135,20 @@ return {failed:red.exitCode!==0 && red.output.includes("wrong sum"), final:green
 	native := tools.DefaultTools()
 	reg := tools.NewRegistry(native)
 	mode := New(p.Global(), project.CodeModeConfig{Discovery: "manual"}, nil)
-	out, err := mode.Run(t.Context(), "test-author", p.Root(), true, src, tools.Definitions(native), func(ctx context.Context, name string, args json.RawMessage) (any, error) {
-		handler, ok := reg[name]
-		require.True(t, ok)
-		result, err := handler.Run(ctx, args)
-		return result.Structured, err
-	})
+	out, err := mode.Run(
+		t.Context(),
+		"test-author",
+		p.Root(),
+		true,
+		src,
+		tools.Definitions(native),
+		func(ctx context.Context, name string, args json.RawMessage) (any, error) {
+			handler, ok := reg[name]
+			require.True(t, ok)
+			result, err := handler.Run(ctx, args)
+			return result.Structured, err
+		},
+	)
 	require.NoError(t, err)
 	require.JSONEq(t, `{"failed":true,"final":0}`, out.Output)
 	result, err := os.ReadFile("sum.go")

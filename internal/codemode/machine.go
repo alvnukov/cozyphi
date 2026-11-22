@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 
@@ -23,7 +24,27 @@ var guestJS string
 
 // The compilation cache stores machine code only. Each execution gets fresh
 // guest memory, handles, module graph, WASI namespace and tool output.
-var cache = sync.OnceValue(wazero.NewCompilationCache)
+var engineImage = sync.OnceValue(func() *image {
+	image := &image{ready: make(chan struct{})}
+	go func() {
+		defer close(image.ready)
+		ctx := context.Background()
+		cfg := wazero.NewRuntimeConfig().WithCloseOnContextDone(true).WithMemoryLimitPages(1024)
+		image.runtime = wazero.NewRuntimeWithConfig(ctx, cfg)
+		image.compiled, image.err = compileEngine(ctx, image.runtime)
+		if image.err != nil {
+			_ = image.runtime.Close(ctx)
+		}
+	}()
+	return image
+})
+
+type image struct {
+	ready    chan struct{}
+	runtime  wazero.Runtime
+	compiled wazero.CompiledModule
+	err      error
+}
 
 type machine struct {
 	ctx context.Context
@@ -46,10 +67,9 @@ func (m machine) invoke(name string, args ...uint64) (uint64, error) {
 	return v[0], nil
 }
 
-func newMachine(ctx context.Context, r wazero.Runtime) (machine, error) {
-	var m machine
+func compileEngine(ctx context.Context, r wazero.Runtime) (wazero.CompiledModule, error) {
 	if _, err := wasi_snapshot_preview1.Instantiate(ctx, r); err != nil {
-		return m, err
+		return nil, err
 	}
 	// The upstream ABI imports this callback even when no proxy classes exist.
 	// Only the explicit, validated host request returned by take() can perform I/O.
@@ -58,14 +78,28 @@ func newMachine(ctx context.Context, r wazero.Runtime) (machine, error) {
 		WithFunc(func(uint32, uint64, uint32, uint32) uint64 { return 0 }).
 		Export("jsFunctionProxy").
 		Instantiate(ctx); err != nil {
-		return m, err
+		return nil, err
 	}
-	compiled, err := r.CompileModule(ctx, runtimeImage)
-	if err != nil {
-		return m, err
+	return r.CompileModule(ctx, runtimeImage)
+}
+
+func newMachine(ctx context.Context) (machine, error) {
+	var m machine
+	image := engineImage()
+	select {
+	case <-ctx.Done():
+		return m, ctx.Err()
+	case <-image.ready:
+	}
+	if image.err != nil {
+		return m, image.err
 	}
 	// No mounted directories, environment, sockets, stdout or stdin.
-	mod, err := r.InstantiateModule(ctx, compiled, wazero.NewModuleConfig().WithStartFunctions())
+	mod, err := image.runtime.InstantiateModule(
+		ctx,
+		image.compiled,
+		wazero.NewModuleConfig().WithName("").WithStartFunctions(),
+	)
 	if err != nil {
 		return m, err
 	}
@@ -87,8 +121,8 @@ func (m machine) cstring(s string) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if ptr == 0 || !m.mod.Memory().WriteString(uint32(ptr), s) ||
-		!m.mod.Memory().WriteByte(uint32(ptr)+uint32(len(s)), 0) {
+	if ptr == 0 || ptr > math.MaxUint32-uint64(len(s)) || !m.mod.Memory().WriteString(api.DecodeU32(ptr), s) ||
+		!m.mod.Memory().WriteByte(api.DecodeU32(ptr+uint64(len(s))), 0) {
 		return 0, errors.New("JS heap exhausted")
 	}
 	return ptr, nil
@@ -134,7 +168,10 @@ func (m machine) evalAt(source, filename string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	data, ok := m.mod.Memory().Read(uint32(packed), 8)
+	if packed > math.MaxUint32 {
+		return "", errors.New("invalid JS string pointer")
+	}
+	data, ok := m.mod.Memory().Read(api.DecodeU32(packed), 8)
 	if !ok || packed == 0 {
 		return "", errors.New("cannot decode JS value")
 	}
@@ -176,7 +213,7 @@ func execute(ctx context.Context, p Program, h Host, testing bool) (json.RawMess
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	js, err := bundle(p, testing)
+	js, err := loadProgram(p, testing)
 	if err != nil {
 		return nil, err
 	}
@@ -189,13 +226,10 @@ func execute(ctx context.Context, p Program, h Host, testing bool) (json.RawMess
 	}
 	ctx, cancel := context.WithTimeout(ctx, maxDuration)
 	defer cancel()
-	config := wazero.NewRuntimeConfig().
-		WithCloseOnContextDone(true).
-		WithMemoryLimitPages(1024).
-		WithCompilationCache(cache())
-	r := wazero.NewRuntimeWithConfig(ctx, config)
-	defer r.Close(context.Background())
-	m, err := newMachine(ctx, r)
+	m, err := newMachine(ctx)
+	if m.mod != nil {
+		defer m.mod.Close(context.Background())
+	}
 	if err != nil {
 		return nil, fmt.Errorf("initialize code mode: %w", err)
 	}
@@ -253,7 +287,7 @@ func drive(m machine, h Host, parallelReads bool) (json.RawMessage, error) {
 			if !parallelReads || len(f.Batch) < 2 || len(f.Batch) > 8 || calls > maxCalls {
 				return nil, errors.New("invalid parallel read batch")
 			}
-			if err = m.batch(h, f.Batch); err != nil {
+			if err := m.batch(h, f.Batch); err != nil {
 				return nil, err
 			}
 			continue
@@ -262,11 +296,11 @@ func drive(m machine, h Host, parallelReads bool) (json.RawMessage, error) {
 		if calls > maxCalls {
 			return nil, errors.New("cell tool call limit exceeded")
 		}
-		if err = validateCall(f); err != nil {
+		if err := validateCall(f); err != nil {
 			return nil, err
 		}
 		var answer json.RawMessage
-		if err = m.ctx.Err(); err != nil {
+		if err := m.ctx.Err(); err != nil {
 			return nil, err
 		}
 		if h == nil {
@@ -274,7 +308,7 @@ func drive(m machine, h Host, parallelReads bool) (json.RawMessage, error) {
 		} else {
 			answer, err = h(m.ctx, f.Name, f.Args)
 		}
-		if err = m.settle(f.ID, answer, err); err != nil {
+		if err := m.settle(f.ID, answer, err); err != nil {
 			return nil, err
 		}
 	}
@@ -314,7 +348,7 @@ func (m machine) batch(h Host, batch []frame) error {
 	if err != nil {
 		return err
 	}
-	if err = m.ctx.Err(); err != nil {
+	if err := m.ctx.Err(); err != nil {
 		return err
 	}
 	raw, err := h(m.ctx, "cozy:parallel_read", args)
@@ -333,7 +367,7 @@ func (m machine) batch(h Host, batch []frame) error {
 		if reply.Error != "" {
 			callErr = errors.New(reply.Error)
 		}
-		if err = m.settle(batch[i].ID, reply.Value, callErr); err != nil {
+		if err := m.settle(batch[i].ID, reply.Value, callErr); err != nil {
 			return err
 		}
 	}

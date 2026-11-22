@@ -382,7 +382,7 @@ func evalMatchedRun(t *testing.T, model, advisor llm.ModelConfig, mode string, s
 			}
 		}
 	}
-	for _, message := range engine.Session().PathEntries() {
+	for _, message := range engine.Session().BuildContext() {
 		if message.CodeImports["build-status"] != "" {
 			result.ImportUsed = true
 		}

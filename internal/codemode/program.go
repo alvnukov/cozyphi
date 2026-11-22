@@ -42,7 +42,7 @@ type Host func(context.Context, string, json.RawMessage) (json.RawMessage, error
 func Imports(source string) []string {
 	names := map[string]bool{}
 	var mu sync.Mutex
-	if len(source) > maxSource {
+	if len(source) > maxSource || (!strings.Contains(source, "import") && !strings.Contains(source, "require")) {
 		return nil
 	}
 	prelude, body := splitCell(source)
@@ -209,13 +209,11 @@ func resolveModule(p Program, importer, spec string) (string, error) {
 }
 
 func bundle(p Program, testing bool) (compiledCell, error) {
-	if err := validateProgram(p); err != nil {
-		return compiledCell{}, err
-	}
 	imports, body := splitCell(p.Source)
 	entry := imports + "\ncozyCell.start(async()=>{\n" + body + "\n});\n"
+	testCount := 0
 	if testing {
-		entry = ""
+		var preamble strings.Builder
 		tests := make([]string, 0)
 		for k := range p.Modules {
 			if strings.HasSuffix(k, ".test.ts") {
@@ -223,11 +221,12 @@ func bundle(p Program, testing bool) (compiledCell, error) {
 			}
 		}
 		sort.Strings(tests)
+		testCount = len(tests)
 		for _, k := range tests {
 			q, _ := json.Marshal("cozy:fixture/" + k)
-			entry += "import " + string(q) + ";\n"
+			fmt.Fprintf(&preamble, "import %s;\n", q)
 		}
-		entry += imports + "\ncozyCell.start(async()=>{\nawait(async()=>{\n" + body + "\n})();\nreturn await cozyCell.runTests();\n});\n"
+		entry = preamble.String() + imports + "\ncozyCell.start(async()=>{\nawait(async()=>{\n" + body + "\n})();\nreturn await cozyCell.runTests();\n});\n"
 	}
 	b := api.Build(
 		api.BuildOptions{
@@ -289,7 +288,7 @@ func bundle(p Program, testing bool) (compiledCell, error) {
 	compiled, err := readBundle(b.OutputFiles)
 	compiled.mapping.cellOffset = 2
 	if testing {
-		compiled.mapping.cellOffset = 3 + strings.Count(entry[:strings.Index(entry, "cozyCell.start")], "cozy:fixture/")
+		compiled.mapping.cellOffset = 3 + testCount
 	}
 	return compiled, err
 }

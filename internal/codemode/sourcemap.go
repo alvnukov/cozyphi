@@ -10,7 +10,7 @@ import (
 	"github.com/evanw/esbuild/pkg/api"
 )
 
-var bundlePosition = regexp.MustCompile(`cozy-bundle\.js:([0-9]+)(?::([0-9]+))?`)
+var bundlePosition = regexp.MustCompile(`cozy-bundle\.js:(\d+)(?::(\d+))?`)
 
 type sourceMap struct {
 	Sources    []string
