@@ -1,9 +1,11 @@
 package funcadvisor
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -78,7 +80,8 @@ func readCards(root string, ref funclib.Package) ([]Card, bool) {
 		return nil, false
 	}
 	var record diskRecord
-	if json.Unmarshal(data, &record) != nil || record.Name != ref.Name || record.Digest != ref.Digest || sha256.Sum256(record.Cards) != record.Checksum {
+	if json.Unmarshal(data, &record) != nil || record.Name != ref.Name || record.Digest != ref.Digest ||
+		sha256.Sum256(record.Cards) != record.Checksum {
 		return nil, false
 	}
 	var cards []Card
@@ -91,4 +94,61 @@ func readCards(root string, ref funclib.Package) ([]Card, bool) {
 		}
 	}
 	return cards, true
+}
+
+// Lookup searches the checkout's visible releases. Excluding the current
+// package finds similar work elsewhere. An empty project searches all latest
+// releases so that older checkout pins cannot hide a concurrent publication.
+func Lookup(ctx context.Context, store *funclib.Store, project, query, exclude string, limit int) ([]Card, error) {
+	var refs []funclib.Package
+	var err error
+	if project == "" {
+		refs, err = store.ReleaseHeads(ctx)
+	} else {
+		refs, _, err = store.Inventory(ctx, project, "")
+	}
+	if err != nil {
+		return nil, err
+	}
+	var all []Card
+	for _, ref := range refs {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if ref.Name == exclude {
+			continue
+		}
+		cards, err := indexedCards(ctx, store, store.Root(), ref, false)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, cards...)
+	}
+	return lookup(all, query, limit), nil
+}
+
+func indexedCards(
+	ctx context.Context,
+	store packageSource,
+	root string,
+	ref funclib.Package,
+	draft bool,
+) ([]Card, error) {
+	if !draft {
+		if cards, ok := readCards(root, ref); ok {
+			return cards, nil
+		}
+	}
+	p, err := store.Load(ctx, ref.Digest)
+	if err != nil {
+		return nil, err
+	}
+	if p.Name != ref.Name || p.Digest != ref.Digest || (p.Version == "") != draft {
+		return nil, fmt.Errorf("package %s does not match catalog revision %s", ref.Name, ref.Digest)
+	}
+	cards := exports(p, draft)
+	if !draft {
+		saveCards(root, p, cards)
+	}
+	return cards, nil
 }

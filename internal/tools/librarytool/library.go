@@ -302,23 +302,39 @@ func (b binding) preview(ctx context.Context, raw json.RawMessage) string {
 }
 
 func (b binding) search(ctx context.Context, in input) (any, error) {
-	catalog, err := b.store.Catalog(ctx, b.project)
+	if in.Action == "search" {
+		_, count := window(100, 0, in.Limit)
+		return funcadvisor.Lookup(ctx, b.store, b.project, in.Query, "", count)
+	}
+	refs, _, err := b.store.Inventory(ctx, b.project, "")
 	if err != nil {
 		return nil, err
 	}
-	start, end := window(len(catalog), in.Offset, in.Limit)
-	if in.Action == "search" {
-		_, count := window(100, 0, in.Limit)
-		return funcadvisor.Search(catalog, in.Query, count), nil
-	}
+	start, end := window(len(refs), in.Offset, in.Limit)
 	items := make([]packageSummary, 0, end-start)
-	for _, pkg := range catalog[start:end] {
+	for _, ref := range refs[start:end] {
+		pkg, err := b.release(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
 		items = append(items, summary(pkg))
 	}
 	return struct {
 		Packages []packageSummary `json:"packages"`
 		Total    int              `json:"total"`
-	}{items, len(catalog)}, nil
+	}{items, len(refs)}, nil
+}
+
+// Only a release named by the checkout's inventory can supply its source.
+func (b binding) release(ctx context.Context, ref funclib.Package) (funclib.Package, error) {
+	pkg, err := b.store.Load(ctx, ref.Digest)
+	if err != nil {
+		return funclib.Package{}, err
+	}
+	if pkg.Name != ref.Name || pkg.Digest != ref.Digest || pkg.Version == "" {
+		return funclib.Package{}, errors.New("ref does not match its published package")
+	}
+	return pkg, nil
 }
 
 func window(total, offset, limit int) (int, int) {
@@ -334,29 +350,27 @@ func (b binding) selectedVersion(ctx context.Context, name, version string) (str
 	if version != "" {
 		return version, nil
 	}
-	catalog, err := b.store.Catalog(ctx, b.project)
+	refs, _, err := b.store.Inventory(ctx, b.project, "")
 	if err != nil {
 		return "", err
 	}
-	for _, p := range catalog {
-		if p.Name == name {
-			return p.Version, nil
+	for _, ref := range refs {
+		if ref.Name == name {
+			pkg, err := b.release(ctx, ref)
+			return pkg.Version, err
 		}
 	}
 	return "", nil
 }
 
 func (b binding) related(ctx context.Context, pkg funclib.Package, query string) []funcadvisor.Card {
-	packages, err := b.store.List(ctx)
-	if err != nil {
-		return nil // Optional hints cannot prevent editing or publication.
-	}
-	packages = slices.DeleteFunc(packages, func(p funclib.Package) bool { return p.Name == pkg.Name })
 	fragments := []string{query, pkg.Name, pkg.Description}
 	for _, c := range funcadvisor.Exports(pkg) {
 		fragments = append(fragments, c.Name, c.Test)
 	}
-	return funcadvisor.Search(packages, strings.Join(fragments, " "), 2)
+	// Missing optional suggestions must never block draft editing or publication.
+	cards, _ := funcadvisor.Lookup(ctx, b.store, "", strings.Join(fragments, " "), pkg.Name, 2)
+	return cards
 }
 
 func (b binding) published(ctx context.Context, in input) (any, error) {

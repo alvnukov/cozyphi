@@ -93,5 +93,5 @@ func TestStructuredGrepRespectsVisibleAnchors(t *testing.T) {
 		assert.Contains(t, result.Content, ">>"+m.Anchor+"|")
 		assert.Equal(t, line, m.Text)
 	}
-	assert.Equal(t, strings.Count(result.Content, ">>"), len(data.Matches))
+	assert.Len(t, data.Matches, strings.Count(result.Content, ">>"))
 }

@@ -20,9 +20,10 @@ type catalog struct {
 	private  map[string][]funclib.Package
 }
 
-func (c *catalog) Inventory(_ context.Context, _ string, owner string) ([]funclib.Package, []funclib.Package, error) {
+func (c *catalog) Inventory(_ context.Context, _, owner string) ([]funclib.Package, []funclib.Package, error) {
 	return c.packages, c.private[owner], nil
 }
+
 func (c *catalog) Load(_ context.Context, digest string) (funclib.Package, error) {
 	for _, p := range c.packages {
 		if p.Digest == digest {
@@ -40,7 +41,8 @@ func (c *catalog) Load(_ context.Context, digest string) (funclib.Package, error
 }
 
 func builds() funclib.Package {
-	return funclib.Package{Name: "builds", Version: "1.2.0", Digest: "immutable-1",
+	return funclib.Package{
+		Name: "builds", Version: "1.2.0", Digest: "immutable-1",
 		Source: `// export function imaginary() {}
 const documentation = "export function invisible() {}";
 /** Returns unique package names for failed builds. */
@@ -77,7 +79,7 @@ func TestRecallFindsActualExportsInRussianAndIncludesTest(t *testing.T) {
 		!strings.Contains(hints[0].Use, `from "cozy:lib/builds"`) || hints[0].Version != "1.2.0" {
 		t.Fatalf("hints %+v", hints)
 	}
-	all := Search(cat.packages, "", 64)
+	all := Exports(cat.packages[0])
 	if len(all) != 2 {
 		t.Fatalf("parsed declarations from docs or skipped a callable: %+v", all)
 	}
@@ -95,7 +97,11 @@ func TestSelectionReconcilesChangedLocksAndPrivateDrafts(t *testing.T) {
 	if got := s.Hints(t.Context(), "two", "/w", "hiddenWork", nil); got != "" {
 		t.Fatal(got)
 	}
-	if hints := decodeHints(t, s.Hints(t.Context(), "one", "/w", "hiddenWork", nil)); len(hints) != 1 || !hints[0].Draft {
+	if hints := decodeHints(
+		t,
+		s.Hints(t.Context(), "one", "/w", "hiddenWork", nil),
+	); len(hints) != 1 ||
+		!hints[0].Draft {
 		t.Fatal(hints)
 	}
 	before := s.Hints(t.Context(), "two", "/w", "failedPackages", nil)
@@ -149,7 +155,14 @@ func TestExactMatchSkipsAdvisorAndDeadlineKeepsLocalResults(t *testing.T) {
 		<-ctx.Done()
 		return vote{}, llm.Usage{}, ctx.Err()
 	}
-	if h := s.Hints(t.Context(), "s", "/work", "use failedPackages", nil); !strings.Contains(h, "failedPackages") || s.Stats().Calls != 0 {
+	if h := s.Hints(
+		t.Context(),
+		"s",
+		"/work",
+		"use failedPackages",
+		nil,
+	); !strings.Contains(h, "failedPackages") ||
+		s.Stats().Calls != 0 {
 		t.Fatal(h)
 	}
 	h := s.Hints(t.Context(), "s", "/work", "failed packages and counts", nil)
@@ -172,7 +185,8 @@ func TestAdvisorCallsConfiguredModelThroughNormalProtocol(t *testing.T) {
 			return nil, err
 		}
 		body := string(raw)
-		if strings.Contains(body, "private-value-in-goal") || strings.Contains(body, "PRIVATE_PASTED_CODE") || strings.Contains(body, `"tools":[{`) {
+		if strings.Contains(body, "private-value-in-goal") || strings.Contains(body, "PRIVATE_PASTED_CODE") ||
+			strings.Contains(body, `"tools":[{`) {
 			return nil, errors.New("request contains excess data")
 		}
 		if !strings.Contains(body, "side-model") || !strings.Contains(body, "builds/countFailuresByPackage") {
@@ -183,12 +197,25 @@ func TestAdvisorCallsConfiguredModelThroughNormalProtocol(t *testing.T) {
 data: [DONE]
 
 `
-		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(event)), Request: req}, nil
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(event)),
+			Request:    req,
+		}, nil
 	})
 	t.Cleanup(func() { c.Transport = prev })
-	s := NewWithPolicy(nil, &llm.ModelConfig{Name: "side-model", BaseURL: "http://advisor.invalid"}, time.Second, Always)
+	s := NewWithPolicy(
+		nil,
+		&llm.ModelConfig{Name: "side-model", BaseURL: "http://advisor.invalid"},
+		time.Second,
+		Always,
+	)
 	s.store = &catalog{packages: []funclib.Package{builds()}}
-	h := decodeHints(t, s.Hints(t.Context(), "s", "/w", "failed packages and counts private-value-in-goal ```PRIVATE_PASTED_CODE", nil))
+	h := decodeHints(
+		t,
+		s.Hints(t.Context(), "s", "/w", "failed packages and counts private-value-in-goal ```PRIVATE_PASTED_CODE", nil),
+	)
 	if len(h) != 1 || h[0].Name != "countFailuresByPackage" || s.Stats().InputTokens != 23 || s.Stats().Fallbacks != 0 {
 		t.Fatal(h, s.Stats())
 	}

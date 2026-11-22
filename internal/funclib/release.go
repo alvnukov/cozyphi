@@ -43,6 +43,15 @@ func (s *Store) heads(ctx context.Context, prefix string) (map[string]string, er
 	return heads, nil
 }
 
+// ReleaseHeads lists current global release digests for duplicate checks across project pins.
+func (s *Store) ReleaseHeads(ctx context.Context) ([]Package, error) {
+	heads, err := s.heads(ctx, "refs/heads/packages")
+	if err != nil {
+		return nil, err
+	}
+	return inventory(heads), nil
+}
+
 func (s *Store) List(ctx context.Context) ([]Package, error) {
 	return s.list(ctx, "refs/heads/packages", nil)
 }

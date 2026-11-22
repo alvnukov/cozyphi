@@ -60,6 +60,9 @@ func TestLibraryToolCrossProjectPublication(t *testing.T) {
 	require.Contains(t, a.ApprovalPreview(t.Context(), raw), "failedPackages")
 	require.Contains(t, call(t, a, publish).Content, `"version":"1.0.0"`)
 	require.Equal(t, 2, calls)
+	another := call(t, a, map[string]any{"action": "open", "name": "build-report", "query": "failedPackages"})
+	require.Contains(t, another.Content, `"name":"build-report"`)
+	require.Contains(t, another.Content, `"id":"builds/failedPackages"`)
 	require.Contains(t, call(t, b, map[string]any{"action": "versions", "name": "builds"}).Content, `"version":"1.0.0"`)
 	require.Contains(
 		t,
@@ -70,7 +73,7 @@ func TestLibraryToolCrossProjectPublication(t *testing.T) {
 	require.Contains(t, call(t, b, get).Content, "function failedPackages")
 	_, err = b.Run(t.Context(), raw)
 	require.ErrorContains(t, err, "unavailable")
-	require.False(t, strings.Contains(call(t, b, map[string]any{"action": "list"}).Content, "return rows.length"))
+	require.NotContains(t, call(t, b, map[string]any{"action": "list"}).Content, "return rows.length")
 }
 
 func TestFailedValidationPreservesDraftAndRefusesPublication(t *testing.T) {

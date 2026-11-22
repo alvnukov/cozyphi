@@ -1,6 +1,7 @@
 package funcadvisor
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"reflect"
@@ -73,7 +74,11 @@ func TestSessionDraftsNeverEnterTheDiskIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	draft := funclib.Package{Name: "drafted", Source: "export function hiddenWork() {}", Digest: "aaa" + strings.Repeat("c", 37)}
+	draft := funclib.Package{
+		Name:   "drafted",
+		Source: "export function hiddenWork() {}",
+		Digest: "aaa" + strings.Repeat("c", 37),
+	}
 	cat := &countingCatalog{catalog: catalog{private: map[string][]funclib.Package{"owner": {draft}}}}
 	s := New(store, nil, 0)
 	s.store = cat
@@ -85,7 +90,7 @@ func TestSessionDraftsNeverEnterTheDiskIndex(t *testing.T) {
 		t.Fatal(hints)
 	}
 	after, err := os.ReadFile(path)
-	if err != nil || string(before) != string(after) {
+	if err != nil || !bytes.Equal(before, after) {
 		t.Fatalf("draft changed persisted release metadata: %v", err)
 	}
 }
@@ -110,7 +115,70 @@ export async function change() { return tools.call("write", {}); }`}
 	if hints := s.Hints(t.Context(), "owner", "work", "change", nil); hints != "" {
 		t.Fatal(hints)
 	}
-	if hints := s.Hints(t.Context(), "owner", "work", "change", []llm.ToolDefinition{{Name: "write"}}); !strings.Contains(hints, `"name":"change"`) {
+	if hints := s.Hints(
+		t.Context(),
+		"owner",
+		"work",
+		"change",
+		[]llm.ToolDefinition{{Name: "write"}},
+	); !strings.Contains(
+		hints,
+		`"name":"change"`,
+	) {
 		t.Fatal(hints)
+	}
+}
+
+func TestExplicitLookupRespectsProjectPinsAndConcurrentPublication(t *testing.T) {
+	ctx := t.Context()
+	store := funclib.New(t.TempDir())
+	project := t.TempDir()
+	const name = "builds"
+	_, err := store.Draft(ctx, "one", name, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.CreateFile(ctx, "one", name, "index.ts", builds().Source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.CreateFile(ctx, "one", name, "index.test.ts", builds().Tests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Runtime typechecking and execution are independent of index selection.
+	accept := func(context.Context, funclib.Package, map[string]string) error { return nil }
+	first, err := store.Publish(ctx, "one", name, "1.0.0", accept)
+	if err != nil {
+		t.Fatal(err)
+	}
+	IndexRelease(store, first)
+	_, err = store.Pin(ctx, project, name, first.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.Draft(ctx, "two", name, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.Publish(ctx, "two", name, "1.1.0", accept)
+	if err != nil {
+		t.Fatal(err)
+	}
+	IndexRelease(store, second)
+	for _, tc := range []struct{ project, exclude, want string }{{project, "", first.Digest}, {"", "", second.Digest}, {"", name, ""}} {
+		got, err := Lookup(ctx, store, tc.project, "failedPackages", tc.exclude, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tc.want == "" {
+			if len(got) != 0 {
+				t.Fatalf("excluded package appeared in %v", got)
+			}
+			continue
+		}
+		if len(got) != 1 || got[0].Digest != tc.want {
+			t.Fatalf("got %+v, want revision %s", got, tc.want)
+		}
 	}
 }

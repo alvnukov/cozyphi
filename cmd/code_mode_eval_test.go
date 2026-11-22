@@ -241,7 +241,8 @@ func recordCodeEval(t *testing.T, v any) {
 
 // COZYPHI_CODE_EVAL_MODELS=list enumerates available names without inference.
 // Set it to a comma-separated list and COZYPHI_CODE_EVAL_ADVISOR to a configured cheap model.
-// go test ./cmd -run '^TestLiveCodeModeEvaluation$' -count=1 -v -timeout=45m
+//
+//	go test ./cmd -run '^TestLiveCodeModeEvaluation$' -count=1 -v -timeout=45m
 func TestLiveCodeModeEvaluation(t *testing.T) {
 	selected := os.Getenv("COZYPHI_CODE_EVAL_MODELS")
 	if selected == "" {
@@ -631,7 +632,7 @@ console.log(JSON.stringify(cases.map(([rows, allowed]: [{package:string,status:s
 	cmd.Stdout = &output
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
+			cleanup, stop := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
 			defer stop()
 			_ = exec.CommandContext(cleanup, "docker", "rm", "-f", id).Run()
 			return "time limit exceeded"

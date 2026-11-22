@@ -5,7 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"slices"
 	"strings"
 	"sync"
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/alvnukov/cozy-tools/security"
+
 	"github.com/alvnukov/cozyphi/internal/funclib"
 	"github.com/alvnukov/cozyphi/internal/llm"
 	llmclient "github.com/alvnukov/cozyphi/internal/llm/client"
@@ -71,11 +72,22 @@ func New(store *funclib.Store, advisor *llm.ModelConfig, timeout time.Duration) 
 }
 
 // NewWithPolicy also permits paired evaluations with advice on every query.
-func NewWithPolicy(store *funclib.Store, advisor *llm.ModelConfig, timeout time.Duration, policy ModelPolicy) *Selector {
+func NewWithPolicy(
+	store *funclib.Store,
+	advisor *llm.ModelConfig,
+	timeout time.Duration,
+	policy ModelPolicy,
+) *Selector {
 	if timeout <= 0 {
 		timeout = defaultTimeout
 	}
-	s := &Selector{timeout: timeout, policy: policy, indexes: make(map[[32]byte]*index), releases: make(map[string][]Card), votes: make(map[[32]byte][]Card)}
+	s := &Selector{
+		timeout:  timeout,
+		policy:   policy,
+		indexes:  make(map[[32]byte]*index),
+		releases: make(map[string][]Card),
+		votes:    make(map[[32]byte][]Card),
+	}
 	if store != nil {
 		s.store = store
 		s.indexRoot = store.Root()
@@ -172,18 +184,9 @@ func (s *Selector) packageCards(ctx context.Context, ref funclib.Package, draft 
 	if ok {
 		return cards, true
 	}
-	if !draft {
-		cards, ok = readCards(s.indexRoot, ref)
-	}
-	if !ok {
-		p, err := s.store.Load(ctx, ref.Digest)
-		if err != nil || p.Name != ref.Name || p.Digest != ref.Digest {
-			return nil, false
-		}
-		cards = exports(p, draft)
-		if !draft && p.Version != "" {
-			saveCards(s.indexRoot, p, cards)
-		}
+	cards, err := indexedCards(ctx, s.store, s.indexRoot, ref, draft)
+	if err != nil {
+		return nil, false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -238,7 +241,14 @@ func localCards(matches []match, limit int) []Card {
 	return cards
 }
 
-func (s *Selector) recommend(ctx context.Context, x *index, indexKey [32]byte, query string, r []match, local []Card) []Card {
+func (s *Selector) recommend(
+	ctx context.Context,
+	x *index,
+	indexKey [32]byte,
+	query string,
+	r []match,
+	local []Card,
+) []Card {
 	// Never include a user's pasted source block in an auxiliary request.
 	open, _, _ := strings.Cut(query, "```")
 	short := s.mask.Apply(brief(open, 1000))
@@ -321,25 +331,20 @@ func modelAdvisor(client *llmclient.Client) adviseFunc {
 				msg := event.Partial.Choices[0].Message
 				var decoded vote
 				if len(msg.Content) > 4096 || len(msg.ToolCalls) > 0 {
-					return vote{}, event.Partial.Usage, fmt.Errorf("advisor response exceeds its contract")
+					return vote{}, event.Partial.Usage, errors.New("advisor response exceeds its contract")
 				}
 				err = json.Unmarshal([]byte(msg.Content), &decoded)
 				return decoded, event.Partial.Usage, err
 			}
 		}
-		return vote{}, llm.Usage{}, fmt.Errorf("advisor ended without a selection")
+		return vote{}, llm.Usage{}, errors.New("advisor ended without a selection")
 	}
 }
 
 // Exports returns the supported callable declarations of a release or draft.
 func Exports(p funclib.Package) []Card { return exports(p, p.Version == "") }
 
-// Search returns contracts ready to use in one explicit lookup.
-func Search(packages []funclib.Package, query string, limit int) []Card {
-	var cards []Card
-	for _, p := range packages {
-		cards = append(cards, Exports(p)...)
-	}
+func lookup(cards []Card, query string, limit int) []Card {
 	slices.SortFunc(cards, func(a, b Card) int { return cmp.Compare(a.ID, b.ID) })
 	limit = max(0, min(limit, 64))
 	if strings.TrimSpace(query) == "" {

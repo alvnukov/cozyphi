@@ -12,9 +12,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/evanw/esbuild/pkg/api"
+
 	"github.com/alvnukov/cozyphi/internal/funclib"
 	"github.com/alvnukov/cozyphi/internal/llm"
-	"github.com/evanw/esbuild/pkg/api"
 )
 
 // Card describes one real candidate. Its ID is valid only inside a catalog snapshot.
@@ -47,7 +48,7 @@ func tokens(src string) []token {
 	s.Error = func(*scanner.Scanner, string) {}
 	var out []token
 	for t := s.Scan(); t != scanner.EOF; t = s.Scan() {
-		start := s.Position.Offset
+		start := s.Offset
 		v := s.TokenText()
 		out = append(out, token{v, start, start + len(v)})
 	}
@@ -73,7 +74,7 @@ func exports(p funclib.Package, draft bool) []Card {
 	names := publicNames(p.Source)
 	var out []Card
 	byName := make(map[string]Card)
-	for i := 0; i < len(list); i++ {
+	for i := range list {
 		if list[i].text != "export" {
 			continue
 		}
@@ -129,7 +130,14 @@ func exports(p funclib.Package, draft bool) []Card {
 			if !validName(name) {
 				use = fmt.Sprintf("import { %q as libraryExport } from %q", name, "cozy:lib/"+p.Name)
 			}
-			card = Card{ID: p.Name + "/" + name, Name: name, Version: p.Version, Digest: p.Digest, Purpose: brief(p.Description, 180), Use: use}
+			card = Card{
+				ID:      p.Name + "/" + name,
+				Name:    name,
+				Version: p.Version,
+				Digest:  p.Digest,
+				Purpose: brief(p.Description, 180),
+				Use:     use,
+			}
 		}
 		if draft {
 			card.Draft = true
@@ -191,9 +199,10 @@ func requiredTools(tokens []token) []string {
 
 func validName(name string) bool {
 	for i, r := range name {
-		if r != '_' && r != '$' && !unicode.IsLetter(r) && !(i > 0 && (unicode.IsDigit(r) || unicode.IsMark(r))) {
-			return false
+		if r == '_' || r == '$' || unicode.IsLetter(r) || i > 0 && (unicode.IsDigit(r) || unicode.IsMark(r)) {
+			continue
 		}
+		return false
 	}
 	return name != ""
 }
@@ -267,7 +276,7 @@ type testCase struct {
 func testCases(src string) []testCase {
 	t := tokens(src)
 	var result []testCase
-	for j := 0; j < len(t); j++ {
+	for j := range t {
 		if j+2 < len(t) && (t[j].text == "test" || t[j].text == "it") && t[j+1].text == "(" {
 			v := t[j+2].text
 			if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') {

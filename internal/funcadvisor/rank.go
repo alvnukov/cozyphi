@@ -22,9 +22,26 @@ var vocabulary = map[string]string{
 	"команд": "command", "тест": "test", "прове": "check", "счёт": "count", "счет": "count",
 	"колич": "count", "посчит": "count", "число": "count", "вывед": "list", "спис": "list",
 }
+
 var stopwords = map[string]bool{
-	"the": true, "with": true, "from": true, "for": true, "each": true, "are": true, "this": true, "and": true, "how": true, "can": true,
-	"которые": true, "который": true, "для": true, "как": true, "это": true, "при": true, "этот": true, "если": true,
+	"the":     true,
+	"with":    true,
+	"from":    true,
+	"for":     true,
+	"each":    true,
+	"are":     true,
+	"this":    true,
+	"and":     true,
+	"how":     true,
+	"can":     true,
+	"которые": true,
+	"который": true,
+	"для":     true,
+	"как":     true,
+	"это":     true,
+	"при":     true,
+	"этот":    true,
+	"если":    true,
 }
 
 func normalized(word string) string {
