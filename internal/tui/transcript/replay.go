@@ -71,6 +71,16 @@ func ReplaySnapshot(entries []session.MessageEntry, asides ...session.PlacedAsid
 				ID:   messageEntry.ID,
 				Text: memory.StripReminders(msg.Content),
 			})
+		case llm.RoleTool:
+			if run, ok := snap.Tools[msg.ToolCallID]; ok && (run.Name == "code" || run.Name == "code_wait") {
+				run.Status = session.ToolDone
+				if strings.HasPrefix(msg.Content, llm.InterruptedToolResult) ||
+					strings.HasPrefix(msg.Content, "User cancelled the tool call.") {
+					run.Status = session.ToolCancelled
+				}
+				run.Output = msg.Content
+				snap = session.Apply(snap, session.ToolData{Run: run})
+			}
 		case llm.RoleAssistant:
 			for _, call := range msg.ToolCalls {
 				if strings.EqualFold(call.Function.Name, "agent_spawn") {
@@ -91,6 +101,18 @@ func ReplaySnapshot(entries []session.MessageEntry, asides ...session.PlacedAsid
 				blocks = append(blocks, session.ContentBlock{Type: session.BlockText, Text: text})
 			}
 			for _, call := range msg.ToolCalls {
+				if call.Function.Name == "code" || call.Function.Name == "code_wait" {
+					blocks = append(
+						blocks,
+						session.ContentBlock{
+							Type:     session.BlockToolUse,
+							ID:       call.ID,
+							Name:     call.Function.Name,
+							Input:    call.Function.Arguments,
+							Complete: true,
+						},
+					)
+				}
 				if task, ok := shells[call.ID]; ok && strings.EqualFold(call.Function.Name, "bash") {
 					blocks = append(
 						blocks,
@@ -120,6 +142,9 @@ func ReplaySnapshot(entries []session.MessageEntry, asides ...session.PlacedAsid
 	}
 	for _, entry := range entries {
 		switch entry.GetType() {
+		case session.EntryCodeTrace:
+			trace := entry.(session.CodeTraceEntry)
+			snap = session.Apply(snap, session.ToolData{Run: trace.Run})
 		case session.EntryCompaction:
 			compacted := entry.(session.CompactionEntry)
 			pendingCompaction = &compacted
@@ -147,6 +172,15 @@ func ReplaySnapshot(entries []session.MessageEntry, asides ...session.PlacedAsid
 		snap = session.Apply(snap, session.ToolData{Run: session.ToolRun{
 			ToolUseID: task.ToolUseID, Name: "bash", Status: session.ToolDone, Detail: task.Command,
 		}})
+	}
+	// A started nested operation whose terminal record never arrived can have
+	// committed before the process stopped. The receipt cannot claim failure.
+	for id, run := range snap.Tools {
+		if run.ParentUseID != "" && run.Status == session.ToolInProgress {
+			run.Status = session.ToolError
+			run.Error = "Interrupted; outcome unknown"
+			snap.Tools[id] = run
+		}
 	}
 	return snap
 }

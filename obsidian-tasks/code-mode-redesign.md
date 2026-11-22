@@ -1,7 +1,7 @@
 ---
 id: code-mode-redesign
 title: Design and evaluate a programmatic tool interface for CozyPhi
-status: todo
+status: in_progress
 priority: high
 task_type: feature
 branch: feature/code-mode-redesign
@@ -34,6 +34,4 @@ updated_at: "2026-11-22T10:10:08Z"
 
 ## Body
 
-The requested deliverable is a proposal for replacing the model-facing tool interface.
-The design and acceptance criteria live in `specs/code-mode-redesign.md` on the task branch.
-Implementation and benchmark results are future milestones.
+Implementation of the approved design is in progress. The contract and evaluation criteria live in `specs/code-mode-redesign.md`.

@@ -174,7 +174,7 @@ func (engine *Engine) projectContext(msgs []llm.Message) ([]llm.Message, compact
 // string the model sent; unparseable args fail closed and keep the result.
 func keepToolResultVerbatim(tool, args string) bool {
 	switch tool {
-	case "grep", "question", "agent_wait":
+	case "grep", "question", "agent_wait", "code", "code_wait":
 		return true
 	case "read":
 		var call struct {

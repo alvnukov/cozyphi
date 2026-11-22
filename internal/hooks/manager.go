@@ -89,6 +89,14 @@ type Manager struct {
 	failClosedOnly bool
 }
 
+// HasToolHooks reports whether a call may trigger a hook. A joined read
+// group runs in order whenever a hook could rewrite input or stop the turn.
+func (m *Manager) HasToolHooks() bool {
+	return m != nil && slices.ContainsFunc(m.entries, func(e Entry) bool {
+		return (e.Kind == KindPreTool || e.Kind == KindPostTool) && (!m.failClosedOnly || e.FailClosed)
+	})
+}
+
 // CommandEntries returns KindCommand entries. Nil-safe.
 func (m *Manager) CommandEntries() []Entry {
 	if m == nil {

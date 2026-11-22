@@ -8,14 +8,15 @@ import (
 )
 
 const (
-	protocolVersion = "2024-11-05"
+	protocolVersion = "2025-06-18"
 )
 
 // ToolDef is a subset of an MCP tools/list entry.
 type ToolDef struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"`
+	InputSchema  json.RawMessage `json:"inputSchema,omitempty"`
+	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
 }
 
 // Client is one MCP server session (any transport).
@@ -24,6 +25,7 @@ type Client interface {
 	ListTools(ctx context.Context) ([]ToolDef, error)
 	FindTool(ctx context.Context, name string) (*ToolDef, error)
 	CallTool(ctx context.Context, name string, args map[string]any) (string, error)
+	CallToolResult(ctx context.Context, name string, args map[string]any) (CallResult, error)
 	// Close permanently shuts down this client; create a new one to reconnect.
 	Close() error
 }

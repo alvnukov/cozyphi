@@ -107,9 +107,10 @@ func runWrite(ctx context.Context, input json.RawMessage, ledger *editledger.Led
 	// real one — and the anchors carry line hashes only, never content.
 	var body strings.Builder
 	body.WriteString(detail)
+	var grant successorGrant
 	if ledger != nil {
 		lines := strings.Split(normalized, "\n")
-		grant := successorGrantFor([]editledger.Span{{From: 1, To: len(lines)}}, lines, newRev.Tag())
+		grant = successorGrantFor([]editledger.Span{{From: 1, To: len(lines)}}, lines, newRev.Tag())
 		// Every earlier snapshot of the path is retired with the swap: none of
 		// them describes the file any more, and an edit that still quotes a
 		// pre-write TAG is refused by the ledger and pointed at the anchors
@@ -121,5 +122,10 @@ func runWrite(ctx context.Context, input json.RawMessage, ledger *editledger.Led
 		}
 	}
 	diff := util.GenerateFileDiff(path, old, normalized, 3)
-	return tooldef.Result{Content: body.String(), Detail: display, Output: diff}, nil
+	return tooldef.Result{Content: body.String(), Detail: display, Output: diff, Structured: map[string]any{
+		"path":         display,
+		"bytesWritten": len(in.Content),
+		"hash":         grant.tag,
+		"anchors":      displayedAnchors(grant),
+	}}, nil
 }

@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Added: `--code-mode` runs tool calls from TypeScript, with a shared Git-backed
+  function library, unit tests and optional function suggestions. Interactive and
+  headless sessions support the same interface. See [Code Mode](doc/code-mode.md).
 - Added: the context browser (`/context`) takes the message actions the feed
   offers. `r` rewinds at the selected prompt or reply, `f` forks a new tab
   there, `b` closes the browser in btw mode anchored at the row, and the `.`

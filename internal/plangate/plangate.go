@@ -367,7 +367,7 @@ func (p *Policy) InjectPlanStep(ts []tooldef.Tool) []tooldef.Tool {
 	out := make([]tooldef.Tool, len(ts))
 	for i, t := range ts {
 		out[i] = t
-		if _, mandatory := exemptTools[t.Definition.Name]; mandatory {
+		if _, mandatory := exemptTools[t.Definition.Name]; mandatory || tooldef.CodeControl(t.Definition.Name) {
 			continue
 		}
 		// Tool definitions are shared with other runtimes and in-flight provider

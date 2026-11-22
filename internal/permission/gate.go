@@ -116,6 +116,10 @@ func (g *StaticGate) Check(ctx context.Context, req Request) (Decision, string) 
 
 func (g *StaticGate) evaluate(req Request) (Decision, string) {
 	switch req.Action {
+	case ActionCode, ActionLibraryRead:
+		return Allow, ""
+	case ActionLibraryWrite:
+		return Ask, "changing the shared function library or project lock requires approval: " + req.Target
 	case ActionBash:
 		return g.checkBash(req)
 	case ActionWrite, ActionEdit:
@@ -474,7 +478,7 @@ func (g *StaticGate) foldMode(dec Decision, reason string, req Request) (Decisio
 
 func isMutating(a Action) bool {
 	switch a {
-	case ActionWrite, ActionEdit, ActionBash:
+	case ActionWrite, ActionEdit, ActionBash, ActionLibraryWrite:
 		return true
 	default:
 		return false

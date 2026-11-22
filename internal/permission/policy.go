@@ -64,14 +64,18 @@ type Action string
 
 // Action values name the kinds of tool operations being gated.
 const (
-	ActionBash  Action = "bash"
-	ActionRead  Action = "read"
-	ActionWrite Action = "write"
-	ActionEdit  Action = "edit"
-	ActionGrep  Action = "grep"
-	ActionFind  Action = "find"
-	ActionLs    Action = "ls"
-	ActionAgent Action = "agent"
+	// ActionCode covers bounded computation. Host calls are checked independently.
+	ActionCode         Action = "code"
+	ActionLibraryRead  Action = "library_read"
+	ActionLibraryWrite Action = "library_write"
+	ActionBash         Action = "bash"
+	ActionRead         Action = "read"
+	ActionWrite        Action = "write"
+	ActionEdit         Action = "edit"
+	ActionGrep         Action = "grep"
+	ActionFind         Action = "find"
+	ActionLs           Action = "ls"
+	ActionAgent        Action = "agent"
 	// ActionLSP covers the read-only lsp tool; it maps to read policy.
 	ActionLSP Action = "lsp"
 	// ActionContext covers the context tool: quantitative usage report and

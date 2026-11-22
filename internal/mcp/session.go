@@ -118,10 +118,18 @@ func (s *session) FindTool(ctx context.Context, name string) (*ToolDef, error) {
 }
 
 func (s *session) CallTool(ctx context.Context, name string, args map[string]any) (string, error) {
+	result, err := s.CallToolResult(ctx, name, args)
+	if err != nil {
+		return "", err
+	}
+	return result.Text(), nil
+}
+
+func (s *session) CallToolResult(ctx context.Context, name string, args map[string]any) (CallResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.initLocked(ctx); err != nil {
-		return "", err
+		return CallResult{}, err
 	}
 	if args == nil {
 		args = map[string]any{}
@@ -131,9 +139,9 @@ func (s *session) CallTool(ctx context.Context, name string, args map[string]any
 		"arguments": args,
 	})
 	if err != nil {
-		return "", err
+		return CallResult{}, err
 	}
-	return extractToolContent(raw), nil
+	return decodeCallResult(raw)
 }
 
 func (s *session) Close() error {

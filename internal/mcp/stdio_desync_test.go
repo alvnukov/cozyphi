@@ -72,6 +72,8 @@ func fakeStdioServerMain() {
 			}})
 		case "tools/call":
 			switch req.Params.Name {
+			case "mixed":
+				respond(*req.ID, json.RawMessage(mixedResult))
 			case "echo":
 				textResult(*req.ID, "echo:"+fmt.Sprint(req.Params.Arguments["message"]))
 			case "hang":

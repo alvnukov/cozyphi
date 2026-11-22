@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
-	"strings"
 	"sync/atomic"
 
 	"github.com/alvnukov/cozyphi/internal/util"
@@ -75,37 +74,6 @@ func decodeToolsList(raw json.RawMessage) ([]ToolDef, error) {
 		return nil, fmt.Errorf("decode tools/list: %w", err)
 	}
 	return parsed.Tools, nil
-}
-
-// extractToolContent turns a tools/call result into model-facing text.
-func extractToolContent(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
-	}
-	var result struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-		IsError bool `json:"isError"`
-	}
-	if err := json.Unmarshal(raw, &result); err != nil {
-		return string(raw)
-	}
-	var b strings.Builder
-	for _, part := range result.Content {
-		if part.Type == "text" || part.Type == "" {
-			b.WriteString(part.Text)
-		}
-	}
-	out := b.String()
-	if out == "" {
-		return string(raw)
-	}
-	if result.IsError {
-		return "error: " + out
-	}
-	return out
 }
 
 // parseHTTPOrSSEBody selects the JSON-RPC response for id from a plain-JSON or

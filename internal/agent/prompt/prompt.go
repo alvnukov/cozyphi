@@ -33,6 +33,7 @@ var (
 )
 
 type systemData struct {
+	CodeMode          bool
 	Cwd               string
 	Workspace         string
 	AgentsEnabled     bool
@@ -74,6 +75,8 @@ type planData struct {
 // that read the same at a call site — `engine.jobs != nil, engine.lsp != nil,
 // engine.watches != nil` transposes silently and compiles.
 type Options struct {
+	// CodeMode exposes a TypeScript cell backed by the session tool dispatcher.
+	CodeMode bool
 	// Skills is the skill catalog: skill_path first, then the skill
 	// directories of enabled Claude Code plugins. Nil means none configured.
 	Skills skills.Sources
@@ -138,6 +141,7 @@ func Build(opts Options) string {
 func BuildWithFacts(opts Options) (string, Facts) {
 	var buf strings.Builder
 	data := systemData{
+		CodeMode:          opts.CodeMode,
 		Cwd:               currentDir(),
 		Workspace:         workspaceDir(),
 		AgentsEnabled:     opts.Agents,

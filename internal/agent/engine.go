@@ -67,6 +67,7 @@ type ContinueFunc func(ctx context.Context, maxRounds int) (bool, error)
 // and yields session.Event for the TUI reducer. Context compaction is owned
 // here so Session stays a thin message store.
 type Engine struct {
+	codeMode *CodeMode
 	// mu guards every field below: setters (TUI goroutine) swap the client and
 	// executor as a pair under the write lock while a running round works off
 	// an immutable roundSnapshot, so changes land at round boundaries and a
@@ -306,6 +307,7 @@ func (engine *Engine) sessionRef() *Session {
 
 // EngineOpts configures NewEngine.
 type EngineOpts struct {
+	CodeMode      *CodeMode // nil uses direct provider tools
 	Model         llm.ModelConfig
 	SessionOpts   SessionOpts
 	Gate          permission.Gate                                                                // nil = allow all
@@ -393,6 +395,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		compacts = *opts.Compaction
 	}
 	engine := &Engine{
+		codeMode:           opts.CodeMode,
 		maxRounds:          defaultMaxToolRounds,
 		stopOnLimit:        true,
 		skillSources:       cfg.Skills,
@@ -581,6 +584,14 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 		}
 		out = append(out, tools.AgentTools(deps)...)
 	}
+	if cm := engine.codeMode; cm != nil && cm.Run != nil {
+		if cm.Tools != nil {
+			writable := mode != ModePlan && permission.ModeOf(engine.gate) != permission.ModeReadonly &&
+				slices.ContainsFunc(base, func(t tools.Tool) bool { return t.Definition.Name == "edit" })
+			out = append(out, cm.Tools(engine.session.ID(), engine.session.Cwd(), writable, tools.Definitions(out))...)
+		}
+		out = append(out, codeTool(), codeWaitTool())
+	}
 	// Inject plan_step last: every gateable tool must carry it, including the
 	// MCP meta-tools and agent_* tools that are appended after the base set.
 	if engine.planEnabled {
@@ -726,7 +737,17 @@ func (engine *Engine) rebindClient(toolList []tools.Tool) {
 // The caller must hold engine.mu.
 func (engine *Engine) visibleToProvider(toolList []tools.Tool) []tools.Tool {
 	if engine.planModeWithholdsHandlers(engine.mode) {
-		return engine.buildToolListFor(ModeBuild)
+		toolList = engine.buildToolListFor(ModeBuild)
+	}
+	if engine.codeMode != nil && engine.codeMode.Run != nil {
+		return slices.DeleteFunc(slices.Clone(toolList), func(t tools.Tool) bool {
+			switch t.Definition.Name {
+			case "code", "code_wait", "question", "plan", "context":
+				return false
+			default:
+				return true
+			}
+		})
 	}
 	return toolList
 }
@@ -752,6 +773,7 @@ func (engine *Engine) systemPrompt() string {
 		planGrammar = engine.planRuntime.Current().AuthoringPolicy()
 	}
 	system, facts := prompt.BuildWithFacts(prompt.Options{
+		CodeMode:    engine.codeMode != nil && engine.codeMode.Run != nil,
 		Skills:      engine.skillSources,
 		Agents:      engine.jobs != nil,
 		LSP:         engine.lsp != nil,
@@ -816,6 +838,19 @@ func (engine *Engine) bindExecutor(registry tools.Registry) {
 	gate := permission.Gate(&permission.TaintGate{Inner: inner, Taint: engine.turnWeb})
 	engine.executor = NewExecutor(registry, gate, engine.ask, engine.hooks)
 	engine.executor.mode = engine.mode
+	engine.executor.codeMode = engine.codeMode
+	_, editBound := registry["edit"]
+	engine.executor.codeWritable = editBound && engine.mode != ModePlan &&
+		permission.ModeOf(engine.gate) != permission.ModeReadonly
+	if engine.codeMode != nil {
+		engine.executor.saveCodeTrace = engine.session.manager.AppendCodeTrace
+		memory := engine.memory
+		engine.executor.observeCodeArgs = func(args string) {
+			if memory != nil && callNamesDir(args, memory.Dir()) {
+				memory.Invalidate()
+			}
+		}
+	}
 	if engine.planModeWithholdsHandlers(engine.mode) {
 		engine.executor.modeUnavailable = make(map[string]struct{})
 		for _, tool := range engine.defaultTools {
@@ -1025,6 +1060,7 @@ type TurnOrigin string
 const (
 	TurnUserInput  TurnOrigin = "user"
 	TurnAutonomous TurnOrigin = "autonomous"
+	turnAssignment TurnOrigin = "assignment"
 )
 
 type LoopOpts struct {
@@ -1079,8 +1115,9 @@ type InjectedPrompt struct {
 // Compaction: a model-requested compaction and the context-pressure ladder
 // both apply at tool-round boundaries — never mid-round; a turn that never
 // ends still escalates and, at the stop strike, gets one final offer round.
-func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) iter.Seq2[session.Event, error] {
+func (engine *Engine) Loop(parent context.Context, prompt string, opts LoopOpts) iter.Seq2[session.Event, error] {
 	return func(yield func(session.Event, error) bool) {
+		ctx := parent
 		// A cursor move while this runs would cut the turn in half, so the
 		// turn says out loud that it is here.
 		engine.beginTurn()
@@ -1088,6 +1125,13 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		// The turn runs against one session store even if /resume swaps the
 		// engine's underneath a stopped loop.
 		sess := engine.sessionRef()
+		if engine.codeMode != nil {
+			hub := newCodeHub(ctx)
+			defer hub.close()
+			// Each iterator owns its turn and its cells, even when callers reuse
+			// or resume another session on the same Engine.
+			ctx = context.WithValue(ctx, codeHubKey{}, hub)
+		}
 		// A compaction request from a cancelled turn never leaks into the next.
 		engine.pendingCompact = false
 		// Only actual user input begins a fresh trust boundary. Background
@@ -1122,6 +1166,10 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 		}
 		content = engine.composeUserPrompt(recall, opts.PendingSkills, prompt, content)
+		seenCodeHints := make(map[string]bool)
+		if opts.Origin == TurnUserInput || opts.Origin == turnAssignment {
+			content = prependReminder(engine.codeHints(ctx, prompt, seenCodeHints), content)
+		}
 		if content != "" || len(opts.Media) > 0 || opts.Inbox == nil {
 			if err := sess.Append(llm.Message{
 				Role:    llm.RoleUser,
@@ -1327,6 +1375,9 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			if opts.Inject != nil {
 				for _, item := range opts.Inject() {
 					content := engine.composeUserPrompt(recall, item.Skills, item.Text, item.Text)
+					if item.UserID != "" {
+						content = prependReminder(engine.codeHints(ctx, item.Text, seenCodeHints), content)
+					}
 					if err := sess.Append(
 						llm.Message{
 							Role:    llm.RoleUser,

@@ -320,6 +320,7 @@ func (c *Controller) newEngine(
 	}
 	return agent.NewEngine(agent.EngineOpts{
 		Model:       cfg,
+		CodeMode:    c.sessionCodeMode(),
 		Tools:       childTools,
 		MaxRounds:   c.childRounds,
 		SessionOpts: sessionOpts,
@@ -355,6 +356,15 @@ func (c *Controller) newEngine(
 	})
 }
 
+func (c *Controller) sessionCodeMode() *agent.CodeMode {
+	if c.runtime == nil || c.childRole == job.RoleWebReader {
+		return nil
+	}
+	c.runtime.mu.Lock()
+	defer c.runtime.mu.Unlock()
+	return c.runtime.codeMode
+}
+
 // webOptions reads the project's web section. A controller without a loaded
 // project carries no web tool: there is then no policy, and inventing one
 // would put the network behind a default nobody chose.
@@ -376,7 +386,8 @@ func (c *Controller) bindJobRunner(
 		}
 	}
 	runner := agent.EngineRunner{
-		Model: model, Hooks: hooksManager, LSP: query,
+		CodeMode: c.sessionCodeMode(),
+		Model:    model, Hooks: hooksManager, LSP: query,
 		ContextLimit: c.AgentWindowLimit,
 		Web:          c.webOptions(),
 		ModelForRole: func(role job.Role) (llm.ModelConfig, bool) {
@@ -1263,15 +1274,18 @@ func (c *Controller) modelCatalog() []llm.ModelConfig {
 	if c == nil {
 		return nil
 	}
+	return catalogModels(c.proj, c.providers, c.opencode)
+}
+
+func catalogModels(proj *project.Project, providers *provider.Manager, openCode *opencode.Source) []llm.ModelConfig {
 	var models []llm.ModelConfig
-	if c.proj != nil && c.proj.Config() != nil {
-		models = append(models, c.proj.Config().AllModels()...)
+	if proj != nil && proj.Config() != nil {
+		models = proj.Config().AllModels()
 	}
-	if c.providers != nil {
-		models = append(models, c.providers.Models()...)
+	if providers != nil {
+		models = append(models, providers.Models()...)
 	}
-	models = append(models, c.opencode.Models()...)
-	return models
+	return append(models, openCode.Models()...)
 }
 
 // agentModels resolves agents.models pins the way this session can: against
@@ -2392,7 +2406,7 @@ func (c *Controller) ReplaySnapshot() session.Snapshot {
 		return session.Snapshot{}
 	}
 	sess := c.engine.Session()
-	return transcript.ReplaySnapshot(sess.PathEntries(), sess.PathAsides()...)
+	return transcript.ReplaySnapshot(sess.ReplayEntries(), sess.PathAsides()...)
 }
 
 // StartPrompt starts a new agent loop. When another run is already in flight

@@ -110,6 +110,9 @@ cozyphi mcp --help           manage MCP servers
 cozyphi update               install the latest release
 ```
 
+Use `cozyphi --code-mode` or `cozyphi run --code-mode -p "..."` for
+TypeScript tool calls and the versioned [function library](doc/code-mode.md).
+
 Run `cozyphi --help` or `cozyphi <command> --help` for the full command reference.
 
 ## Documentation

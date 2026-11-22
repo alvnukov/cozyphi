@@ -134,6 +134,12 @@ func (c countingClient) CallTool(context.Context, string, map[string]any) (strin
 	*c.calls++
 	return "ok", nil
 }
+
+func (c countingClient) CallToolResult(ctx context.Context, name string, args map[string]any) (CallResult, error) {
+	text, err := c.CallTool(ctx, name, args)
+	return CallResult{Content: []ContentBlock{{Type: "text", Text: text}}}, err
+}
+
 func (c countingClient) Close() error { *c.calls++; return nil }
 
 func TestObservingThePoolConnectsToNothingAndAsksNobodyAnything(t *testing.T) {
