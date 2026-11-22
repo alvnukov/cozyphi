@@ -1,7 +1,7 @@
 ---
 id: code-mode-redesign
 title: Design and evaluate a programmatic tool interface for CozyPhi
-status: in_progress
+status: blocked
 priority: high
 task_type: feature
 branch: feature/code-mode-redesign
@@ -29,9 +29,13 @@ verification_plan:
   - Compare manual discovery, local selection, conditional advice and always-on advice on matched reuse, extension and genuine-miss tasks, including a stale or unavailable advisor.
   - Inject a plausible wrong hint and verify an unlisted alternative can run on the first response through the ordinary dispatcher with identical permissions.
 created_at: "2026-11-22T09:41:17Z"
-updated_at: "2026-11-22T10:10:08Z"
+updated_at: "2026-11-22T11:06:17Z"
 ---
 
 ## Body
 
-Implementation of the approved design is in progress. The contract and evaluation criteria live in `specs/code-mode-redesign.md`.
+The approved feature is implemented in this checkout. See `doc/code-mode.md` for startup, publishing, testing and benchmark commands. The default remains direct mode while live matched model comparisons are pending.
+
+Verified with deterministic fixtures: exact revision publication, concurrent publisher conflicts, cross-project suggestions on first request, structured MCP aggregation, optional advice, real Go test failure and repair, and hashline successors. On 120 build records the direct tool results occupied 5,004 bytes; the cell returned the same answer in 53 bytes. The isolated executor, library and dispatcher have passed race-detector tests.
+
+Rollout evaluation is pending access to the configured model endpoints. The sandbox also denies TCP loopback for existing HTTP integration tests.
