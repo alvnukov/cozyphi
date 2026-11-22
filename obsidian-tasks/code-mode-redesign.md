@@ -15,6 +15,8 @@ acceptance_criteria:
   - Map every existing tool family and execution posture to the proposed interface.
   - Specify a harness-wide library of discoverable, editable, versioned functions with executable unit tests.
   - Require immutable package versions, per-run dependency pins, isolated concurrent drafts, stale-publisher detection and reproducible rollback across projects.
+  - Deliver a callable matching export or an actionable extension candidate before the main model's first response.
+  - Compare automatic local selection and a cheap advisory model by correct reuse, unnecessary duplicates, total cost and rounds to useful work.
   - Exercise transient programs, reusable functions and tests of generated project code as distinct outcomes.
   - Specify a migration with independently verifiable milestones and a paired evaluation against the current engine.
   - Select runtime and rollout defaults using recorded results on the target models.
@@ -23,8 +25,9 @@ verification_plan:
   - Run deterministic equivalence and recovery tests before any model trials.
   - Run matched direct and programmatic tasks with exact outcome checks before promoting a default.
   - Verify that a fresh session in a second repository can find, test, invoke and revise the same function.
+  - Compare manual discovery, local selection, conditional advice and always-on advice on matched reuse, extension and genuine-miss tasks, including a stale or unavailable advisor.
 created_at: "2026-11-22T09:41:17Z"
-updated_at: "2026-11-22T09:41:17Z"
+updated_at: "2026-11-22T10:03:22Z"
 ---
 
 ## Body
